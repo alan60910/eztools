@@ -14,7 +14,7 @@ export const tools: Tool[] = [
     name: 'APNG → GIF 轉換',
     description: '將 APNG 動圖轉換為 GIF 格式',
     path: './tools/apng-to-gif/',
-    status: 'planned',
+    status: 'available',
   },
   {
     slug: 'gif-editor',

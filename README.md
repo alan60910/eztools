@@ -1,10 +1,14 @@
 # EZTools
 
-純靜態網頁工具合集入口頁面，所有處理皆在瀏覽器端完成，由 GitHub Pages 直接託管。目前規劃的功能：
+純靜態網頁工具合集入口頁面，所有處理皆在瀏覽器端完成，由 GitHub Pages 直接託管。
 
-1. 圖片格式轉換（如 APNG → GIF）
-2. GIF 編輯（頁數編輯、時間停留等基礎功能）
-3. 影片格式轉換（如 MKV → MP4）
+## Tools
+
+| 工具 | 狀態 |
+|------|------|
+| APNG → GIF 轉換（`tools/apng-to-gif/`） | ✅ 可用 |
+| GIF 編輯（頁數編輯、時間停留等基礎功能） | 規劃中 |
+| 影片格式轉換（如 MKV → MP4） | 規劃中 |
 
 ## Installation
 需求：Node.js >= 22。
@@ -26,6 +30,9 @@ npm run preview
 
 # 執行測試（vitest 一次性執行）
 npm test
+
+# 驗證 build 產物（入口頁零 JS、工具頁骨架等不變量；需先 npm run build）
+npm run verify:dist
 ```
 
 ## Documentation

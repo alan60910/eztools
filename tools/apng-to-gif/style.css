@@ -1,0 +1,288 @@
+/* ============================================================
+   APNG → GIF 工具頁 — 區域樣式
+   由 main.ts 以 `import './style.css'` 消費（在 `import
+   '../../src/style.css'` 之後），僅補充本工具頁特有的元件；不重複
+   src/style.css 已涵蓋的 header/main/footer/連結/焦點樣式。
+
+   色票與對比值：
+   - 多數互動元件重用 src/style.css 已驗算過的色票，此處不重算：
+     主文字 #1f2328／次文字 #4b5563／連結焦點色 #1d4ed8／
+     邊框灰 #e5e7eb／淺灰背景 #f9fafb（各自對比值見 src/style.css 檔頭）。
+   - 本檔新增色票（WCAG 相對亮度公式估算，一般文字門檻 4.5:1，
+     UI 元件/焦點門檻 3:1）：
+     - 主要按鈕（.button-like）：文字 #ffffff／背景 #1d4ed8
+       → 對比 ≈ 6.71:1（文字達標；按鈕填色對頁面白底亦 ≈ 6.71:1，
+         非文字 UI 元件門檻同樣達標）
+     - 次要按鈕（.button-like--secondary）：文字/邊框 #1d4ed8／背景 #ffffff
+       → 與 src/style.css 連結色相同組合，對比 ≈ 6.71:1（沿用既有驗算）
+     - 拖放區與欄位邊框：沿用次文字灰 #4b5563／對白底 ≈ 7.6:1
+       （遠高於非文字 3:1 門檻，故不另立新色）
+     - 錯誤訊息（role=alert）：文字 #991b1b／背景 #fee2e2
+       → 對比 ≈ 6.80:1（左側強調邊框沿用 #991b1b／對白底 ≈ 8.31:1）
+     - 警示訊息（role=status，非阻斷）：文字 #92400e／背景 #fef3c7
+       → 對比 ≈ 6.36:1
+     - 進度條填色 #1d4ed8／軌道 #e5e7eb → 對比 ≈ 5.42:1（非文字門檻達標）
+   - 狀態一律有文字內容（訊息文字本身、按鈕文字），顏色僅輔助辨識。
+   ============================================================ */
+
+/* ---- a11y：視覺隱藏但保留於 tab order（不可 display:none/visibility:hidden） ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+}
+
+.tool-section {
+  margin-bottom: 2rem;
+}
+
+.tool-section h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f2328;
+  margin-bottom: 0.75rem;
+}
+
+/* ---- 檔案選取／拖放區 ---- */
+.file-drop {
+  position: relative;
+}
+
+.file-drop__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem 1.5rem;
+  border: 2px dashed #4b5563; /* 次文字灰，沿用 src/style.css 驗算值 ≈ 7.6:1 */
+  border-radius: 0.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.file-drop__label:hover {
+  border-color: #1d4ed8;
+}
+
+/* The file input is a sibling of .file-drop__label (not a descendant, see
+   index.html), so `.file-drop__label:focus-within` never matches when the
+   input itself receives keyboard focus. Target the shared ancestor
+   (.file-drop) instead, so tabbing to the sr-only input still shows a
+   clearly visible focus treatment on the drop-zone card (WCAG 2.4.7) --
+   the input's own focus ring lands on a 1px-clipped box and is otherwise
+   invisible. Same already-vetted #1d4ed8 focus color, no new contrast
+   value needed. */
+.file-drop:focus-within .file-drop__label {
+  border-color: #1d4ed8;
+  border-style: solid;
+}
+
+/* dragover 狀態由 T3.3 以 JS 切換此 class */
+.file-drop.is-dragover .file-drop__label {
+  border-color: #1d4ed8;
+  border-style: solid;
+}
+
+.file-drop__icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.file-drop__text {
+  color: #4b5563;
+}
+
+.file-drop__button {
+  display: inline-block;
+  margin-left: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background-color: #1d4ed8;
+  color: #ffffff; /* 對 #1d4ed8 背景 ≈ 6.71:1 */
+  font-weight: 600;
+}
+
+.selected-filename {
+  margin-top: 0.5rem;
+  color: #4b5563;
+  font-size: 0.9375rem;
+  word-break: break-all;
+}
+
+/* ---- 選項區 ---- */
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.option-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.option-field label {
+  font-size: 0.9375rem;
+  color: #1f2328;
+  font-weight: 600;
+}
+
+.option-field input {
+  padding: 0.5rem 0.625rem;
+  border: 1px solid #4b5563; /* 沿用次文字灰，對白底 ≈ 7.6:1，遠高於 3:1 門檻 */
+  border-radius: 0.375rem;
+  font-size: 1rem;
+  color: #1f2328;
+  background-color: #ffffff;
+}
+
+.option-field input[type='color'] {
+  padding: 0.25rem;
+  height: 2.5rem;
+  width: 4.5rem;
+}
+
+/* ---- 按鈕 ---- */
+.button-like {
+  display: inline-block;
+  padding: 0.625rem 1.25rem;
+  border: 2px solid #1d4ed8;
+  border-radius: 0.375rem;
+  background-color: #1d4ed8;
+  color: #ffffff; /* ≈ 6.71:1，見檔頭 */
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-like:hover {
+  background-color: #1e40af;
+  border-color: #1e40af;
+}
+
+.button-like--secondary {
+  background-color: #ffffff;
+  color: #1d4ed8; /* 對白底 ≈ 6.71:1，同 src/style.css 連結色 */
+}
+
+.button-like--secondary:hover {
+  background-color: #f9fafb;
+}
+
+.button-like[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ---- 進度區 ---- */
+#progress-bar {
+  width: 100%;
+  height: 0.75rem;
+  border: none;
+  border-radius: 999px;
+  overflow: hidden;
+  background-color: #e5e7eb;
+}
+
+#progress-bar::-webkit-progress-bar {
+  background-color: #e5e7eb;
+  border-radius: 999px;
+}
+
+#progress-bar::-webkit-progress-value {
+  background-color: #1d4ed8; /* 對軌道 #e5e7eb ≈ 5.42:1，見檔頭 */
+  border-radius: 999px;
+}
+
+#progress-bar::-moz-progress-bar {
+  background-color: #1d4ed8;
+  border-radius: 999px;
+}
+
+#progress-status {
+  margin-top: 0.5rem;
+  color: #4b5563;
+  font-size: 0.9375rem;
+}
+
+/* ---- 錯誤／警示訊息 ---- */
+.error-message,
+.warning-message {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.375rem;
+  border-left: 4px solid;
+}
+
+.error-message {
+  background-color: #fee2e2;
+  border-left-color: #991b1b;
+  color: #991b1b; /* ≈ 6.80:1，見檔頭 */
+}
+
+.warning-message {
+  background-color: #fef3c7;
+  border-left-color: #92400e;
+  color: #92400e; /* ≈ 6.36:1，見檔頭 */
+}
+
+.warning-message .button-like {
+  margin-top: 0.75rem;
+}
+
+/* Fix 3 (code review): #error-message/#warning-message stay permanently in
+   the DOM/accessibility tree (main.ts never toggles their `hidden`
+   attribute -- see index.html) so a screen reader's live-region watcher is
+   always attached to them; main.ts toggles this class instead, purely to
+   collapse their visual box when there's no active message. Zeroing the box
+   model (not display/visibility) keeps the node "present" throughout. */
+.error-message.is-empty,
+.warning-message.is-empty {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* ---- 預覽區 ---- */
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.preview-panel {
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+}
+
+.preview-panel img {
+  max-width: 100%;
+  border-radius: 0.25rem;
+  background-color: #f9fafb;
+}
+
+.preview-panel .button-like {
+  margin-top: 0.75rem;
+  margin-right: 0.5rem;
+}
+
+/* preview-panel 以 tabindex="-1" 承接程式化焦點（見 index.html 註解），
+   聚焦時仍需可見的焦點框，故不覆寫全站 :focus-visible 規則 */
