@@ -10,7 +10,12 @@
  * walk can continue).
  *
  * Takes a plain `Uint8Array` and has no Node-specific or DOM-specific API
- * surface, so it is usable from both node (vitest) and the browser worker.
+ * surface, but that is incidental, not a usage invitation: this module is
+ * test-only (a byte-level oracle for this project's own vitest suites,
+ * cross-checking gifuct-js/gifenc output) and must not be imported from any
+ * production or worker code path -- decode.ts's NETSCAPE loop extraction
+ * deliberately uses `./netscape-loop.js` (walking gifuct-js's own parse tree)
+ * instead, precisely to avoid taking this file on as a runtime dependency.
  */
 
 export interface GraphicControlExtension {

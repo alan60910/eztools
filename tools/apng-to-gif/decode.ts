@@ -9,7 +9,7 @@
  * composite.ts (composite.ts stays free of decode.ts's DOM usage).
  */
 import parseAPNG, { isNotAPNG, type APNG } from 'apng-js'
-import { BLEND_OP_SOURCE, DISPOSE_OP_NONE, type RGBAFrame } from './composite.js'
+import { BLEND_OP_SOURCE, DISPOSE_OP_NONE, type RGBAFrame } from '../../src/lib/composite.js'
 
 const PNG_SIGNATURE = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
 

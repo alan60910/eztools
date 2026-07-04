@@ -11,9 +11,11 @@
 - inline plugin `inject-tool-list`：於 `transformIndexHtml` 建置／開發期將
   `src/tools.ts` 清單經 `src/render.ts` 注入根 `index.html`（靜態優先，
   入口頁零 JS）
-- runtime dependencies：`apng-js@1.1.5`／`gifenc@1.0.3`（exact pin、皆
-  MIT、零 transitive 依賴；gifenc 無官方型別，專案自備 ambient 宣告
-  `tools/apng-to-gif/gifenc.d.ts`）
+- runtime dependencies：`apng-js@1.1.5`／`gifenc@1.0.3`（exact pin、MIT、
+  零 transitive 依賴）；`gifuct-js@2.1.2`（exact pin、MIT、自帶型別、
+  一顆 transitive dep `js-binary-schema-parser@^2.0.3`——lockfile 鎖定
+  解析版、MIT、零下游）；gifenc 無官方型別，專案自備 ambient 宣告
+  `src/lib/gifenc.d.ts`
 - 工具頁 CPU 密集的編碼／轉檔運算採 module Web Worker，幀資料以
   Transferable 轉移（無-SAB 約束見下方 Constraints，不重述）
 

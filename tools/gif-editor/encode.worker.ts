@@ -1,25 +1,23 @@
 /**
- * Thin worker delegate around convert.ts's `convertToGif` (PLAN.md「Worker」
- * 契約：worker 僅 import + 轉發，不重複編碼邏輯 -- if main.ts's worker
- * construction fails, main.ts calls `convertToGif` directly on the main
- * thread instead; there is exactly one copy of the encoding logic).
+ * Thin worker delegate around `../../src/lib/gif-encode.ts`'s `encodeGif`
+ * (magi/03-gif-editor/PLAN.md §6「Worker」契約: worker only imports +
+ * forwards, never re-derives encoding logic -- if main.ts's worker
+ * construction fails, main.ts calls `encodeGif` directly on the main thread
+ * instead; there is exactly one copy of the encoding logic, same as
+ * tools/apng-to-gif/encode.worker.ts's relationship with convert.ts).
  *
- * Typing note: this file runs in a Worker's global scope (`self` is a
+ * Typing note: copied from tools/apng-to-gif/encode.worker.ts's identical
+ * situation -- this file runs in a Worker's global scope (`self` is a
  * `DedicatedWorkerGlobalScope`, not a `Window`), but tsconfig.json's `lib`
- * already includes "DOM" for the rest of the project (main.ts uses
- * `document`, `HTMLImageElement`, etc.), and TypeScript does not support
- * loading both the "DOM" and "WebWorker" lib.*.d.ts files in the same
- * program -- they redeclare globals like `self`/`postMessage` with
- * incompatible types, so `/// <reference lib="webworker" />` here would
- * conflict with the project-wide "DOM" lib rather than fix anything. Instead
- * of forking tsconfig for this one file, this module declares the minimal
- * worker-scope shape it actually uses and performs a single explicit cast of
- * the ambient `self` (which lib.dom.d.ts types as `Window`, wrong here but
- * never used as a `Window`) to that shape. `MessageEvent`, `ErrorEvent`, and
- * `Transferable` are all already provided by the "DOM" lib for unrelated
- * reasons, so no additional lib is needed at all.
+ * already includes "DOM" for the rest of the project and TypeScript does not
+ * support loading both "DOM" and "WebWorker" lib.*.d.ts files in the same
+ * program. Instead of forking tsconfig for this one file, this module
+ * declares the minimal worker-scope shape it actually uses and performs a
+ * single explicit cast of the ambient `self` to that shape. `MessageEvent`,
+ * `ErrorEvent`, and `Transferable` are all already provided by the "DOM" lib
+ * for unrelated reasons, so no additional lib is needed at all.
  */
-import { convertToGif, type ConvertOptions, type DecodedAnimation } from './convert.js'
+import { encodeGif, type GifEncodeInput } from '../../src/lib/gif-encode.js'
 import type { RGBAFrame } from '../../src/lib/composite.js'
 
 interface WorkerScope {
@@ -30,7 +28,14 @@ interface WorkerScope {
 
 const worker = self as unknown as WorkerScope
 
-/** One transferable frame: `buffer` is the raw bytes behind a Uint8ClampedArray. */
+/**
+ * One transferable frame: `buffer` is the raw bytes behind a
+ * Uint8ClampedArray. main.ts always sends a *copy* of each frame's buffer
+ * (never `decoded.frames[i].data.buffer` directly) -- transferring detaches
+ * the buffer on the sending side, and `decoded` must stay valid across
+ * repeated conversions of the same file (see main.ts's `runConversion` doc
+ * comment).
+ */
 export interface WorkerFramePayload {
   buffer: ArrayBuffer
   width: number
@@ -41,7 +46,6 @@ export interface WorkerRequest {
   frames: WorkerFramePayload[]
   delaysMs: number[]
   loop: number
-  options?: ConvertOptions
 }
 
 export type WorkerResponse =
@@ -50,7 +54,7 @@ export type WorkerResponse =
   | { type: 'error'; message: string }
 
 worker.onmessage = (event: MessageEvent<WorkerRequest>) => {
-  const { frames, delaysMs, loop, options } = event.data
+  const { frames, delaysMs, loop } = event.data
 
   try {
     const rgbaFrames: RGBAFrame[] = frames.map((frame) => ({
@@ -58,11 +62,10 @@ worker.onmessage = (event: MessageEvent<WorkerRequest>) => {
       width: frame.width,
       height: frame.height,
     }))
-    const anim: DecodedAnimation = { frames: rgbaFrames, delaysMs, loop }
+    const input: GifEncodeInput = { frames: rgbaFrames, delaysMs, loop }
     const total = rgbaFrames.length
 
-    const gif = convertToGif(anim, {
-      ...options,
+    const gif = encodeGif(input, {
       onFrameEncoded: (index) => {
         const progress: WorkerResponse = { type: 'progress', done: index + 1, total }
         worker.postMessage(progress)
@@ -71,8 +74,8 @@ worker.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
     // `Uint8Array.buffer` is typed `ArrayBufferLike` (ArrayBuffer |
     // SharedArrayBuffer) even though it's always a plain ArrayBuffer here --
-    // this project never uses SharedArrayBuffer (PLAN.md hard constraint:
-    // GitHub Pages can't set the COOP/COEP headers SAB requires).
+    // this project never uses SharedArrayBuffer (GitHub Pages can't set the
+    // COOP/COEP headers SAB requires).
     const buffer = gif.buffer as ArrayBuffer
     const done: WorkerResponse = { type: 'done', gif: buffer }
     worker.postMessage(done, [buffer])

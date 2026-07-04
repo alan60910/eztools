@@ -7,7 +7,7 @@
 | 工具 | 狀態 |
 |------|------|
 | APNG → GIF 轉換（`tools/apng-to-gif/`） | ✅ 可用 |
-| GIF 編輯（頁數編輯、時間停留等基礎功能） | 規劃中 |
+| GIF 編輯：刪幀、停留時間、播放次數（`tools/gif-editor/`） | ✅ 可用 |
 | 影片格式轉換（如 MKV → MP4） | 規劃中 |
 
 ## Installation

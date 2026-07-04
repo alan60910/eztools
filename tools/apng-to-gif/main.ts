@@ -3,7 +3,7 @@ import './style.css'
 
 import parseAPNG from 'apng-js'
 import { assertPngMagicBytes, mapApngResult, extractFrameRgba, type ApngMeta } from './decode.js'
-import { composite, createTransparentCanvas, type RGBAFrame } from './composite.js'
+import { composite, createTransparentCanvas, type RGBAFrame } from '../../src/lib/composite.js'
 import { convertToGif, type ConvertOptions, type DecodedAnimation } from './convert.js'
 import type { WorkerRequest, WorkerResponse } from './encode.worker.js'
 

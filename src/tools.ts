@@ -19,9 +19,9 @@ export const tools: Tool[] = [
   {
     slug: 'gif-editor',
     name: 'GIF 編輯',
-    description: '編輯 GIF 的頁數與每頁停留時間',
+    description: '編輯 GIF 的頁數、每頁停留時間與循環次數',
     path: './tools/gif-editor/',
-    status: 'planned',
+    status: 'available',
   },
   {
     slug: 'video-converter',

@@ -44,7 +44,10 @@ describe('tools integration (real data)', () => {
     }
 
     const linkCount = (html.match(/<a /g) ?? []).length
-    const availableCount = tools.filter((tool) => tool.status === 'available').length
-    expect(linkCount).toBe(availableCount)
+    // Hardcoded on purpose (not derived from tools.filter(...).length): this
+    // number must be bumped by hand every time a tool flips to 'available',
+    // so the test acts as a tripwire against silently forgetting the flip.
+    // apng-to-gif + gif-editor => 2 (was 1 before gif-editor went available).
+    expect(linkCount).toBe(2)
   })
 })

@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import parseAPNG, { APNG } from 'apng-js'
 import { assertPngMagicBytes, mapApngResult, readPngDimensions, SINGLE_FRAME_DEFAULT_DELAY_MS } from './decode.js'
-import { BLEND_OP_SOURCE, DISPOSE_OP_NONE } from './composite.js'
+import { BLEND_OP_SOURCE, DISPOSE_OP_NONE } from '../../src/lib/composite.js'
 
 // Ground truth values below must match tools/apng-to-gif/fixtures/generate.ts.
 

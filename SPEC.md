@@ -18,9 +18,13 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - 工具清單資料模組 `src/tools.ts`（唯一事實來源，定義各工具中繼資料與狀態）
 - 渲染模組 `src/render.ts`（依清單資料產生入口頁 HTML 的純函式）
 - 工具頁範本 `tools/_probe/`（新增工具的起始骨架範本）
-- APNG → GIF 轉換工具 — 瀏覽器端 apng-js 解碼 → 純函式合成（composite）→
-  gifenc 編碼（module Web Worker）；位於 `tools/apng-to-gif/`
-- GIF 編輯工具：頁數編輯、時間停留等基礎功能（規劃中）
+- APNG → GIF 轉換工具 — apng-js 解碼 → 共用 `src/lib/` 合成／編碼管線
+  （module Web Worker）；位於 `tools/apng-to-gif/`
+- GIF 編輯工具 — gifuct-js 解碼＋走訪 application extension 抽 loop →
+  共用 composite 全幀化 → 純函式編輯（刪幀／停留時間／播放次數）→ 共用
+  gif-encode 重編碼（module Web Worker）；位於 `tools/gif-editor/`
+- 共用純邏輯模組 `src/lib/`（composite 合成、gif-encode 編碼管線、
+  gif-reader（byte 級測試 oracle）、共用測試工具）
 - 影片格式轉換工具，如 MKV → MP4（規劃中）
 
 ## Public surface
@@ -50,12 +54,21 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   order）、進度／狀態用 aria-live、動態結果做焦點管理、自動播放媒體可暫停
   ＋尊重 prefers-reduced-motion、資訊性 alt、錯誤用 role=alert；暫停控制
   與靜態 poster 須在媒體開始播放當下即可用（不得延後至後續流程階段）；
-  live region 須常駐 a11y tree（不得以 display:none／hidden 切換承載播報）
+  live region 須常駐 a11y tree（不得以 display:none／hidden 切換承載播報）；
+  媒體之替代呈現（poster 等靜態代表畫面）須繼承等效文字——canvas 頂替
+  `<img>` 時以 role=img＋aria-label 比照對應 alt，不得因元素替換而遺失
+- 可編輯項目清單 a11y 不變量：批次／狀態切換操作須經常駐 live region
+  播報；項目刪除採非破壞性切換（焦點不遷移）；裝飾性縮圖 aria-hidden、
+  項目身分承載於控件 accessible name；含值控件（spinbutton／textbox 等）
+  之 accessible name 以 `label[for]`＋獨立 id 承載、不得以 wrap-label 包
+  裹（避免現值滲入名稱）；大量項目須有 skip 機制與分頁
+  （或等效導覽策略），換頁／視圖切換須管理焦點並播報
 - 工具可含多模組切分（如 decode/composite/convert/worker），純邏輯模組須
-  為 node 可測（不 import DOM runtime）
+  為 node 可測（不 import DOM runtime）；跨工具共用的純邏輯模組置於
+  `src/lib/`，同樣須為 node 可測（不 import DOM runtime）
 
 ## Status
 入口頁骨架已完成（Vite MPA 架構、工具清單注入機制、a11y 基線）。部署
 workflow 已就緒（首次部署待 Pages 前置設定與合併 main 驗證）。
-apng-to-gif 已可用（第一個工具上線）；規劃中剩 GIF 編輯與影片轉換，
-下一候選為 GIF 編輯。
+apng-to-gif 與 gif-editor 皆已可用（兩工具上線）；規劃中剩影片格式轉換，
+為下一候選。
