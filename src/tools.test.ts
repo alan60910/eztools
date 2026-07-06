@@ -37,8 +37,10 @@ describe('tools integration (real data)', () => {
 
     expect(html).toContain('<a class="tool-link" href="./tools/apng-to-gif/">')
 
+    // As of sprint 04 every tool is available, so this loop runs zero times;
+    // it stays so any future 'planned' entry is asserted link-free again
+    // (render.test.ts covers the planned-card mechanism with fixtures).
     const stillPlanned = tools.filter((tool) => tool.status === 'planned')
-    expect(stillPlanned.length).toBeGreaterThan(0) // sanity: this repo still has planned tools to check
     for (const tool of stillPlanned) {
       expect(html).not.toContain(`href="${tool.path}"`)
     }
@@ -47,7 +49,8 @@ describe('tools integration (real data)', () => {
     // Hardcoded on purpose (not derived from tools.filter(...).length): this
     // number must be bumped by hand every time a tool flips to 'available',
     // so the test acts as a tripwire against silently forgetting the flip.
-    // apng-to-gif + gif-editor => 2 (was 1 before gif-editor went available).
-    expect(linkCount).toBe(2)
+    // apng-to-gif + gif-editor + video-converter => 3 (was 2 before
+    // video-converter went available).
+    expect(linkCount).toBe(3)
   })
 })

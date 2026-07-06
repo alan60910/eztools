@@ -25,7 +25,9 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   gif-encode 重編碼（module Web Worker）；位於 `tools/gif-editor/`
 - 共用純邏輯模組 `src/lib/`（composite 合成、gif-encode 編碼管線、
   gif-reader（byte 級測試 oracle）、共用測試工具）
-- 影片格式轉換工具，如 MKV → MP4（規劃中）
+- 影片格式轉換工具 — ffmpeg.wasm（單執行緒 core，self-host vendor）
+  ffprobe 探測 → 白名單 remux 優先／轉碼後備／blind-transcode 降級 → MP4；
+  位於 `tools/video-converter/`
 
 ## Public surface
 - 靜態網頁（GitHub Pages 託管的 HTML/CSS/JS）
@@ -45,9 +47,13 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - 樣式策略：純手寫 CSS、不引入框架，a11y 基線（`:focus-visible`、WCAG AA、
   `prefers-reduced-motion`）全站適用
 - a11y 實作細節：「規劃中」工具卡不產生 `<a>`、不可聚焦，狀態以可見文字標籤傳達
-- 工具頁 CPU 密集的「編碼／轉檔運算」採 module Web Worker（合成等前處理得
-  留主執行緒）；SharedArrayBuffer 不可用之硬約束見 magi/TECHSTACK.md
-  Constraints
+- 工具頁 CPU 密集的「編碼／轉檔運算」採 module Web Worker（worker 可由
+  vendored 依賴內建提供，不限自寫 `*.worker.ts`；合成等前處理得留主執行緒）；
+  SharedArrayBuffer 不可用之硬約束見 magi/TECHSTACK.md Constraints
+- 大型第三方 runtime 資產以 npm exact pin 為源，建置期（predev/prebuild
+  hook）自 node_modules 複製至 `public/vendor/<name>/`（不進 git），複製
+  腳本斷言版本與 pin 同步、verify-dist 斷言產物存在；載入一律顯式同源
+  **絕對** URL，禁止依賴套件內建 CDN fallback
 - 工具頁骨架：header（含返回入口連結）／`<main>`／footer、單一 `<h1>`、
   描述性 `<title>`、meta description
 - 互動工具 a11y 不變量：拖放具鍵盤等效（原生 file input 留在 tab
@@ -70,5 +76,6 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 ## Status
 入口頁骨架已完成（Vite MPA 架構、工具清單注入機制、a11y 基線）。部署
 workflow 已就緒（首次部署待 Pages 前置設定與合併 main 驗證）。
-apng-to-gif 與 gif-editor 皆已可用（兩工具上線）；規劃中剩影片格式轉換，
-為下一候選。
+apng-to-gif、gif-editor、video-converter 皆已可用；PRD 三大工具目標完成。
+video-converter 之「上線」宣告以 GPL 授權聲明落地（README License 段）
+為前置。

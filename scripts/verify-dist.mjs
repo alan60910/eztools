@@ -16,10 +16,13 @@
  *    `available` entries in src/tools.ts — see ENTRY_ANCHOR_SLUGS below.
  *  - every `href="./tools/<slug>/"` anchor found in dist/index.html points
  *    at a slug that was actually built, catching dangling entry-page links.
+ *  - the self-hosted ffmpeg core assets made it into dist/vendor/ffmpeg/
+ *    (video-converter loads them at runtime) — see the vendored-assets
+ *    section below.
  *
  * Plain node, no dependencies. Exits 1 with a clear message per failure.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const distDir = resolve(import.meta.dirname, '..', 'dist')
@@ -76,7 +79,7 @@ if (rootHtml !== null) {
   // re-deriving from tools.ts) means this check stays an actual assertion
   // that the entry page rendered the link, not a tautology that would pass
   // no matter what render.ts produced.
-  const ENTRY_ANCHOR_SLUGS = ['apng-to-gif', 'gif-editor']
+  const ENTRY_ANCHOR_SLUGS = ['apng-to-gif', 'gif-editor', 'video-converter']
   for (const slug of ENTRY_ANCHOR_SLUGS) {
     if (!new RegExp(`<a[^>]*href="\\./tools/${slug}/"`).test(rootHtml)) {
       fail(`dist/index.html has no <a href="./tools/${slug}/"> — the entry card did not turn into a link`)
@@ -91,6 +94,25 @@ if (rootHtml !== null) {
     if (!existsSync(resolve(distToolsDir, slug, 'index.html'))) {
       fail(`dist/index.html links to "./tools/${slug}/" but dist/tools/${slug}/index.html does not exist`)
     }
+  }
+}
+
+// --- Vendored ffmpeg core assets (video-converter) --------------------------
+// Kept in sync with scripts/vendor-ffmpeg.mjs, which copies these assets from
+// node_modules/@ffmpeg/core/dist/esm/ into public/vendor/ffmpeg/ via the
+// prebuild hook: if that script changes what it ships, update these
+// assertions together with it.
+const wasmPath = 'vendor/ffmpeg/ffmpeg-core.wasm'
+const MIN_WASM_BYTES = 20 * 1024 * 1024
+if (!existsSync(resolve(distDir, 'vendor/ffmpeg/ffmpeg-core.js'))) {
+  fail('missing dist/vendor/ffmpeg/ffmpeg-core.js (did the prebuild vendor-ffmpeg.mjs hook run?)')
+}
+if (!existsSync(resolve(distDir, wasmPath))) {
+  fail(`missing dist/${wasmPath} (did the prebuild vendor-ffmpeg.mjs hook run?)`)
+} else {
+  const wasmSize = statSync(resolve(distDir, wasmPath)).size
+  if (wasmSize <= MIN_WASM_BYTES) {
+    fail(`dist/${wasmPath} is ${wasmSize} bytes (expected > ${MIN_WASM_BYTES}) — truncated or wrong file?`)
   }
 }
 

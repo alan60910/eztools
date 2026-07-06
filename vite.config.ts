@@ -64,6 +64,11 @@ assertAvailableToolsHaveEntries(toolEntries);
 export default defineConfig({
   base: './',
   plugins: [injectToolListPlugin()],
+  optimizeDeps: {
+    // Dev pre-bundling breaks @ffmpeg/ffmpeg's internal worker's
+    // import.meta.url resolution — known community issue.
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+  },
   build: {
     rollupOptions: {
       input: {

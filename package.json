@@ -7,7 +7,9 @@
     "node": ">=22"
   },
   "scripts": {
+    "predev": "node scripts/vendor-ffmpeg.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/vendor-ffmpeg.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -24,6 +26,9 @@
   "dependencies": {
     "apng-js": "1.1.5",
     "gifenc": "1.0.3",
-    "gifuct-js": "2.1.2"
+    "gifuct-js": "2.1.2",
+    "@ffmpeg/ffmpeg": "0.12.15",
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/util": "0.12.2"
   }
 }

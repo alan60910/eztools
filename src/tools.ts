@@ -28,6 +28,6 @@ export const tools: Tool[] = [
     name: '影片格式轉換',
     description: '於瀏覽器端轉換影片格式（如 MKV → MP4）',
     path: './tools/video-converter/',
-    status: 'planned',
+    status: 'available',
   },
 ]
