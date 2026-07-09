@@ -34,6 +34,12 @@ one into a new sprint.
   > from `magi/04-video-converter/DRIFT.md` (2026-07-06)
 - [ ] video-converter main.ts 純函式（strategyText/formatDurationSec/conversionFailureMessage）下沉 limits/convert-plan 補全分支測試
   > from `magi/04-video-converter/DRIFT.md` (2026-07-06)
+- [ ] statusline-builder：真 stdin 多出 `fast_mode`（boolean 旗標，/fast）與 `agent_type`（string，與 `agent.name` 冗餘）欄位——評估是否新增 segment（v1 未設，型別已存查）
+  > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
+- [ ] statusline-builder：settings 路徑輸入未走驗證／無 shell 逸出（`quoteIfNeeded` 不逸出 `"`／`;`／`&`）——至少擋控制字元
+  > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
+- [ ] statusline-builder：複製到剪貼簿的 `.ps1` 無 UTF-8 BOM（僅下載 Blob 帶）——複製亦前置 BOM 或 README 明示
+  > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
 
 ## Promoted to sprints
 <!-- /magi:plan moves consumed items here -->

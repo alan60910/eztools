@@ -1,0 +1,531 @@
+/**
+ * S5-T2.7（magi/05-statusline-builder/PLAN.md §Verification 3 真執行／§SP-7
+ * 格式化對等＋shell-out 等價／§CI 拓撲 skipIf 不變量＋meta 斷言）：三後端
+ * 統合真執行 harness。單元／黃金（emit-*.test.ts）之外的「行為層背書」——
+ * 真跑 bash＋jq／Windows PowerShell 5.1／（可選）pwsh 7，斷言與 TS 參考
+ * （formatValue 經 resolve→toAnsi oracle）字面／byte-exact 相等。
+ *
+ * ── 四塊 ──
+ * 1. **比對函式正負自測**：hexEqual（byte-exact 比對輔助，本 sprint 無共用
+ *    比對函式故建最小形）——正向（一致對→真）＋負向（不一致對→假）。
+ * 2. **SP-7 格式化對等**：對抗值集（cost 補尾零／0.0029 float 下緣 Decimal
+ *    陷阱／duration 59999·60000·3599999／context-size 10⁶ 門檻／percentage
+ *    邊界）三後端真跑斷言字面相等；0.0029 於 ps1 5.1／pwsh 7 分別斷言
+ *    `[double]` 轉型後＝$0.0028。
+ * 3. **shell-out 等價**：真 git repo 諸態（乾淨／髒／detached HEAD／無 branch
+ *    空 repo）——emit-bash 產腳本真跑 vs emit-ps1 產腳本真跑，git-branch／
+ *    git-dirty 段輸出 byte-exact 等價。
+ * 4. **skipIf meta**：蒐集各 real-exec leg 的 enable 狀態，斷言「至少一後端
+ *    未 skip」＋「平台載重後端（win32→ps1 5.1、posix→bash+jq）present 卻
+ *    skip＝skipIf 條件 bug」——某後端全 leg skip 即紅。
+ *
+ * ── 環境（.t23 §9／.t24／.t26）──
+ * Git Bash scoop 路徑候選探測＋`SP5_BASH` 覆寫；jq＝sp5/tools 便攜版（win32
+ * leg copy 為 jq.exe 入暫存 PATH）；spawn env 帶 `MSYS_NO_PATHCONV=1`（擋 MSYS
+ * 引數路徑轉換）；ps1 spawn 形＝settings 生產形逐字（`-NoProfile
+ * -ExecutionPolicy Bypass -File`）、檔案帶 UTF-8 BOM、stdout 以 Buffer 收；
+ * resets／時間斷言用 spawn 當下 TZ（不寫死時刻，三後端同機同 TZ 一致）。
+ *
+ * spike／harness 檔——非產品碼；沿用 vitest include 預設（`.test.ts` 命名，
+ * 進主測試套件）。
+ */
+import { spawnSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterAll, describe, expect, it } from 'vitest'
+import type { ColorSpec } from './color.js'
+import type { BuilderConfig, SegmentConfig } from './config.js'
+import { toAnsi } from './emit-ansi.js'
+import { emitBash, type SegmentDescriptorCatalog } from './emit-bash.js'
+import { emitPs1 } from './emit-ps1.js'
+import { MOCK_SCENARIOS_BY_ID } from './mock-data.js'
+import { resolve } from './resolve.js'
+import { DESCRIPTORS_BY_ID, type StatusData } from './segments.js'
+import { THRESHOLD_TEMPLATES } from './threshold.js'
+
+const CATALOG: SegmentDescriptorCatalog = DESCRIPTORS_BY_ID
+const TRAFFIC = THRESHOLD_TEMPLATES.traffic
+const FULL = MOCK_SCENARIOS_BY_ID.full
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
+const A = (index: number): ColorSpec => ({ kind: 'ansi256', index })
+
+function segT(id: string, over: Partial<SegmentConfig> = {}): SegmentConfig {
+  return { id, enabled: true, icon: false, color: { kind: 'default' }, ...over }
+}
+function cfgT(mode: BuilderConfig['mode'], segments: SegmentConfig[]): BuilderConfig {
+  return { version: 1, mode, separator: { kind: 'preset', value: '|' }, lastArrowCap: true, segments }
+}
+
+// ── 1. 比對函式（byte-exact）＋正負自測 ──
+
+/**
+ * byte-exact 比對輔助：以 hex 字串比對（可讀 diff 基礎；長度不同即不等）。
+ * 本 sprint 之 emit-bash.test／emit-ps1.test 皆內聯比對、無共用函式 → 建此
+ * 最小形供統合 harness 用，並自測正負向（PLAN §Verification 1 比對函式受測）。
+ */
+function hexEqual(a: Buffer, b: Buffer): boolean {
+  return a.toString('hex') === b.toString('hex')
+}
+
+describe('比對函式自測（hexEqual 正負向）', () => {
+  it('正向：已知一致對 → 判一致', () => {
+    expect(hexEqual(Buffer.from('abc', 'utf8'), Buffer.from('abc', 'utf8'))).toBe(true)
+    expect(hexEqual(Buffer.alloc(0), Buffer.alloc(0))).toBe(true)
+    // 含 ESC／CJK 的真實形（byte 級一致）
+    expect(hexEqual(Buffer.from('\x1b[0m工作區\x1b[0m', 'utf8'), Buffer.from('\x1b[0m工作區\x1b[0m', 'utf8'))).toBe(true)
+  })
+  it('負向：已知不一致對 → 判不一致', () => {
+    expect(hexEqual(Buffer.from('abc', 'utf8'), Buffer.from('abd', 'utf8'))).toBe(false)
+    // 長度不同（前綴相同）：防「短視為相等」
+    expect(hexEqual(Buffer.from('abc', 'utf8'), Buffer.from('abcd', 'utf8'))).toBe(false)
+    // $0.0028 vs $0.0029（0.0029 Decimal 陷阱的判別力）
+    expect(hexEqual(Buffer.from('$0.0028', 'utf8'), Buffer.from('$0.0029', 'utf8'))).toBe(false)
+  })
+})
+
+// ── 後端探測（.t23 §9／.t24／.t26） ──
+
+type BashExec = { ok: true; bash: string; jqDir: string | undefined } | { ok: false; reason: string }
+type ExeExec = { ok: true; exe: string } | { ok: false; reason: string }
+
+function detectBash(): string | undefined {
+  const cands: (string | undefined)[] = [process.env.SP5_BASH]
+  if (process.platform === 'win32') {
+    cands.push(
+      'C:\\Users\\alan6\\scoop\\apps\\git\\current\\bin\\bash.exe',
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+    )
+  } else {
+    cands.push('/usr/bin/bash', '/bin/bash')
+  }
+  return cands.find((p): p is string => p !== undefined && p !== '' && existsSync(p))
+}
+
+function detectBashExec(): BashExec {
+  const bash = detectBash()
+  if (bash === undefined) {
+    return { ok: false, reason: 'Git Bash 不存在（SP5_BASH 可指定；PATH 上 bash 可能為 WSL 不可用）' }
+  }
+  if (process.platform === 'win32') {
+    const jqBin = fileURLToPath(
+      new URL('../../magi/05-statusline-builder/sp5/tools/jq-windows-amd64.exe', import.meta.url),
+    )
+    if (!existsSync(jqBin)) return { ok: false, reason: `jq-windows-amd64.exe 不存在（${jqBin}）` }
+    const dir = mkdtempSync(join(tmpdir(), 'sl-jq-'))
+    copyFileSync(jqBin, join(dir, 'jq.exe'))
+    return { ok: true, bash, jqDir: dir }
+  }
+  const probe = spawnSync('jq', ['--version'])
+  if (probe.status !== 0) return { ok: false, reason: '系統 jq 不在 PATH（非 win32 leg）' }
+  return { ok: true, bash, jqDir: undefined }
+}
+
+function detectPs1(): ExeExec {
+  if (process.platform !== 'win32') return { ok: false, reason: '非 win32：無 Windows PowerShell 5.1（powershell.exe）' }
+  const r = spawnSync('powershell', ['-NoProfile', '-Command', 'exit 0'])
+  if (r.error !== undefined || r.status !== 0) return { ok: false, reason: 'powershell.exe 探測失敗' }
+  return { ok: true, exe: 'powershell' }
+}
+
+function detectPwsh7(): ExeExec {
+  const r = spawnSync('pwsh', ['--version'], { encoding: 'utf8' })
+  if (r.error !== undefined || r.status !== 0) {
+    return { ok: false, reason: 'pwsh（PowerShell 7）不在 PATH（本機無則交 CI windows leg 覆蓋）' }
+  }
+  return { ok: true, exe: 'pwsh' }
+}
+
+const BASH = detectBashExec()
+const PS1 = detectPs1()
+const PWSH7 = detectPwsh7()
+const PS1_EXE = PS1.ok ? PS1.exe : 'powershell'
+
+// ── spawn 執行輔助 ──
+
+const BOM = Buffer.from([0xef, 0xbb, 0xbf])
+const bashScriptDir = BASH.ok ? mkdtempSync(join(tmpdir(), 'sl-sh-')) : ''
+let seq = 0
+const tempDirs: string[] = []
+
+interface RunResult {
+  status: number | null
+  stdout: Buffer
+  stderr: string
+}
+
+/** env 去所有大小寫變體之 path 鍵後設單一 PATH（Windows env 大小寫不敏）。 */
+function withPath(env: NodeJS.ProcessEnv, newPath: string): NodeJS.ProcessEnv {
+  for (const k of Object.keys(env)) {
+    if (k.toLowerCase() === 'path') delete env[k]
+  }
+  env.PATH = newPath
+  return env
+}
+
+function runBash(script: string, stdinJson: string, cwd?: string): RunResult {
+  if (!BASH.ok) throw new Error('runBash without bash')
+  const scriptPath = join(bashScriptDir, `s-${seq++}.sh`)
+  writeFileSync(scriptPath, script) // emitBash 已 LF、無 BOM
+  // MSYS_NO_PATHCONV：擋 Git Bash 呼叫原生 exe 時的 MSYS 引數路徑轉換（.t24）。
+  let env: NodeJS.ProcessEnv = { ...process.env, MSYS_NO_PATHCONV: '1' }
+  if (BASH.jqDir !== undefined) env = withPath(env, BASH.jqDir + delimiter + (process.env.PATH ?? ''))
+  const r = spawnSync(BASH.bash, [scriptPath], { input: Buffer.from(stdinJson, 'utf8'), env, cwd })
+  return {
+    status: r.status,
+    stdout: r.stdout ?? Buffer.alloc(0),
+    stderr: (r.stderr ?? Buffer.alloc(0)).toString('utf8'),
+  }
+}
+
+/** ps1 spawn＝settings 生產形逐字（`-NoProfile -ExecutionPolicy Bypass -File`）；檔案帶 BOM。 */
+function runPs1(exe: string, script: string, stdinJson: string, cwd?: string): RunResult {
+  const dir = mkdtempSync(join(tmpdir(), 'sl-ps-'))
+  const file = join(dir, 'statusline.ps1')
+  writeFileSync(file, Buffer.concat([BOM, Buffer.from(script, 'utf8')]))
+  try {
+    const r = spawnSync(exe, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
+      input: Buffer.from(stdinJson, 'utf8'),
+      env: { ...process.env },
+      cwd,
+      maxBuffer: 1024 * 1024,
+    })
+    return {
+      status: r.status,
+      stdout: r.stdout ?? Buffer.alloc(0),
+      stderr: (r.stderr ?? Buffer.alloc(0)).toString('utf8'),
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** TS 參考 oracle：resolve→toAnsi（單段 default 色 → `ESC[0m<值>ESC[0m`）。 */
+function oracle(config: BuilderConfig, data: StatusData): Buffer {
+  return Buffer.from(toAnsi(resolve(config, { data, shell: FULL.shell, env: FULL.env })), 'utf8')
+}
+
+/** 剝所有 SGR 序列 → 純顯示文字（單段 default 色時＝格式化值本身）。 */
+function strip(buf: Buffer): string {
+  return buf.toString('utf8').replace(/\x1b\[[0-9;]*m/g, '')
+}
+
+// ── 2. SP-7 格式化對等（對抗值集） ──
+
+interface Sp7Case {
+  id: string
+  config: BuilderConfig
+  data: StatusData
+  expected: string
+}
+
+function costCase(usd: number, expected: string): Sp7Case {
+  const data = clone(FULL.data)
+  data.cost.total_cost_usd = usd
+  return { id: `cost/${usd}`, config: cfgT('plain', [segT('cost')]), data, expected }
+}
+function durationCase(ms: number, expected: string): Sp7Case {
+  const data = clone(FULL.data)
+  data.cost.total_duration_ms = ms
+  return { id: `duration/${ms}`, config: cfgT('plain', [segT('duration')]), data, expected }
+}
+function ctxSizeCase(inTok: number, outTok: number, expected: string): Sp7Case {
+  const data = clone(FULL.data)
+  data.context_window.total_input_tokens = inTok
+  data.context_window.total_output_tokens = outTok
+  return { id: `context-size/${inTok}+${outTok}`, config: cfgT('plain', [segT('context-size')]), data, expected }
+}
+function pctCase(p: number, expected: string): Sp7Case {
+  const data = clone(FULL.data)
+  data.context_window.used_percentage = p
+  return { id: `percentage/${p}`, config: cfgT('plain', [segT('context-used')]), data, expected }
+}
+
+const SP7_CASES: readonly Sp7Case[] = [
+  // cost：單次浮點乘 floor＋4 位補尾零；0.0029＝float 乘積下緣（三後端同 double 同偏）。
+  costCase(1.0, '$1.0000'),
+  costCase(0.5, '$0.5000'),
+  costCase(0.005, '$0.0050'),
+  costCase(0.0029, '$0.0028'),
+  costCase(0.01235, '$0.0123'),
+  costCase(0, '$0.0000'),
+  // duration：整數除法三階（59999→59s、60000→1m0s、3599999→59m59s、3600000→1h0m）。
+  durationCase(59999, '59s'),
+  durationCase(60000, '1m0s'),
+  durationCase(3599999, '59m59s'),
+  durationCase(3600000, '1h0m'),
+  // context-size：10⁶ 門檻（999999→999k、10⁶→1M、10⁶+1→1M）。
+  ctxSizeCase(999999, 0, '999k'),
+  ctxSizeCase(1000000, 0, '1M'),
+  ctxSizeCase(1000001, 0, '1M'),
+  // percentage：⌊p⌋%（9.99→9%、10.0→10%、99→99%、100→100%、0→0%）。
+  pctCase(9.99, '9%'),
+  pctCase(10.0, '10%'),
+  pctCase(99, '99%'),
+  pctCase(100, '100%'),
+  pctCase(0, '0%'),
+]
+
+/** 三後端共用的單案斷言：backend stdout == oracle（byte-exact）＋顯示 == expected。 */
+function assertFormatCase(c: Sp7Case, run: (script: string, stdin: string) => RunResult, emit: (config: BuilderConfig) => string): void {
+  const o = oracle(c.config, c.data)
+  // TS 參考自檢：oracle 顯示須等於 expected（同時驗 expected 未寫錯）。
+  expect(strip(o), `TS 參考顯示 ≠ expected（${c.id}）`).toBe(c.expected)
+  const r = run(emit(c.config), JSON.stringify(c.data))
+  expect(r.status, `${c.id} 非零 exit；stderr=${r.stderr}`).toBe(0)
+  expect(hexEqual(r.stdout, o), `${c.id} byte 不符\n backend=${r.stdout.toString('hex')}\n oracle =${o.toString('hex')}`).toBe(true)
+  expect(strip(r.stdout), `${c.id} 顯示 ≠ expected`).toBe(c.expected)
+}
+
+describe.skipIf(!BASH.ok)('SP-7 格式化對等 — bash＋jq', () => {
+  it.each(SP7_CASES.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    assertFormatCase(c, (s, stdin) => runBash(s, stdin), (config) => emitBash(config, CATALOG))
+  })
+})
+
+describe.skipIf(!PS1.ok)('SP-7 格式化對等 — ps1 5.1', () => {
+  it.each(SP7_CASES.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    assertFormatCase(c, (s, stdin) => runPs1(PS1_EXE, s, stdin), (config) => emitPs1(config, CATALOG))
+  })
+
+  it('0.0029 Decimal 陷阱：[double] 轉型後 = $0.0028（非 Decimal 直算的 $0.0029）', () => {
+    const data = clone(FULL.data)
+    data.cost.total_cost_usd = 0.0029
+    const config = cfgT('plain', [segT('cost')])
+    const o = oracle(config, data)
+    expect(strip(o), 'oracle（double 下緣）應為 $0.0028').toBe('$0.0028')
+    const r = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data))
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    // PS 5.1 ConvertFrom-Json 回 Decimal(0.0029)*10⁴=29；emit-ps1 的 [double] 轉型
+    // 恢復 double 下緣 → floor(28.999…)=28 → $0.0028。得 $0.0029 即 idiom 失效。
+    expect(strip(r.stdout), 'PS 5.1 [double] 轉型應得 $0.0028；$0.0029＝Decimal 未轉型').toBe('$0.0028')
+    expect(hexEqual(r.stdout, o)).toBe(true)
+  })
+})
+
+describe.skipIf(!PWSH7.ok)('SP-7 格式化對等 — pwsh 7', () => {
+  it.each(SP7_CASES.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    assertFormatCase(c, (s, stdin) => runPs1(PWSH7.ok ? PWSH7.exe : 'pwsh', s, stdin), (config) => emitPs1(config, CATALOG))
+  })
+
+  it('0.0029：pwsh 7 原生 Double → $0.0028（[double] 轉型冗餘但不害）', () => {
+    const data = clone(FULL.data)
+    data.cost.total_cost_usd = 0.0029
+    const config = cfgT('plain', [segT('cost')])
+    const o = oracle(config, data)
+    const r = runPs1(PWSH7.ok ? PWSH7.exe : 'pwsh', emitPs1(config, CATALOG), JSON.stringify(data))
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(strip(r.stdout)).toBe('$0.0028')
+    expect(hexEqual(r.stdout, o)).toBe(true)
+  })
+})
+
+// ── resets 後綴三後端一致（Step 0 落地的統合驗證：oracle==bash==ps1） ──
+
+describe.skipIf(!(BASH.ok && PS1.ok))('resets 後綴 — bash==ps1==oracle（同機同 TZ byte-exact）', () => {
+  it('rate-5h percent-reset（plain 無閾值）：63% + " (HH:mm)"', () => {
+    const config = cfgT('plain', [segT('rate-5h', { variant: 'percent-reset', color: A(99) })])
+    const data = clone(FULL.data) // five_hour.resets_at=1783497600（number）
+    const o = oracle(config, data)
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data))
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data))
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    // 後綴形（不寫死時刻——spawn 當下 TZ）。
+    expect(strip(o)).toMatch(/^63% \(\d\d:\d\d\)$/)
+  })
+
+  it("dash+後綴正交（used=null）：'-- (HH:mm)' 三後端一致", () => {
+    const config = cfgT('plain', [segT('rate-5h', { variant: 'percent-reset', color: A(99) })])
+    const data = clone(FULL.data)
+    data.rate_limits!.five_hour!.used_percentage = null
+    const o = oracle(config, data)
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data))
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data))
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o)).toBe(true)
+    expect(hexEqual(p.stdout, o)).toBe(true)
+    expect(strip(o)).toMatch(/^-- \(\d\d:\d\d\)$/)
+  })
+})
+
+// ── plain 閾值 × bare head（icon:false 無 prefix）× 數值：三後端 byte-exact ──
+// CR2 覆蓋盲區 #2 回歸鎖：唯此格同時滿足 plain＋閾值＋head 空＋數值——emit-ps1
+// 曾在 head 空時多吐一個 ESC[0m（雙 reset），破 SP-5 byte-exact；oracle＋bash 為
+// 單 reset。既有受測閾值 config 非 powerline 即帶 head，從未覆蓋此路徑。此案永久
+// 釘住三後端單 reset 等價（前置自檢：oracle 開頭恰一個 ESC[0m）。
+
+describe.skipIf(!(BASH.ok && PS1.ok))('plain 閾值 bare head 數值 — bash==ps1==oracle', () => {
+  it('context-used 55%（icon:false 無 prefix，TRAFFIC 閾值）：三後端單 reset byte-exact', () => {
+    const config = cfgT('plain', [segT('context-used', { threshold: TRAFFIC })])
+    const data = clone(FULL.data)
+    data.context_window.used_percentage = 55 // 桶索引 5 → TRAFFIC[5]=ansi256(226)
+    const o = oracle(config, data)
+    // 前置自檢：oracle 為單 reset（非 `ESC[0m ESC[0m`）＋桶色 226——判別力來源。
+    expect(o.toString('utf8')).toBe('\x1b[0m\x1b[38;5;226m55%\x1b[0m')
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data))
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data))
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+  })
+})
+
+// ── 3. shell-out 等價（真 git repo 諸態） ──
+
+function gitCfg(dir: string, args: string[]): void {
+  const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8' })
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} 失敗（cwd=${dir}）：${r.stderr}`)
+}
+
+/** git init＋本機 config（autocrlf off 防 CRLF 誤判髒、關 gpg 簽章、設身分）。 */
+function initRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'sl-git-'))
+  tempDirs.push(dir)
+  gitCfg(dir, ['init', '-q', '-b', 'main'])
+  gitCfg(dir, ['config', 'core.autocrlf', 'false'])
+  gitCfg(dir, ['config', 'commit.gpgsign', 'false'])
+  gitCfg(dir, ['config', 'user.email', 'ez@test.local'])
+  gitCfg(dir, ['config', 'user.name', 'ez'])
+  return dir
+}
+function repoClean(): string {
+  const dir = initRepo()
+  writeFileSync(join(dir, 'f.txt'), 'hello\n')
+  gitCfg(dir, ['add', 'f.txt'])
+  gitCfg(dir, ['commit', '-q', '-m', 'init'])
+  return dir
+}
+function repoDirty(): string {
+  const dir = repoClean()
+  writeFileSync(join(dir, 'f.txt'), 'hello world\n') // 已追蹤檔改動 → porcelain 非空
+  return dir
+}
+function repoDetached(): string {
+  const dir = repoClean()
+  const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim()
+  gitCfg(dir, ['checkout', '-q', sha]) // detached HEAD → branch --show-current 空
+  return dir
+}
+function repoEmpty(): string {
+  return initRepo() // 無 commit（unborn branch）→ branch --show-current 空
+}
+
+interface GitState {
+  id: string
+  mk: () => string
+  /**
+   * 期望顯示（plain `|` 分隔；branch 綠、dirty 紅；剝 SGR 後）。**只釘跨
+   * git 版本決定論的態**（clean='main'／dirty='main|*'）；detached（分支空）
+   * ／empty-repo（unborn 分支名依 git 版本——2.47 顯 'main'）之分支呈現
+   * 隨版本浮動，故僅斷言 bash==ps1 等價、不釘字面（`undefined`）。假等價
+   * 由 clean／dirty 的字面斷言全局排除（證 git 於本 harness 真的可跑）。
+   */
+  expectedDisplay?: string
+}
+
+const GIT_STATES: readonly GitState[] = [
+  { id: 'clean', mk: repoClean, expectedDisplay: 'main' },
+  { id: 'dirty', mk: repoDirty, expectedDisplay: 'main|*' },
+  { id: 'detached', mk: repoDetached }, // 分支空＋乾淨 → 空鏈（branch 剔）
+  { id: 'empty-repo', mk: repoEmpty }, // unborn 分支（2.47 顯 'main'）＋無檔（dirty 剔）
+]
+
+describe.skipIf(!(BASH.ok && PS1.ok))('shell-out 等價 — bash vs ps1（真 git repo）', () => {
+  const shellCfg = cfgT('plain', [
+    segT('git-branch', { color: A(46) }),
+    segT('git-dirty', { color: A(196) }),
+  ])
+  const bashScript = emitBash(shellCfg, CATALOG)
+  const ps1Script = emitPs1(shellCfg, CATALOG)
+
+  // 回歸鎖（T2.7 授權補）：每態**兩後端皆真跑**——emit-ps1 亦真執行 clean／dirty／
+  // detached／unborn 四態（不只 emit-bash）。此為 emit-ps1 shell-out 空輸出 bug 的
+  // 回歸鎖：T2.5 e2e 把 git-branch/git-dirty/clock filter 掉 → shell-out 段從未真跑 →
+  // 覆蓋盲區；本 harness 首次真執行覆蓋，per-backend 獨立釘住修後行為。
+  it.each(GIT_STATES.map((s) => [s.id, s] as const))('%s：bash 產腳本 == ps1 產腳本（兩後端各真跑）', (_id, state) => {
+    const dir = state.mk()
+    const b = runBash(bashScript, '', dir)
+    const p = runPs1(PS1_EXE, ps1Script, '', dir)
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    // 主斷言：同一 repo 狀態下兩後端 byte-exact 等價（git-branch／git-dirty 段輸出同）。
+    expect(hexEqual(b.stdout, p.stdout), `bash≠ps1\n b=${b.stdout.toString('hex')}\n p=${p.stdout.toString('hex')}`).toBe(true)
+    if (state.expectedDisplay !== undefined) {
+      // 決定論態：兩後端各獨立釘字面（排「git 找不到→皆空」假等價；乾淨 repo 誤顯 '*' 即紅）。
+      expect(strip(b.stdout), `${state.id} bash 顯示`).toBe(state.expectedDisplay)
+      expect(strip(p.stdout), `${state.id} ps1 顯示`).toBe(state.expectedDisplay)
+    } else {
+      // detached／unborn 分支名隨 git 版本浮動 → 不釘字面；但工作樹乾淨 → 兩後端皆不得有
+      // dirty '*'（版本無關的 per-backend 回歸鎖：git-dirty 空輸出誤存活即紅）。
+      expect(strip(b.stdout), `${state.id} bash 不得含 '*'`).not.toContain('*')
+      expect(strip(p.stdout), `${state.id} ps1 不得含 '*'`).not.toContain('*')
+    }
+  })
+
+  it('非 git 目錄：兩後端皆 exit 0＋空鏈（契約 9）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-nogit-'))
+    tempDirs.push(dir)
+    const b = runBash(bashScript, '', dir)
+    const p = runPs1(PS1_EXE, ps1Script, '', dir)
+    expect(b.status).toBe(0)
+    expect(p.status).toBe(0)
+    expect(hexEqual(b.stdout, p.stdout)).toBe(true)
+    expect(strip(b.stdout)).toBe('') // 空鏈（僅行尾 reset）
+  })
+})
+
+// ── 4. skipIf meta（CI 設定不變量；PLAN §CI 拓撲） ──
+
+describe('skipIf meta（每後端至少一 leg 未 skip；present 卻 skip＝bug）', () => {
+  it('環境自述（各後端 enable／reason）', () => {
+    const say = (name: string, e: { ok: boolean; reason?: string }): void =>
+      console.warn(`[t27] ${name}: ${e.ok ? 'ENABLED' : `SKIP（${(e as { reason: string }).reason}）`}`)
+    say('bash+jq', BASH)
+    say('ps1 5.1', PS1)
+    say('pwsh 7', PWSH7)
+    expect(true).toBe(true)
+  })
+
+  it('至少一後端未 skip（防全 skip 的環境全毀／CI 設定 bug）', () => {
+    expect([BASH.ok, PS1.ok, PWSH7.ok].some((e) => e), '所有真執行後端全 skip').toBe(true)
+  })
+
+  it('平台載重後端 present 卻 skip = skipIf 條件 bug', () => {
+    if (process.platform === 'win32') {
+      // 獨立新鮮探測（不重用 PS1 detection）：win32 恆有 powershell.exe。
+      const fresh = spawnSync('powershell', ['-NoProfile', '-Command', 'exit 0'])
+      expect(fresh.error === undefined && fresh.status === 0, 'win32 應有 powershell.exe').toBe(true)
+      expect(PS1.ok, `ps1 5.1 present 卻 skip（skipIf bug）：${PS1.ok ? '' : (PS1 as { reason: string }).reason}`).toBe(true)
+    } else {
+      const fresh = spawnSync('bash', ['-c', 'exit 0'])
+      if (fresh.error === undefined && fresh.status === 0) {
+        expect(BASH.ok, `bash present 卻 skip（skipIf bug）：${BASH.ok ? '' : (BASH as { reason: string }).reason}`).toBe(true)
+      }
+    }
+  })
+
+  it('本機可用之 bash＋jq 不得 skip（.t23/.t24 環境前提）', () => {
+    // detectBash 為新鮮探測；若 bash 二進位在（且 win32 便攜 jq 在），BASH.ok 必真。
+    const bashPresent = detectBash() !== undefined
+    if (bashPresent && process.platform === 'win32') {
+      const jqBin = fileURLToPath(
+        new URL('../../magi/05-statusline-builder/sp5/tools/jq-windows-amd64.exe', import.meta.url),
+      )
+      if (existsSync(jqBin)) {
+        expect(BASH.ok, 'bash＋便攜 jq 在卻 skip（skipIf/偵測 bug）').toBe(true)
+      }
+    }
+  })
+})
+
+afterAll(() => {
+  if (bashScriptDir !== '') rmSync(bashScriptDir, { recursive: true, force: true })
+  if (BASH.ok && BASH.jqDir !== undefined) rmSync(BASH.jqDir, { recursive: true, force: true })
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true })
+})

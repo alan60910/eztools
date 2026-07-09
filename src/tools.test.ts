@@ -49,8 +49,8 @@ describe('tools integration (real data)', () => {
     // Hardcoded on purpose (not derived from tools.filter(...).length): this
     // number must be bumped by hand every time a tool flips to 'available',
     // so the test acts as a tripwire against silently forgetting the flip.
-    // apng-to-gif + gif-editor + video-converter => 3 (was 2 before
-    // video-converter went available).
-    expect(linkCount).toBe(3)
+    // apng-to-gif + gif-editor + video-converter + statusline-builder => 4
+    // (was 3 before statusline-builder went available).
+    expect(linkCount).toBe(4)
   })
 })

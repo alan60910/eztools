@@ -24,6 +24,10 @@
   Transferable 轉移（無-SAB 約束見下方 Constraints，不重述）；
   video-converter 的內部 module worker 由 `@ffmpeg/ffmpeg` 自帶
   （worker chunk 由 Rollup 自動 emit，非自寫）
+- statusline-builder：**零 runtime npm 依賴**（純 TS 邏輯＋DOM，無 worker／
+  wasm）；Nerd Font subset（`symbols-nerd-font-mono-subset.woff2` 簽入
+  repo，build 時由 Vite base64 inline 進工具 CSS chunk，含授權與再生工序
+  記錄）僅供終端模擬預覽渲染，**不隨產出腳本散布**
 
 ## Database / storage
 - 無（所有處理在瀏覽器端記憶體中完成）
@@ -36,6 +40,11 @@
   group `pages`；build job（checkout@v4 → setup-node@v4 node24、cache npm →
   npm ci → build → upload-pages-artifact@v3 dist）→ deploy job
   （environment `github-pages`、deploy-pages@v4）
+- `.github/workflows/test.yml`：push `DEV` ＋ pull_request `main` 觸發；
+  matrix `ubuntu-latest`＋`windows-latest`——ubuntu leg 為 bash＋jq 真執行
+  gate、windows leg 為 ps1（PowerShell 5.1＋pwsh 7）真執行 gate；`deploy.yml`
+  build job 另補 windows test leg 作部署前置（環境×後端矩陣見
+  `magi/05-statusline-builder/PLAN.md`）
 - build 前由 npm `prebuild` hook 執行 `scripts/vendor-ffmpeg.mjs`，自
   node_modules 複製 `@ffmpeg/core` esm 資產至 `public/vendor/ffmpeg/`
   （dev 由 `predev` 同理；複製前斷言安裝版本與 pin 同步）；npm ci 因

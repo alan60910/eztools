@@ -1,0 +1,743 @@
+/* ============================================================
+   Claude Code Statusline 產生器 — 區域樣式
+   由 main.ts（T3.3）以 `import './style.css'` 消費（在 `import
+   '../../src/style.css'` 之後），僅補充本工具頁特有的元件；不重複
+   src/style.css 已涵蓋的 header/main/footer/連結/焦點/reduced-motion。
+
+   色票沿用 src/style.css 與 tools/gif-editor/style.css 已驗算值（對比
+   以 WCAG 相對亮度估算，一般文字 AA 4.5:1、UI 元件/焦點 3:1）：
+   - 主文字 #1f2328 / 白底 ≈ 16.2:1
+   - 次文字 #4b5563 / 白底 ≈ 7.6:1
+   - 連結/焦點 #1d4ed8 / 白底 ≈ 6.7:1（文字與非文字皆過）
+   - 主按鈕文字 #ffffff / #1d4ed8 ≈ 6.71:1
+   - 錯誤 #991b1b / #fee2e2 ≈ 6.80:1（沿用 gif-editor）
+   - 狀態 #1e3a8a / #eff6ff ≈ 9.52:1；左邊框 #1d4ed8（沿用 gif-editor）
+   本檔新增元件：
+   - .nerd-font-banner（提示橫幅）：文字 #713f12 / 背景 #fefce8 ≈ 8.7:1；
+     --active 左邊框 #a16207（對白底 ≈ 4.6:1，非文字門檻達標）。
+   - .preview-terminal（終端模擬）：--dark 背景 #1e1e1e／文字 #e6e6e6
+     ≈ 13.6:1；--light 背景 #f6f8fa／文字 #1f2328 ≈ 15.3:1。此為「終端
+     預設」底色，ANSI 著色由 render-preview.ts（T3.2）逐 span 覆寫。
+   - 觸控目標（色選 swatch、移位鈕、spinbutton 步進鈕）一律 ≥24×24
+     CSS px（WCAG 2.5.8）。
+   ============================================================ */
+
+/* ---- a11y：視覺隱藏但保留於 a11y tree / tab order（clip，非 display:none） ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- skip-link：離屏但可鍵盤聚焦，聚焦時顯現於左上角（沿用 gif-editor） ---- */
+.skip-nav {
+  position: relative;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  z-index: 10;
+  padding: 0.625rem 1.25rem;
+  background-color: #1d4ed8;
+  color: #ffffff; /* 對 #1d4ed8 ≈ 6.71:1 */
+  border-radius: 0 0 0.375rem 0;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+/* 第二個 skip-link 聚焦時錯開，避免與第一個重疊 */
+.skip-link + .skip-link:focus {
+  left: 11rem;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+}
+
+/* ---- 區塊 ---- */
+.tool-section {
+  margin-bottom: 2rem;
+}
+
+.tool-section h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f2328;
+  margin-bottom: 0.75rem;
+}
+
+/* ---- 按鈕（沿用 gif-editor / apng-to-gif 結構與色票） ---- */
+.button-like {
+  display: inline-block;
+  padding: 0.625rem 1.25rem;
+  border: 2px solid #1d4ed8;
+  border-radius: 0.375rem;
+  background-color: #1d4ed8;
+  color: #ffffff; /* ≈ 6.71:1 */
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-like:hover {
+  background-color: #1e40af;
+  border-color: #1e40af;
+}
+
+.button-like--secondary {
+  background-color: #ffffff;
+  color: #1d4ed8; /* 對白底 ≈ 6.71:1 */
+}
+
+.button-like--secondary:hover {
+  background-color: #f9fafb;
+}
+
+.button-like[disabled],
+.button-like[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 無 href 的下載 <a>（main.ts 設 Blob URL 前）不具連結語意，視覺弱化提示尚未就緒 */
+a.button-like:not([href]) {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- 訊息區：錯誤（role=alert）／狀態（role=status），is-empty 收合（沿用 gif-editor） ---- */
+.alert-message,
+.status-message {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.375rem;
+  border-left: 4px solid;
+}
+
+.alert-message {
+  background-color: #fee2e2;
+  border-left-color: #991b1b;
+  color: #991b1b; /* ≈ 6.80:1 */
+}
+
+.status-message {
+  background-color: #eff6ff;
+  border-left-color: #1d4ed8;
+  color: #1e3a8a; /* 對 #eff6ff ≈ 9.52:1 */
+}
+
+/* 常駐 live region 收合視覺（不影響 a11y tree 掛載，見 index.html 註解） */
+.alert-message.is-empty,
+.status-message.is-empty {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* ============================================================
+   全域設定
+   ============================================================ */
+.global-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 1rem 1.5rem;
+  align-items: start;
+}
+
+/* fieldset 與非-fieldset 控件群一致外觀 */
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.control-group > legend,
+.control-group > label:first-child:not(.inline-choice) {
+  padding: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.control-subfield {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+}
+
+/* checkbox/radio 與其文字水平並排（label 包裹＝原生控件，非帶值 textbox） */
+.inline-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: #1f2328;
+  cursor: pointer;
+}
+
+/* 帶值控件（select／text／color）：邊框沿用次文字灰（對白底 ≈ 7.6:1，遠高於 3:1） */
+select,
+input[type='text'] {
+  width: 100%;
+  max-width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid #4b5563;
+  border-radius: 0.375rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: #1f2328;
+  background-color: #ffffff;
+}
+
+input[type='text']:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  background-color: #f3f4f6;
+}
+
+/* ============================================================
+   Segment 清單（四類分區）
+   ============================================================ */
+.segment-lists {
+  margin-bottom: 2rem;
+}
+
+.segment-lists__hint {
+  margin-bottom: 1rem;
+  color: #4b5563; /* ≈ 7.6:1 */
+  font-size: 0.9375rem;
+}
+
+.segment-section {
+  margin-bottom: 1.75rem;
+}
+
+.segment-section__heading {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1f2328;
+  margin-bottom: 0.25rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 2px solid #e5e7eb; /* 分區視覺分隔（裝飾，非唯一辨識手段） */
+}
+
+.segment-section__desc {
+  margin-bottom: 0.75rem;
+  color: #4b5563;
+  font-size: 0.875rem;
+}
+
+/* <ol> 語意保留（顯示順序即列序）；視覺不需十進位標記，位置回饋走 live region */
+.segment-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.segment-row {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background-color: #ffffff;
+}
+
+/* 啟用列左側強調邊條（非唯一辨識——checkbox 勾選狀態才是主辨識） */
+.segment-row--enabled {
+  border-left: 4px solid #1d4ed8;
+  background-color: #fbfdff;
+}
+
+.segment-row__enable-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.segment-row__name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2328;
+  cursor: pointer;
+}
+
+/*
+  停用列收合重控件（PLAN §Builder UI a11y 契約）：停用時整個 controls
+  區 display:none——此處刻意用 display:none，因目的正是「退出 tab 序＋
+  a11y tree」（非 live region，不受「不得 display:none」不變量約束）。
+  啟用（main.ts 加 .segment-row--enabled）才展開。
+*/
+.segment-row__controls {
+  display: none;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.segment-row--enabled .segment-row__controls {
+  display: flex;
+}
+
+.segment-row__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.segment-row__field > label:not(.inline-choice) {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.segment-row__prefix {
+  width: 8rem;
+  max-width: 100%;
+}
+
+.segment-row__variant {
+  width: 10rem;
+  max-width: 100%;
+}
+
+/* 移位鈕橫排 */
+.segment-row__move {
+  flex-direction: row;
+  gap: 0.375rem;
+}
+
+/*
+  powerline 前景覆寫色選：預設隱藏，僅 powerline 模式顯示。
+  main.ts 於 <body> 設 data-mode="plain|powerline"（全域），CSS 據此切換。
+*/
+.segment-row__fg-mount {
+  display: none;
+}
+
+body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
+  display: flex;
+}
+
+/* 閾值掛載點佔整行（百分比段） */
+.segment-row__threshold-mount {
+  flex-basis: 100%;
+}
+
+/* ---- 圖示鈕（移位／spinbutton 步進）：≥24×24 CSS px（WCAG 2.5.8） ---- */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem; /* 28px ≥ 24 */
+  min-height: 1.75rem;
+  padding: 0.25rem;
+  border: 1px solid #4b5563;
+  border-radius: 0.375rem;
+  background-color: #ffffff;
+  color: #1f2328;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  border-color: #1d4ed8;
+  background-color: #f9fafb;
+}
+
+.icon-button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ============================================================
+   色選（SP-6 pattern B：16 swatch＋spinbutton＋原生 color）
+   ============================================================ */
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  min-width: 0;
+}
+
+.color-picker__legend {
+  padding: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.color-picker__modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+.color-picker__panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding-top: 0.25rem;
+}
+
+/* ---- 16 基本色 swatch（main.ts 生成，見 index.html template 註解） ---- */
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  max-width: 300px; /* SP-6：wrap 版面窄視口內收 */
+}
+
+/* 每 swatch＝<label><input radio（視覺隱藏但可聚焦）><span chip></label> */
+.color-swatch {
+  position: relative;
+  display: inline-flex;
+}
+
+.color-swatch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+}
+
+.color-swatch__chip {
+  display: block;
+  width: 1.5rem; /* 24px 觸控下限（WCAG 2.5.8） */
+  height: 1.5rem;
+  border: 1px solid rgba(31, 35, 40, 0.35); /* 淺色 chip 也可見邊界 */
+  border-radius: 0.25rem;
+  /* background-color 由 main.ts 依 ANSI 索引 inline 設定 */
+}
+
+/* 選中／聚焦環（focus 掛在 chip 上，因 input 視覺隱藏） */
+.color-swatch input:checked + .color-swatch__chip {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+.color-swatch input:focus-visible + .color-swatch__chip {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+/* ---- 自訂 spinbutton（原生 number 無法承載 aria-valuetext，見 SP-6） ---- */
+.color-spinbutton-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.color-spinbutton-field__label {
+  font-size: 0.8125rem;
+  color: #1f2328;
+}
+
+.color-spinbutton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.color-spinbutton__step {
+  min-width: 1.5rem; /* 24px */
+  min-height: 1.5rem;
+  padding: 0;
+  border: 1px solid #4b5563;
+  border-radius: 0.25rem;
+  background-color: #ffffff;
+  color: #1f2328;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.color-spinbutton__step:hover {
+  border-color: #1d4ed8;
+}
+
+.color-spinbutton__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.5rem; /* SP-6：spinbutton min 56×24 */
+  min-height: 1.5rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid #4b5563;
+  border-radius: 0.25rem;
+  background-color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  cursor: text;
+}
+
+.color-swatch--preview {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid rgba(31, 35, 40, 0.35);
+  border-radius: 0.25rem;
+  /* background-color 由 main.ts 即時反映當前 ANSI 索引色 */
+}
+
+.color-picker__native {
+  width: 3rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid #4b5563;
+  border-radius: 0.375rem;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+/* ============================================================
+   閾值編輯器（disclosure）
+   ============================================================ */
+.threshold {
+  width: 100%;
+}
+
+/* disclosure 觸發鈕（<button aria-expanded>）＋展開指示三角 */
+.threshold__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #4b5563;
+  border-radius: 0.375rem;
+  background-color: #ffffff;
+  color: #1f2328;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.threshold__toggle:hover {
+  border-color: #1d4ed8;
+}
+
+.threshold__toggle::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 0.75rem;
+  transition: transform 0.15s ease;
+}
+
+.threshold__toggle[aria-expanded='true']::before {
+  transform: rotate(90deg);
+}
+
+.threshold__panel {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  background-color: #f9fafb;
+}
+
+.threshold__template-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-width: 20rem;
+  margin-bottom: 1rem;
+}
+
+.threshold__template-field > label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+/* 10 桶（main.ts 生成：label「0–9%」…＋色選 clone），窄視口不橫向溢出 */
+.threshold__buckets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+/* ============================================================
+   即時預覽
+   ============================================================ */
+.preview-section {
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+}
+
+/*
+  Nerd Font 提示橫幅（PLAN §預覽契約）：常駐、以內容切換承載顯隱
+  （main.ts 換文字＋切 --active），**不得 display:none**。
+*/
+.nerd-font-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  border-left: 4px solid #ca8a04; /* 中性態邊條（對白底 ≈ 3.9:1，非文字達標） */
+  background-color: #fefce8;
+  color: #713f12; /* 對 #fefce8 ≈ 8.7:1 */
+  font-size: 0.9375rem;
+}
+
+.nerd-font-banner__text {
+  margin: 0;
+}
+
+/* icon／powerline 啟用時加強視覺（main.ts 切 class） */
+.nerd-font-banner--active {
+  border-left-color: #a16207; /* 對白底 ≈ 4.6:1 */
+  background-color: #fef9c3;
+}
+
+.preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  margin-bottom: 1rem;
+}
+
+/*
+  終端模擬框（role="img"）：等寬字＋橫向捲動（長狀態列不撐破版面）。
+  首行字型為 Nerd Font 子集，family 名須與 T3.2 的 @font-face 一致
+  （契約：'Symbols Nerd Font Mono'）；載入失敗則退回系統等寬字，
+  glyph 以豆腐/替代顯示（可接受的降級，實際圖示以使用者終端為準）。
+*/
+.preview-terminal {
+  min-height: 3rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  font-family: 'Symbols Nerd Font Mono', ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo,
+    Consolas, monospace;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.preview-terminal--dark {
+  background-color: #1e1e1e;
+  color: #e6e6e6; /* 對 #1e1e1e ≈ 13.6:1（終端預設前景，ANSI 由 span 覆寫） */
+}
+
+.preview-terminal--light {
+  background-color: #f6f8fa;
+  color: #1f2328; /* 對 #f6f8fa ≈ 15.3:1 */
+}
+
+/* ============================================================
+   產出腳本
+   ============================================================ */
+.output-section {
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+}
+
+.output-block {
+  margin-bottom: 1.5rem;
+}
+
+.output-block:last-child {
+  margin-bottom: 0;
+}
+
+.output-block__heading {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1f2328;
+  margin-bottom: 0.5rem;
+}
+
+.output-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* <pre tabindex="0">：可鍵盤聚焦捲動（WCAG 2.1.1），橫向捲動不撐破版面 */
+.output-block__code {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background-color: #1e1e1e;
+  color: #e6e6e6; /* 對 #1e1e1e ≈ 13.6:1 */
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.output-block__code:empty {
+  display: none;
+}
+
+.output-block__code code {
+  font-family: inherit;
+  color: inherit;
+  white-space: pre;
+}
+
+/* ============================================================
+   響應式：窄視口不橫向溢出
+   ============================================================ */
+@media (max-width: 480px) {
+  .segment-row__controls {
+    gap: 0.75rem;
+  }
+
+  .segment-row__prefix,
+  .segment-row__variant {
+    width: 100%;
+  }
+
+  .color-swatches {
+    max-width: 100%;
+  }
+}
+
+/*
+  注：:focus-visible 焦點框、prefers-reduced-motion 皆由 src/style.css
+  全站規則涵蓋（reduced-motion 會停用上方 .threshold__toggle::before 的
+  transform 過渡）；本檔不重複定義。
+*/

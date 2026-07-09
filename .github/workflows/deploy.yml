@@ -15,7 +15,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 跨平台部署 gate（S5-T4.1；PLAN r2.1 nit #9）：push:[main] 不觸發 test.yml，
+  # 直推 main 原可繞過跨平台把關。此 windows job 使部署路徑自帶 ps1 5.1／pwsh 7
+  # 真執行前置——build 依賴其成功（needs），失敗則不 build、不部署，不倚賴
+  # branch protection 設定。ubuntu 側的 bash+jq 與單元/黃金 gate 由下方 build
+  # job 的既有 npm test 步驟承擔（另補 jq 保險步）。
+  windows-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
   build:
+    needs: windows-test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,6 +56,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # ubuntu bash+jq 真執行 gate 需系統 jq（見 test.yml 同名步說明）。
+      - name: Ensure jq (ubuntu bash+jq real-exec gate)
+        run: jq --version || (sudo apt-get update && sudo apt-get install -y jq)
 
       - name: Typecheck
         run: npm run typecheck

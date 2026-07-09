@@ -30,4 +30,11 @@ export const tools: Tool[] = [
     path: './tools/video-converter/',
     status: 'available',
   },
+  {
+    slug: 'statusline-builder',
+    name: 'Claude Code Statusline 產生器',
+    description: '視覺化設定 Claude Code statusline，產出 bash／ps1／settings 腳本',
+    path: './tools/statusline-builder/',
+    status: 'available',
+  },
 ]

@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Code Statusline 產生器｜EZTools</title>
+    <meta
+      name="description"
+      content="在瀏覽器端設計 Claude Code 狀態列：勾選 segment、排序、配色、設定百分比閾值變色，即時預覽並產出 bash／PowerShell 腳本與 settings.json 片段，全程不上傳。"
+    />
+  </head>
+  <body>
+    <!--
+      ============================================================
+      T3.1 靜態骨架（零 JS 邏輯）。互動由 T3.3 的 main.ts 接線、
+      預覽 DOM 由 T3.2 的 render-preview.ts 填入。本檔只出「固定頁面
+      骨架＋分區 landmark＋live region＋<template> 生成契約」；所有
+      節點的 id/class/data-* 命名為與 T3.3／T3.2 對接的結構契約，
+      詳見 .t31-report.md 的「DOM 結構契約表」與各處內嵌註解。
+
+      掛載點＝檔尾 <script type="module" src="./main.ts">（比照
+      gif-editor：main.ts 以 import '../../src/style.css' + import
+      './style.css' 消費樣式，並在 DOMContentLoaded 後 query 下列節點
+      接線）。main.ts 由 T3.3 交付，本 task 不寫其邏輯。
+      ============================================================
+    -->
+    <header>
+      <a href="../../" class="back-link">← 返回 EZTools</a>
+      <h1>Claude Code Statusline 產生器</h1>
+      <p>
+        設計 Claude Code 的自訂狀態列：勾選要顯示的 segment、拖曳或用上下鈕排序、選顏色與百分比閾值變色，即時預覽，一鍵產出
+        bash（<code>.sh</code>）與 PowerShell（<code>.ps1</code>）腳本，以及
+        <code>settings.json</code> 片段。所有處理都在瀏覽器端完成，不會上傳任何資料。
+      </p>
+      <p>
+        預覽區的 powerline 箭頭與 segment 圖示以本頁內建的 Nerd Font 子集渲染；實際狀態列的圖示需你的終端自行安裝
+        Nerd Font（詳見預覽區提示）。
+      </p>
+    </header>
+    <main>
+      <!--
+        錯誤播報（PLAN §Builder UI a11y 契約末條「驗證拒收 role=alert」）：
+        常駐 role=alert 容器，供 main.ts／validate.ts 於前綴或自訂分隔符
+        觸及拒收集 R（換行/CR/NUL/控制字元/bidi/PUA/長度>8）時填入訊息。
+        沿用 gif-editor 的 is-empty 收合 pattern：節點永不切 hidden，只切
+        .is-empty 收合視覺框，確保 SR 的 alert 監看自載入起即掛載。
+      -->
+      <div role="alert" id="error-message" class="alert-message is-empty"></div>
+
+      <!-- ============ 全域設定 ============ -->
+      <section class="tool-section" aria-labelledby="global-heading" id="global-section">
+        <h2 id="global-heading">全域設定</h2>
+        <div class="global-controls">
+          <!--
+            呈現模式（plain↔powerline）＝視圖切換（PLAN §D3／§Builder UI
+            a11y 契約 mode 切換條）：切到 powerline 時 main.ts 需 (1) 顯示
+            每列的前景覆寫色選（fg-override）、(2) 停用自訂分隔符、(3) 焦點
+            移至新控件群起點＋經 #global-live-status 播報「顏色語意已翻轉，
+            請檢視預覽」。radio 群＝原生單選語意，legend 承載群組名。
+          -->
+          <fieldset class="control-group" id="mode-group">
+            <legend>呈現模式</legend>
+            <label class="inline-choice">
+              <input type="radio" name="mode" id="mode-plain" value="plain" checked />
+              純文字（plain）
+            </label>
+            <label class="inline-choice">
+              <input type="radio" name="mode" id="mode-powerline" value="powerline" />
+              Powerline（色塊＋箭頭）
+            </label>
+          </fieldset>
+
+          <!--
+            分隔符（PLAN §型別契約 SeparatorConfig）：preset 正面表列
+            （'|'／'›'／'·'／空格）＋「自訂」。選「自訂」時 main.ts 顯示
+            #separator-custom（≤8、plain 限定，powerline 模式整組停用）。
+            帶值控件一律 label[for]＋獨立 id（禁 wrap-label）。
+          -->
+          <div class="control-group">
+            <label for="separator-preset">分隔符</label>
+            <select id="separator-preset">
+              <!-- value 前綴 preset:／custom＝main.ts 映射 SeparatorConfig.kind -->
+              <option value="preset:|" selected>豎線 |</option>
+              <option value="preset:›">箭頭 ›</option>
+              <option value="preset:·">中點 ·</option>
+              <option value="preset: ">空格</option>
+              <option value="custom">自訂…</option>
+            </select>
+            <!-- main.ts 依 preset 選項顯隱此列（選 custom 才顯示、才進 tab 序） -->
+            <div class="control-subfield" id="separator-custom-field" hidden>
+              <label for="separator-custom">自訂分隔符（≤8 字元，僅 plain 模式）</label>
+              <input type="text" id="separator-custom" maxlength="8" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+
+          <!--
+            lastArrowCap（PLAN Q1，預設 true）：powerline 末段是否補收尾
+            箭頭。plain 模式無意義，main.ts 於 plain 時停用。
+          -->
+          <div class="control-group">
+            <label class="inline-choice">
+              <input type="checkbox" id="last-arrow-cap" checked />
+              Powerline 末段補收尾箭頭
+            </label>
+          </div>
+
+          <!--
+            settings.json 腳本路徑（PLAN 產生器契約 11）：使用者填腳本安裝
+            路徑，main.ts 據此組 settings 片段的 command。
+          -->
+          <div class="control-group">
+            <label for="settings-path">settings.json 內的腳本路徑</label>
+            <input
+              type="text"
+              id="settings-path"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="~/.claude/statusline.sh"
+            />
+          </div>
+        </div>
+
+        <!--
+          全域播報 live region（常駐、sr-only）：mode 切換的「顏色語意
+          翻轉」提醒、套用模板批次結果等非「複製成功」類播報走此區。
+          sr-only 以 clip 隱藏＝仍在 a11y tree（非 display:none/hidden），
+          符合「live region 須常駐」不變量。
+        -->
+        <div role="status" aria-live="polite" id="global-live-status" class="sr-only"></div>
+      </section>
+
+      <!--
+        Segment 清單前的 skip 連結（PLAN §Builder UI a11y 契約「skip
+        機制」）：24 列複合控件全展開時 tab 停點眾多（SP-6 量測 S3≈423
+        停），讓鍵盤／SR 使用者一步跳到預覽或產出，不必逐列穿越。
+        預設離屏、聚焦時顯現（style.css .skip-link）。目標 section 帶
+        tabindex="-1" 以承接程式化焦點。
+      -->
+      <nav class="skip-nav" aria-label="區塊快速跳轉">
+        <a href="#preview-section" class="skip-link">跳至預覽</a>
+        <a href="#output-section" class="skip-link">跳至產出腳本</a>
+      </nav>
+
+      <!-- ============ Segment 清單（四類分區） ============ -->
+      <div class="segment-lists">
+        <p class="segment-lists__hint">
+          勾選以啟用 segment；啟用後才展開排序、配色、前綴等控件。以每列的上／下移鈕（或拖曳）調整顯示順序。
+        </p>
+
+        <!--
+          排序播報 live region（常駐、sr-only）：上／下移或拖曳後，main.ts
+          填入「<段名> 移至第 N 位（共 M）」。與 #global-live-status 分開，
+          避免移位頻繁播報淹沒 mode 切換等重要提醒。
+        -->
+        <div role="status" aria-live="polite" id="segment-move-status" class="sr-only"></div>
+
+        <!--
+          四類 landmark（§Segment 目錄：永在10／百分比4／條件7／shell-out3
+          ＝24 段四類）。每 <section> 以 aria-labelledby 指向該類 <h2>＝
+          region 可及名稱，SR 可直接跳達。各 <ol> 初始為空，main.ts 依
+          SEGMENT_DESCRIPTORS（目錄順序＝清單順序）clone #segment-row-template
+          填入對應類別的列（生成契約見該 template 註解與 .t31-report.md）。
+        -->
+        <section class="segment-section" aria-labelledby="segments-always-heading">
+          <h2 id="segments-always-heading" class="segment-section__heading">永在 segment</h2>
+          <p class="segment-section__desc">stdin JSON 恆有的欄位，隨時可顯示。</p>
+          <ol class="segment-list" id="segment-list-always" data-category="always"></ol>
+        </section>
+
+        <section class="segment-section" aria-labelledby="segments-percentage-heading">
+          <h2 id="segments-percentage-heading" class="segment-section__heading">百分比 segment</h2>
+          <p class="segment-section__desc">可掛百分比閾值變色；值為 null 時顯示 <code>--</code>、不套閾值色。</p>
+          <ol class="segment-list" id="segment-list-percentage" data-category="percentage"></ol>
+        </section>
+
+        <section class="segment-section" aria-labelledby="segments-conditional-heading">
+          <h2 id="segments-conditional-heading" class="segment-section__heading">條件性 segment</h2>
+          <p class="segment-section__desc">狀態不成立時該欄缺席，整段自動剔除。</p>
+          <ol class="segment-list" id="segment-list-conditional" data-category="conditional"></ol>
+        </section>
+
+        <section class="segment-section" aria-labelledby="segments-shellout-heading">
+          <h2 id="segments-shellout-heading" class="segment-section__heading">Shell-out segment</h2>
+          <p class="segment-section__desc">值來自執行外部指令（git／時鐘），非 stdin JSON。</p>
+          <ol class="segment-list" id="segment-list-shellout" data-category="shell-out"></ol>
+        </section>
+      </div>
+
+      <!-- ============ 即時預覽 ============ -->
+      <section
+        class="tool-section preview-section"
+        aria-labelledby="preview-heading"
+        id="preview-section"
+        tabindex="-1"
+      >
+        <h2 id="preview-heading">即時預覽</h2>
+
+        <!--
+          Nerd Font 提示橫幅（PLAN §預覽契約）：常駐 a11y tree，以「內容
+          切換」承載顯隱——**不得以 display:none/hidden 切換**（那會使
+          aria-describedby 目標與常駐提示失效）。main.ts 於 icon／powerline
+          啟用時把 icon 切換鈕與 mode 控件 aria-describedby 指向本節點 id，
+          並切 .nerd-font-banner--active 加強視覺；停用時退回中性內容。
+          安裝連結佔位 href 由 main.ts／T3.2 確認最終 URL。
+        -->
+        <div class="nerd-font-banner" id="nerd-font-banner">
+          <p class="nerd-font-banner__text" id="nerd-font-banner-text">
+            圖示需你的終端安裝 Nerd Font；此預覽使用內建字型，實際顯示以你的終端為準。
+          </p>
+          <a
+            class="nerd-font-banner__link"
+            id="nerd-font-install-link"
+            href="https://www.nerdfonts.com/"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Nerd Font 安裝說明
+          </a>
+        </div>
+
+        <div class="preview-controls">
+          <!--
+            深／淺底切換（PLAN §預覽契約：各具群組可及名稱）。main.ts／T3.2
+            切 #preview-terminal 的 --dark／--light modifier；切換結果沿用
+            預覽快照、**刻意不另行播報**（與非-aria-live 決策一致）。
+          -->
+          <fieldset class="control-group" id="preview-bg-group">
+            <legend>預覽底色</legend>
+            <label class="inline-choice">
+              <input type="radio" name="preview-bg" id="preview-bg-dark" value="dark" checked />
+              深色
+            </label>
+            <label class="inline-choice">
+              <input type="radio" name="preview-bg" id="preview-bg-light" value="light" />
+              淺色
+            </label>
+          </fieldset>
+
+          <!--
+            mock 情境 radiogroup（PLAN §預覽契約；情境集＝mock-data.ts
+            MOCK_SCENARIOS）。legend＝群組可及名稱。value＝MockScenarioId，
+            main.ts／T3.2 據此以 render-preview 重繪。切換不另行播報（同上）。
+          -->
+          <fieldset class="control-group" id="preview-scenario-group">
+            <legend>預覽情境</legend>
+            <label class="inline-choice">
+              <input type="radio" name="preview-scenario" id="scenario-full" value="full" checked />
+              滿血（全欄位齊備）
+            </label>
+            <label class="inline-choice">
+              <input type="radio" name="preview-scenario" id="scenario-early-null" value="early-null" />
+              session 早期（可 null 欄全 null）
+            </label>
+            <label class="inline-choice">
+              <input
+                type="radio"
+                name="preview-scenario"
+                id="scenario-conditional-absent"
+                value="conditional-absent"
+              />
+              條件欄位全缺席
+            </label>
+            <label class="inline-choice">
+              <input type="radio" name="preview-scenario" id="scenario-windows-cjk" value="windows-cjk" />
+              Windows 長路徑＋CJK
+            </label>
+          </fieldset>
+        </div>
+
+        <!--
+          終端模擬框（PLAN §預覽契約）：role="img"＋aria-label（＝StyledRun
+          的 ariaText 串接，PUA glyph 不進 label）。初始 aria-label 為佔位，
+          T2.2 的 aria-label 純函式 + render-preview.ts（T3.2）於每次 resolve
+          後同步更新 aria-label 與內部 span（span 為裝飾、aria-hidden）。
+          深/淺底以 --dark／--light modifier 切換（此處預設 --dark）。
+        -->
+        <div
+          class="preview-terminal preview-terminal--dark"
+          id="preview-terminal"
+          role="img"
+          aria-label="狀態列預覽（尚未產生，請啟用 segment）"
+        ></div>
+      </section>
+
+      <!-- ============ 產出腳本 ============ -->
+      <section
+        class="tool-section output-section"
+        aria-labelledby="output-heading"
+        id="output-section"
+        tabindex="-1"
+      >
+        <h2 id="output-heading">產出腳本</h2>
+
+        <!--
+          複製／下載成功播報 live region（PLAN §產出區「常駐 live region，
+          is-empty pattern」）：main.ts 於複製成功等操作後填「已複製 bash
+          腳本」等，再於下次操作前清空。is-empty 收合視覺（同 gif-editor
+          .status-message），節點永不切 hidden。
+        -->
+        <div role="status" aria-live="polite" id="output-status" class="status-message is-empty"></div>
+
+        <!--
+          三份產出各為具名 heading 區塊（<h3>）＋<pre>＋複製鈕＋下載鈕。
+          鈕的 accessible name 帶產物別（複製 bash／下載 PowerShell…）＝
+          三列同角色控件可辨。<pre tabindex="0">＝可鍵盤聚焦捲動的 code
+          區（WCAG 2.1.1），overflow-x auto。main.ts 設 <code> textContent
+          與下載 <a> 的 href（Blob URL：.ps1 帶 UTF-8 BOM／.sh 無，見
+          PLAN 產生器契約 8／10）。
+        -->
+        <div class="output-block" aria-labelledby="output-bash-heading">
+          <h3 id="output-bash-heading" class="output-block__heading">bash 腳本（statusline.sh）</h3>
+          <div class="output-block__actions">
+            <button type="button" id="copy-bash" class="button-like button-like--secondary">複製 bash 腳本</button>
+            <!-- href 由 main.ts 設 Blob URL（初始無 href＝不具連結語意、不進 tab 序，同 gif-editor download-link） -->
+            <a id="download-bash" class="button-like button-like--secondary" download="statusline.sh">下載 bash 腳本</a>
+          </div>
+          <pre class="output-block__code" id="output-bash" tabindex="0"><code></code></pre>
+        </div>
+
+        <div class="output-block" aria-labelledby="output-ps1-heading">
+          <h3 id="output-ps1-heading" class="output-block__heading">PowerShell 腳本（statusline.ps1）</h3>
+          <div class="output-block__actions">
+            <button type="button" id="copy-ps1" class="button-like button-like--secondary">複製 PowerShell 腳本</button>
+            <a id="download-ps1" class="button-like button-like--secondary" download="statusline.ps1">下載 PowerShell 腳本</a>
+          </div>
+          <pre class="output-block__code" id="output-ps1" tabindex="0"><code></code></pre>
+        </div>
+
+        <div class="output-block" aria-labelledby="output-settings-heading">
+          <h3 id="output-settings-heading" class="output-block__heading">settings.json 片段</h3>
+          <div class="output-block__actions">
+            <button type="button" id="copy-settings" class="button-like button-like--secondary">複製 settings 片段</button>
+            <a id="download-settings" class="button-like button-like--secondary" download="statusline.settings.json">下載 settings 片段</a>
+          </div>
+          <pre class="output-block__code" id="output-settings" tabindex="0"><code></code></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>EZTools — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+    </footer>
+
+    <!--
+      ============================================================
+      生成用 <template>（DOM 結構契約）。<template> 內容不進 a11y tree／
+      不渲染，僅供 main.ts clone。id/for/name/aria-controls 內的
+      __ID__／__PID__／__TID__ 為佔位 token：main.ts 每生成一實例即以
+      唯一 key 取代（保證 id 全域唯一、label[for]／aria-controls 成對
+      重寫）。詳細生成契約見 .t31-report.md「DOM 結構契約表」。
+      ============================================================
+    -->
+
+    <!--
+      segment 列範本（PLAN §Builder UI a11y 契約 segment 清單條）。
+      main.ts 生成契約：
+      1. 每 descriptor clone 一次，插入 data-category 對應的 <ol>。
+      2. 設 <li data-segment-id>、把所有 __ID__ 換成 segment id。
+      3. .segment-row__name 文字＝descriptor.label（enable checkbox 的
+         accessible name＝段名，識別該列，比照 gif-editor「保留幀 N」）。
+      4. 各控件 accessible name＝「段名 — 角色」：以 label 內 sr-only 的
+         .control-name-context 承載「<段名> — 」前綴（視覺只見角色字），
+         移位鈕／色選群組等無可見文字者由 main.ts 設 aria-label 全名。
+      5. 依 descriptor 裁剪：無 variants → 移除 .segment-row__variant-field；
+         category!=='percentage' → 移除 .segment-row__threshold-mount；
+         plain 模式 → 隱藏 .segment-row__fg-mount（powerline 才顯示）。
+      6. 色選：clone #color-picker-template 進 .segment-row__color-mount
+         （base）與 .segment-row__fg-mount（fg-override）。
+      7. 閾值：category==='percentage' → clone #threshold-editor-template
+         進 .segment-row__threshold-mount。
+      8. variant：有 variants → 以 descriptor.variants 填 <select> options。
+      9. 啟用態：checkbox 勾選時於 <li> 加 .segment-row--enabled（CSS 據此
+         展開 .segment-row__controls；停用列僅留 checkbox＋名稱於 tab 序）。
+      10. 移位：上/下移鈕點擊或拖曳後，經 #segment-move-status 播報位置。
+    -->
+    <template id="segment-row-template">
+      <li class="segment-row" data-segment-id="">
+        <div class="segment-row__enable-field">
+          <input type="checkbox" class="segment-row__enable" id="__ID__-enable" />
+          <label for="__ID__-enable" class="segment-row__name"></label>
+        </div>
+
+        <!-- 停用時 CSS 收合整塊（display:none＝退出 tab 序＋a11y tree，此處刻意，非 live region） -->
+        <div class="segment-row__controls">
+          <div class="segment-row__field segment-row__move">
+            <button type="button" class="icon-button segment-row__move-up" aria-label="">
+              <span aria-hidden="true">↑</span>
+            </button>
+            <button type="button" class="icon-button segment-row__move-down" aria-label="">
+              <span aria-hidden="true">↓</span>
+            </button>
+          </div>
+
+          <div class="segment-row__field">
+            <label class="inline-choice">
+              <input type="checkbox" class="segment-row__icon" id="__ID__-icon" />
+              <span class="control-name-context sr-only"></span>顯示圖示
+            </label>
+          </div>
+
+          <div class="segment-row__field">
+            <label for="__ID__-prefix"><span class="control-name-context sr-only"></span>前綴</label>
+            <input
+              type="text"
+              class="segment-row__prefix"
+              id="__ID__-prefix"
+              maxlength="8"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+
+          <!-- 僅有 variants 的段（cwd／rate-5h／rate-7d）保留；其餘由 main.ts 移除 -->
+          <div class="segment-row__field segment-row__variant-field">
+            <label for="__ID__-variant"><span class="control-name-context sr-only"></span>顯示樣式</label>
+            <select class="segment-row__variant" id="__ID__-variant"></select>
+          </div>
+
+          <!-- base 顏色（plain=前景／powerline=背景，語意隨 mode，值不重映射）；main.ts clone 色選進此 -->
+          <div class="segment-row__field segment-row__color-mount" data-color-role="base"></div>
+
+          <!-- powerline 前景覆寫（auto-fg override）；plain 模式 CSS 隱藏；main.ts clone 色選進此 -->
+          <div class="segment-row__field segment-row__fg-mount" data-color-role="fg-override"></div>
+
+          <!-- 百分比段的閾值編輯器掛載點；非百分比段由 main.ts 移除 -->
+          <div class="segment-row__threshold-mount" data-threshold-mount></div>
+        </div>
+      </li>
+    </template>
+
+    <!--
+      色選範本（PLAN §D6＝SP-6 pattern B：16 基本色 radio＋0–255 spinbutton；
+      truecolor 用原生 <input type="color">）。__PID__＝色選實例唯一 key。
+      main.ts 生成契約：
+      - .color-picker__legend 文字＝「<段名> — 顏色／前景色」（base／
+        fg-override）或閾值桶名（「<段名> 閾值 0–9%」…），以 .control-name-context
+        承載完整識別。
+      - 三態 mode radio（default／ansi256／truecolor）＝終端預設有自身可及
+        名稱「終端預設」；選 default 隱藏兩 panel、選 ansi256／truecolor
+        顯示對應 panel（hidden 屬性切換即可，非 live region）。
+      - ANSI 面板（pattern B）：main.ts 於 [data-swatch-container] 生成 16
+        個基本色 radio（name=__PID__-swatch，accessible name＝color.ts
+        ansi256SwatchName(i)＝「ANSI n #hex」，swatch ≥24×24）；spinbutton
+        為自訂 role=spinbutton（原生 number 無法承載 aria-valuetext），
+        main.ts 綁上/下箭頭＋數字直入，更新 aria-valuenow／aria-valuetext
+        （＝ansi256SwatchName）＋ .color-spinbutton__value 顯示。
+      - .color-swatch--preview 為即時色 chip（aria-hidden，裝飾）。
+    -->
+    <template id="color-picker-template">
+      <fieldset class="color-picker" data-picker-id="__PID__">
+        <legend class="color-picker__legend"><span class="control-name-context"></span></legend>
+
+        <div class="color-picker__modes">
+          <label class="inline-choice">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode" value="default" checked />
+            終端預設
+          </label>
+          <label class="inline-choice">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode" value="ansi256" />
+            ANSI 256 色
+          </label>
+          <label class="inline-choice">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode" value="truecolor" />
+            自訂顏色
+          </label>
+        </div>
+
+        <div class="color-picker__panel color-picker__ansi" data-mode-panel="ansi256" hidden>
+          <!--
+            main.ts 生成 16 個 <label class="color-swatch"><input type="radio"
+            name="__PID__-swatch" value="{0..15}" /><span aria-hidden></span></label>，
+            radio accessible name＝ansi256SwatchName(i)。此容器初始空。
+          -->
+          <div class="color-swatches" data-swatch-container role="group" aria-label="基本 16 色"></div>
+
+          <div class="color-spinbutton-field">
+            <span class="color-spinbutton-field__label" id="__PID__-index-label">ANSI 索引（0–255）</span>
+            <div class="color-spinbutton">
+              <button type="button" class="color-spinbutton__step color-spinbutton__dec" tabindex="-1" aria-label="索引減 1">
+                <span aria-hidden="true">−</span>
+              </button>
+              <span
+                class="color-spinbutton__control"
+                id="__PID__-index"
+                role="spinbutton"
+                tabindex="0"
+                aria-labelledby="__PID__-index-label"
+                aria-valuemin="0"
+                aria-valuemax="255"
+                aria-valuenow="0"
+                aria-valuetext="ANSI 0 #000000"
+              >
+                <span class="color-spinbutton__value" aria-hidden="true">0</span>
+              </span>
+              <button type="button" class="color-spinbutton__step color-spinbutton__inc" tabindex="-1" aria-label="索引加 1">
+                <span aria-hidden="true">＋</span>
+              </button>
+            </div>
+            <span class="color-swatch color-swatch--preview" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <div class="color-picker__panel color-picker__truecolor" data-mode-panel="truecolor" hidden>
+          <label for="__PID__-hex"><span class="control-name-context"></span>自訂顏色（十六進位）</label>
+          <input type="color" class="color-picker__native" id="__PID__-hex" value="#000000" />
+        </div>
+      </fieldset>
+    </template>
+
+    <!--
+      閾值編輯器範本（PLAN §Builder UI a11y 契約閾值編輯器條）。__TID__＝
+      閾值實例唯一 key。main.ts 生成契約：
+      - disclosure：.threshold__toggle 為 <button aria-expanded>＋
+        aria-controls 指向 .threshold__panel；預設收合（aria-expanded
+        false、panel hidden），展開才進 tab 序；展開/收合須播報＋焦點管理。
+      - 模板 <select>：選項已列（含「（自訂）」空值＋4 模板）；套用＝批次
+        操作，main.ts 經 #global-live-status 播報「已套用 <模板>，10 段
+        顏色已更新」；套用後逐桶改 → select 回「（自訂）」。
+      - 10 桶：main.ts 於 [data-bucket-container] 生成 10 列，每列
+        label（文字「0–9%」…「90–100%」，以 .control-name-context 承載
+        「<段名> 閾值 」識別前綴）＋ clone #color-picker-template（桶色）。
+    -->
+    <template id="threshold-editor-template">
+      <div class="threshold" data-threshold-id="__TID__">
+        <button
+          type="button"
+          class="threshold__toggle"
+          id="__TID__-toggle"
+          aria-expanded="false"
+          aria-controls="__TID__-panel"
+        >
+          <span class="control-name-context sr-only"></span>閾值變色設定
+        </button>
+        <div class="threshold__panel" id="__TID__-panel" hidden>
+          <div class="threshold__template-field">
+            <label for="__TID__-template"><span class="control-name-context sr-only"></span>套用模板</label>
+            <select class="threshold__template" id="__TID__-template">
+              <option value="" selected>（自訂）</option>
+              <option value="traffic">交通號誌（綠→黃→紅）</option>
+              <option value="traffic-inv">反向交通號誌（紅→綠）</option>
+              <option value="cool-warm">冷暖（藍→紅）</option>
+              <option value="mono-fade">單色漸亮</option>
+            </select>
+          </div>
+          <!-- main.ts 生成 10 桶（label「0–9%」…「90–100%」＋色選 clone）；初始空 -->
+          <div class="threshold__buckets" data-bucket-container></div>
+        </div>
+      </div>
+    </template>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

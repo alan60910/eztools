@@ -3,7 +3,7 @@
 Project-wide instructions for AI agents working in this repo.
 
 ## What this is
-EZTools — 純靜態網頁工具合集入口頁面（APNG→GIF 轉換、GIF 編輯、影片格式轉換），部署於 GitHub Pages。Architecture and full feature spec live in
+EZTools — 純靜態網頁工具合集入口頁面（APNG→GIF 轉換、GIF 編輯、影片格式轉換、Claude Code statusline 產生器），部署於 GitHub Pages。Architecture and full feature spec live in
 [SPEC.md](SPEC.md).
 
 ## Run / test commands

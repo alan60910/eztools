@@ -5,7 +5,7 @@ Architecture and feature spec, kept in sync with the codebase. Updated by
 
 ## Architecture overview
 EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署於 GitHub Pages。
-沒有後端伺服器，所有檔案處理（圖片轉換、GIF 編輯、影片轉檔）皆在使用者的
+沒有後端伺服器，所有處理（媒體轉換／編輯與開發者小工具之設定產生）皆在使用者的
 瀏覽器端完成。以 Vite 建置為 MPA（Multi-Page Application）：入口頁面
 （`index.html`）靜態列出所有工具，零 JS；各工具為 `tools/<slug>/` 下的
 獨立頁面，建置時自動掃描收錄。入口頁清單於建置／開發期由 `src/tools.ts`
@@ -28,6 +28,10 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - 影片格式轉換工具 — ffmpeg.wasm（單執行緒 core，self-host vendor）
   ffprobe 探測 → 白名單 remux 優先／轉碼後備／blind-transcode 降級 → MP4；
   位於 `tools/video-converter/`
+- Claude Code statusline 產生器 — segment 目錄（tri-path 描述子）／閾值變色／
+  執行期 join／三後端產生器（bash／ps1／settings.json 片段）＋emit-ansi oracle，
+  零 runtime 依賴，self-host Nerd Font subset（僅預覽用）；位於
+  `tools/statusline-builder/`
 
 ## Public surface
 - 靜態網頁（GitHub Pages 託管的 HTML/CSS/JS）
@@ -52,8 +56,14 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   SharedArrayBuffer 不可用之硬約束見 magi/TECHSTACK.md Constraints
 - 大型第三方 runtime 資產以 npm exact pin 為源，建置期（predev/prebuild
   hook）自 node_modules 複製至 `public/vendor/<name>/`（不進 git），複製
-  腳本斷言版本與 pin 同步、verify-dist 斷言產物存在；載入一律顯式同源
-  **絕對** URL，禁止依賴套件內建 CDN fallback
+  腳本斷言版本與 pin 同步、verify-dist 斷言產物存在；經 dynamic import／
+  Worker 載入之 runtime JS/wasm 資產一律以顯式同源**絕對** URL 載入，
+  禁止依賴套件內建 CDN fallback
+- 非執行型小型第三方靜態資產（字型／圖片／資料，約數十 KB 級——精確上限
+  由 verify-dist 斷言把關，如 statusline-builder 的 Nerd Font subset
+  <100KB）可直接簽入工具目錄：須附授權聲明檔、來源版本＋再生工序記錄
+  （provenance），並列入 README 第三方元件段；以 HTML/CSS 同源相對參照
+  載入、由 Vite 資產管線處理，不受上述絕對-URL 條文約束
 - 工具頁骨架：header（含返回入口連結）／`<main>`／footer、單一 `<h1>`、
   描述性 `<title>`、meta description
 - 互動工具 a11y 不變量：拖放具鍵盤等效（原生 file input 留在 tab
@@ -76,6 +86,8 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 ## Status
 入口頁骨架已完成（Vite MPA 架構、工具清單注入機制、a11y 基線）。部署
 workflow 已就緒（首次部署待 Pages 前置設定與合併 main 驗證）。
-apng-to-gif、gif-editor、video-converter 皆已可用；PRD 三大工具目標完成。
+apng-to-gif、gif-editor、video-converter、statusline-builder 四工具皆已可用；
+PRD 四大工具目標完成，statusline-builder 已上線（Claude Code statusline 設定
+產生器；segment schema 基準版與人工重核註記見 README）。
 video-converter 之「上線」宣告以 GPL 授權聲明落地（README License 段）
 為前置。

@@ -46,6 +46,13 @@ svg {
 a {
   color: inherit;
 }
+/* 讓 `hidden` 屬性語意可靠：作者級 display（如 .color-picker__panel{display:flex}）
+   會蓋過 UA `[hidden]{display:none}`（origin 優先於 specificity）。此 !important
+   規則僅在元素持有 hidden 屬性時作用（移除 hidden 後作者 display 照常接手），
+   跨四工具安全——各工具皆只切布林 hidden、無「保留 hidden 卻用 display 顯示」意圖。 */
+[hidden] {
+  display: none !important;
+}
 
 /* ---- 基礎版面 ---- */
 body {
