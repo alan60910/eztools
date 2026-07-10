@@ -48,11 +48,13 @@ function seg(id: string, over: Partial<SegmentConfig> = {}): SegmentConfig {
 }
 
 function cfg(over: Partial<BuilderConfig> = {}): BuilderConfig {
+  const mode = over.mode ?? 'plain'
   return {
-    version: 1,
-    mode: 'plain',
+    version: 2,
+    mode,
     separator: { kind: 'preset', value: '|' },
     lastArrowCap: true,
+    powerlineArrow: mode === 'powerline',
     segments: [],
     ...over,
   }
@@ -362,6 +364,55 @@ describe('powerline join', () => {
   })
 })
 
+// ── D1 gating（06a：powerlineArrow × lastArrowCap 四組合，僅 powerline） ──
+
+describe('D1 gating（powerlineArrow × lastArrowCap）', () => {
+  const two = (over: Partial<BuilderConfig>) =>
+    cfg({
+      mode: 'powerline',
+      segments: [seg('model', { color: A(226) }), seg('cost', { color: A(16) })],
+      ...over,
+    })
+
+  it.each([true, false])(
+    'powerlineArrow=false（lastArrowCap=%s 無效）：無段間箭頭、無 cap、每段 value 後補一格',
+    (lastArrowCap) => {
+      const runs = resolve(two({ powerlineArrow: false, lastArrowCap }), FULL)
+      expect(runs.map((r) => r.text)).toEqual([`Fable 5 `, `${formatCost(3.3341)} `])
+      expect(runs.some((r) => r.text === POWERLINE_ARROW)).toBe(false)
+    },
+  )
+
+  it('powerlineArrow=true：完整 v1 語意（箭頭生效、無 padding）；lastArrowCap 依其值決定 cap', () => {
+    const capped = resolve(two({ powerlineArrow: true, lastArrowCap: true }), FULL)
+    expect(capped.map((r) => r.text)).toEqual([
+      'Fable 5',
+      POWERLINE_ARROW,
+      formatCost(3.3341),
+      POWERLINE_ARROW,
+    ])
+    const uncapped = resolve(two({ powerlineArrow: true, lastArrowCap: false }), FULL)
+    expect(uncapped.map((r) => r.text)).toEqual(['Fable 5', POWERLINE_ARROW, formatCost(3.3341)])
+  })
+
+  it('padding 併入著色 run（fg/bg 不變）、不新增裝飾 run（沉默處選擇 7）', () => {
+    const runs = resolve(two({ powerlineArrow: false, lastArrowCap: true }), FULL)
+    expect(runs).toEqual([
+      { text: 'Fable 5 ', fg: { kind: 'ansi256', index: 16 }, bg: { kind: 'ansi256', index: 226 } },
+      { text: `${formatCost(3.3341)} `, fg: { kind: 'ansi256', index: 231 }, bg: { kind: 'ansi256', index: 16 } },
+    ])
+  })
+
+  it('padding 不進 ariaText（toAriaLabel 逐 chunk trim，省略較不誤導）', () => {
+    const runs = resolve(
+      two({ powerlineArrow: false, segments: [seg('model', { icon: true, color: A(226) })] }),
+      FULL,
+    )
+    expect(runs[0].ariaText).toBe('模型 Fable 5')
+    expect(toAriaLabel(runs)).toBe('模型 Fable 5')
+  })
+})
+
 // ── 閾值（契約 5＋D2 成對 auto-fg） ──
 
 describe('閾值', () => {
@@ -571,12 +622,25 @@ describe('toAriaLabel', () => {
     expect(toAriaLabel([{ text: '   ' }])).toBe('')
   })
 
-  it('負向：PUA run 省略 ariaText → TypeError（fallback 僅限純文字 run）', () => {
-    expect(() => toAriaLabel([{ text: `${glyph('git-branch')} DEV` }])).toThrow(TypeError)
+  it('負向：PUA run 省略 ariaText → TypeError（fallback 僅限純文字 run；PUA_RE 行為未變——06a icon' +
+    ' emoji 化後 segment glyph 不再是 PUA，改用 POWERLINE_ARROW 驗證 PUA_RE 本身，見 PLAN D1 Round 2）', () => {
+    expect(() => toAriaLabel([{ text: `${POWERLINE_ARROW} DEV` }])).toThrow(TypeError)
   })
 
   it('負向：顯式 ariaText 夾帶 PUA → TypeError（結果零 PUA 機械斷言）', () => {
     expect(() => toAriaLabel([{ text: 'x', ariaText: POWERLINE_ARROW }])).toThrow(TypeError)
+  })
+
+  it('正向（06a D1 Round 2）：emoji 前綴放行——不觸發 PUA enforcement（validate.ts 明文放行政策不變）', () => {
+    // icon run：glyph 已 emoji 化（06a）、顯式 ariaText（resolve 實際產生形）——不拋。
+    const iconRun = { text: `${glyph('git-branch')} DEV`, ariaText: '分支 DEV' }
+    expect(() => toAriaLabel([iconRun])).not.toThrow()
+    expect(toAriaLabel([iconRun])).toBe('分支 DEV')
+    // 純文字 run：省略 ariaText、text 含 emoji 前綴——containsPua 對 emoji 恆 false（emoji 碼位不落
+    // PUA_RE 涵蓋的 BMP／補充私用平面區段），走 fallback text，不拋。
+    const plainRun = { text: `${glyph('model')} 待辦事項` }
+    expect(() => toAriaLabel([plainRun])).not.toThrow()
+    expect(toAriaLabel([plainRun])).toBe(`${glyph('model')} 待辦事項`)
   })
 })
 

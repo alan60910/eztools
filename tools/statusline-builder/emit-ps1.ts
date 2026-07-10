@@ -25,10 +25,40 @@
  * - 輸出 `[Console]::Out.Write($out)`（無換行、無 BOM）。
  *
  * ── escaping（契約 6）──
- * 使用者文字（前綴、自訂分隔符）走**單引號 context**：`'`→`''`；`$()`／
+ * 使用者文字（前綴、分隔符）走**單引號 context**：`'`→`''`；`$()`／
  * backtick 於單引號內不插值（emit-ps1.test.ts 以 `$(...)` 對抗案實證
- * 走單引號非雙引號）。glyph／CJK 以 UTF-8 字面嵌入（檔案 BOM 保 parser
- * 正確解讀——契約 8）。
+ * 走單引號非雙引號）。前綴以 UTF-8 字面嵌入（檔案 BOM 保 parser 正確
+ * 解讀——契約 8；CJK／非 ASCII 前綴走此路徑，未跳脫）。**分隔符例外**
+ * （MAGI code review Important #7 修復）：`separatorExpr` 逐字元判
+ * ASCII——連續 ASCII 段落仍走 `psSingleQuote`（同上單引號 escaping、
+ * 產出與修復前逐位元組相同）、非 ASCII 字元逐 codepoint 跳脫（下節
+ * `iconGlyphExpr` 同機制）。preset 分隔符 '›'（U+203A）／'·'（U+00B7）
+ * 藉此變純 ASCII、不再依賴 BOM 供 parser 正確解讀無 BOM `.ps1`；
+ * `separatorExpr` 泛用（對任何非 ASCII 字元一視同仁），故使用者自訂
+ * 分隔符同步免費獲益——惟前綴（`headExpr`）刻意不動、續留契約 8 現狀
+ * （該通道為 DRIFT backlog）。逐 codepoint escape 只改「原始碼」bytes，
+ * 執行期字串值不變（`[char]0xHEX`／`ConvertFromUtf32` 解出之 runtime
+ * 字元與原始字面等價）→ 與既有黃金／oracle runtime 輸出保持
+ * byte-exact（emit-ps1.test.ts「分隔符跳脫」群組之真執行驗證）。
+ *
+ * ── icon glyph 編碼策略（S1 spike／T1.2 裁決；sp1/REPORT.md）──
+ * segment icon（`descriptor.icon.glyph`，06a 起皆 emoji）**不**以 UTF-8
+ * 字面嵌入產出腳本——PS 5.1 對無 BOM `.ps1` 讀取走系統 ANSI code page，
+ * 複製貼上流程 BOM 亦不可控（S1 實測坐實）。改為逐 codepoint
+ * `[char]::ConvertFromUtf32(0x1F4C1)`（astral，＞U+FFFF）／`[char]0x2328`
+ * （BMP，跟隨既有 `$ARROW = [string][char]0xE0B0` idiom）碼位跳脫，原始碼
+ * 純 ASCII、不依賴 BOM／系統 codepage／PS 版本。多 codepoint glyph
+ * （⌨️＝U+2328+U+FE0F）逐一跳脫後以 `+` 相接。見 `iconGlyphExpr`。head
+ * 運算式＝prefix 單引號字面 + icon escape 運算式（`concatExpr` 相接），
+ * 兩者責任分離：prefix 走使用者文字 escaping（上段）、icon 走碼位跳脫。
+ *
+ * ── D1 gating（S6-T2.3：`config.powerlineArrow`，僅 powerline 模式）──
+ * `powerlineArrow=false`（v2 預設）：不 emit `$ARROW`、join 迴圈不插段間
+ * 箭頭、`lastArrowCap` 全面無效（收尾箭頭區塊恆不 emit）；改為每段 value
+ * 顯示運算式尾綴一個空白字面 `' '`（`concatExpr` 併入，與 resolve.ts
+ * `head + value + suffix + ' '` 同一 composition）。`powerlineArrow=true`
+ * （v1 遷移沿襲）：語意不變（箭頭＋`lastArrowCap` 依其值＋無 padding）。
+ * plain 模式完全不受本欄影響。
  *
  * 純函式、零 DOM import，node 可測。
  */
@@ -84,17 +114,36 @@ function psArray(items: readonly string[]): string {
 
 // ── 段內 emit-time 素材 ──
 
-/** 段前綴＋icon glyph（emit 期常數；plain 閾值分裂時 head 另成 run）。 */
-function segmentHead(seg: SegmentConfig, descriptor: SegmentDescriptor): string {
-  const prefix = seg.prefix ?? ''
-  const icon = seg.icon ? `${descriptor.icon.glyph} ` : ''
-  return prefix + icon
+/**
+ * icon glyph → 純 ASCII 逐 codepoint escape 運算式（檔頭「icon glyph 編碼
+ * 策略」節；T1.2 裁決）。BMP（≤U+FFFF）用 `[char]0xHEX`（既有 `$ARROW`
+ * idiom）；astral（＞U+FFFF）用 `[char]::ConvertFromUtf32(0xHEX)`（`[char]`
+ * cast 對 astral 碼位會擲例外，必須用 ConvertFromUtf32）。多 codepoint
+ * glyph（⌨️＝U+2328+U+FE0F）逐一跳脫後以 `+` 相接，回傳單一運算式片段
+ * （由呼叫端經 concatExpr 併入 head）。
+ */
+function iconGlyphExpr(glyph: string): string {
+  const parts: string[] = []
+  for (const ch of glyph) {
+    const cp = ch.codePointAt(0)!
+    const hex = cp.toString(16).toUpperCase()
+    parts.push(cp > 0xffff ? `[char]::ConvertFromUtf32(0x${hex})` : `[char]0x${hex}`)
+  }
+  return parts.join(' + ')
 }
 
-/** head → ps1 單引號字面片段（空 head→''，concatExpr 會濾除）。 */
+/**
+ * 段 head 運算式（prefix 單引號字面 ＋ icon escape 運算式 ＋ 尾隨空格字面，
+ * concatExpr 相接；空 head→''，濾除）。prefix 走使用者文字 escaping
+ * （`psSingleQuote`）、icon 走碼位跳脫（`iconGlyphExpr`）——兩者責任分離、
+ * 產出腳本對 icon 部分零非 ASCII（T1.2 契約）。
+ */
 function headExpr(seg: SegmentConfig, descriptor: SegmentDescriptor): string {
-  const head = segmentHead(seg, descriptor)
-  return head === '' ? '' : psSingleQuote(head)
+  const prefix = seg.prefix ?? ''
+  const prefixLit = prefix === '' ? '' : psSingleQuote(prefix)
+  if (!seg.icon) return prefixLit
+  const iconLit = concatExpr([iconGlyphExpr(descriptor.icon.glyph), "' '"])
+  return concatExpr([prefixLit, iconLit])
 }
 
 /** powerline 段主色（bg）；plain 不設 bg。 */
@@ -112,12 +161,19 @@ function segFg(mode: BuilderConfig['mode'], seg: SegmentConfig): ColorSpec | nul
 
 interface EmitState {
   mode: BuilderConfig['mode']
+  /** D1 gating：powerline 模式下 `config.powerlineArrow` 之值；plain 模式忽略。 */
+  powerlineArrow: boolean
   /** 已用之 helper 函式名（emit 期收斂，只印用到的）。 */
   helpers: Set<string>
   /** 閾值段常數陣列宣告（依 emit 序）。 */
   thresholdDecls: string[]
   /** 下一個閾值段的陣列名索引。 */
   thresholdCount: number
+}
+
+/** D1 padding：powerline 模式且 `powerlineArrow=false` → 每段 value 尾綴一格空白字面；否則 ''（concatExpr 濾除）。 */
+function padLit(state: EmitState): string {
+  return state.mode === 'powerline' && !state.powerlineArrow ? "' '" : ''
 }
 
 /** 閾值段 → 常數陣列名＋宣告（plain＝桶 fg 陣列；powerline＝桶 bg 尾＋成對 auto-fg fg）。 */
@@ -320,10 +376,12 @@ function emitShellOut(state: EmitState, seg: SegmentConfig, descriptor: SegmentD
   const tail = `'${bgTail(seg.color)}'`
   const lines: string[] = [`# ${descriptor.id} — shell-out/${descriptor.nullPolicy}`]
 
+  const pad = padLit(state)
+
   if (descriptor.id === 'clock') {
     // 恆存活（empty 政策、值恆非空）。
     lines.push("$ck = (Get-Date -Format 'HH:mm')")
-    lines.push(`$disp = ${concatExpr([head, '$ck'])}`)
+    lines.push(`$disp = ${concatExpr([head, '$ck', pad])}`)
     lines.push(`$Segs += ${prefix} + $disp`)
     if (state.mode === 'powerline') lines.push(`$BgT += ${tail}`)
     return lines
@@ -340,7 +398,7 @@ function emitShellOut(state: EmitState, seg: SegmentConfig, descriptor: SegmentD
   // 單用 `-ne ''` 會令空輸出誤存活（乾淨 repo 誤顯 '*'／detached 誤留空段）。
   // 與 emit-bash `[ -n "$v" ]`／oracle isValueDead('') 對齊（T2.7 真執行實證）。
   lines.push("if ($null -ne $so -and $so -ne '') {")
-  lines.push(`  $disp = ${concatExpr([head, valueExpr])}`)
+  lines.push(`  $disp = ${concatExpr([head, valueExpr, pad])}`)
   lines.push(`  $Segs += ${prefix} + $disp`)
   if (state.mode === 'powerline') lines.push(`  $BgT += ${tail}`)
   lines.push('}')
@@ -353,11 +411,12 @@ function emitOther(state: EmitState, seg: SegmentConfig, descriptor: SegmentDesc
   const prefix = styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg))
   const tail = `'${bgTail(seg.color)}'`
   const { pre, expr } = valueEmit(state, seg, descriptor)
+  const pad = padLit(state)
   const lines: string[] = [`# ${descriptor.id} — ${descriptor.category}/${descriptor.nullPolicy}`]
   lines.push(`$v = ${descriptor.ps1Path}`)
   lines.push(`if (${aliveGuard(descriptor.format)}) {`)
   for (const p of pre) lines.push(`  ${p}`)
-  lines.push(`  $disp = ${concatExpr([head, expr])}`)
+  lines.push(`  $disp = ${concatExpr([head, expr, pad])}`)
   lines.push(...pushLines(state, `${prefix} + $disp`, tail, '  '))
   lines.push('}')
   return lines
@@ -375,6 +434,7 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
           return `(Format-ResetsAt ${descriptor.resetsAt!.ps1Path})`
         })()
       : ''
+  const pad = padLit(state)
   const lines: string[] = [`# ${descriptor.id} — percentage/dash${hasThreshold ? '＋threshold' : ''}`]
   lines.push(`$v = ${descriptor.ps1Path}`)
   if (suffix !== '') lines.push(`$sfx = ${suffix}`)
@@ -388,7 +448,7 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
     lines.push('} else {')
     lines.push("  $vt = ([string][long][math]::Floor([double]$v)) + '%'")
     lines.push('}')
-    lines.push(`$disp = ${concatExpr([head, '$vt', sfxRef])}`)
+    lines.push(`$disp = ${concatExpr([head, '$vt', sfxRef, pad])}`)
     lines.push(...pushLines(state, `${prefix} + $disp`, tail, ''))
     return lines
   }
@@ -397,7 +457,7 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
   const { fgVar, bgVar } = declareThreshold(state, seg.threshold!, seg.fgOverride)
   const dashPrefix = styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg))
   lines.push('if ($null -eq $v) {')
-  lines.push(`  $disp = ${concatExpr([head, "'--'", sfxRef])}`)
+  lines.push(`  $disp = ${concatExpr([head, "'--'", sfxRef, pad])}`)
   lines.push(`  $Segs += ${dashPrefix} + $disp`)
   if (state.mode === 'powerline') lines.push(`  $BgT += ${tail}`)
   lines.push('} else {')
@@ -413,7 +473,7 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
     lines.push('  $s = "$e[0m"')
     lines.push("  if ($fg -ne '') { $s += \"$e[\" + $fg + 'm' }")
     lines.push("  if ($bg -ne '') { $s += \"$e[48;\" + $bg + 'm' }")
-    lines.push(`  $s += ${concatExpr([head, '$vt', sfxRef])}`)
+    lines.push(`  $s += ${concatExpr([head, '$vt', sfxRef, pad])}`)
     lines.push('  $Segs += $s')
     lines.push('  $BgT += $bg')
   } else {
@@ -446,21 +506,25 @@ function emitSegment(state: EmitState, seg: SegmentConfig, descriptor: SegmentDe
 
 // ── 第二趟：join（.t23 §5 機械展開；powerline 箭頭交接／cap／plain 分隔符） ──
 
-function joinPowerline(lastArrowCap: boolean): string[] {
-  const lines = [
-    "$out = ''",
-    '$n = $Segs.Count',
-    'for ($i = 0; $i -lt $n; $i++) {',
-    '  if ($i -gt 0) {',
-    '    $out += "$e[0m"',
-    "    if ($BgT[$i - 1] -ne '') { $out += \"$e[38;\" + $BgT[$i - 1] + 'm' }",
-    "    if ($BgT[$i] -ne '') { $out += \"$e[48;\" + $BgT[$i] + 'm' }",
-    '    $out += $ARROW',
-    '  }',
-    '  $out += $Segs[$i]',
-    '}',
-  ]
-  if (lastArrowCap) {
+/**
+ * D1 gating：`powerlineArrow=false` → 不 emit 段間箭頭迴圈區塊、
+ * `lastArrowCap` 全面無效（收尾箭頭區塊恆不 emit）；段本身的 padding
+ * 已在各 emit* 函式併入 `$Segs` 元素，本函式無需另處理。
+ */
+function joinPowerline(lastArrowCap: boolean, powerlineArrow: boolean): string[] {
+  const lines = ["$out = ''", '$n = $Segs.Count', 'for ($i = 0; $i -lt $n; $i++) {']
+  if (powerlineArrow) {
+    lines.push(
+      '  if ($i -gt 0) {',
+      '    $out += "$e[0m"',
+      "    if ($BgT[$i - 1] -ne '') { $out += \"$e[38;\" + $BgT[$i - 1] + 'm' }",
+      "    if ($BgT[$i] -ne '') { $out += \"$e[48;\" + $BgT[$i] + 'm' }",
+      '    $out += $ARROW',
+      '  }',
+    )
+  }
+  lines.push('  $out += $Segs[$i]', '}')
+  if (powerlineArrow && lastArrowCap) {
     lines.push(
       'if ($n -gt 0) {',
       '  $out += "$e[0m"',
@@ -473,10 +537,45 @@ function joinPowerline(lastArrowCap: boolean): string[] {
   return lines
 }
 
+/** codepoint < U+0080＝ASCII（separatorExpr 的 ASCII／非 ASCII 分流判定）。 */
+function isAsciiCodePoint(cp: number): boolean {
+  return cp < 0x80
+}
+
+/**
+ * 分隔符 → ps1 運算式（Important #7 修復；檔頭「escaping」節分隔符例外）：
+ * 逐字元（`for…of` 已按 code point 迭代，正確處理 astral surrogate pair）
+ * 分流——連續 ASCII 段落合併為單一 `psSingleQuote` 字面（與修復前
+ * `psSingleQuote(separator)` 逐位元組相同）、非 ASCII 字元逐一交給
+ * `iconGlyphExpr` 碼位跳脫（BMP 用 `[char]0xHEX`、astral 用
+ * `ConvertFromUtf32`），各段以 `concatExpr` 相接。純 ASCII 輸入（preset
+ * `|`／空格、常見自訂分隔符）退化為單一 `psSingleQuote` 呼叫——行為與
+ * 修復前零差異；含非 ASCII 字元時（preset '›'／'·'，或使用者自訂分隔
+ * 符）產出腳本對該分隔符零非 ASCII bytes。
+ */
+function separatorExpr(s: string): string {
+  const parts: string[] = []
+  let asciiRun = ''
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!
+    if (isAsciiCodePoint(cp)) {
+      asciiRun += ch
+      continue
+    }
+    if (asciiRun !== '') {
+      parts.push(psSingleQuote(asciiRun))
+      asciiRun = ''
+    }
+    parts.push(iconGlyphExpr(ch))
+  }
+  if (asciiRun !== '') parts.push(psSingleQuote(asciiRun))
+  return concatExpr(parts)
+}
+
 function joinPlain(separator: string): string[] {
   const lines = ["$out = ''", '$n = $Segs.Count', 'for ($i = 0; $i -lt $n; $i++) {']
   if (separator !== '') {
-    lines.push(`  if ($i -gt 0) { $out += "$e[0m" + ${psSingleQuote(separator)} }`)
+    lines.push(`  if ($i -gt 0) { $out += "$e[0m" + ${separatorExpr(separator)} }`)
   }
   lines.push('  $out += $Segs[$i]', '}', '$out += "$e[0m"')
   return lines
@@ -493,6 +592,7 @@ function joinPlain(separator: string): string[] {
 export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog): string {
   const state: EmitState = {
     mode: config.mode,
+    powerlineArrow: config.powerlineArrow,
     helpers: new Set(),
     thresholdDecls: [],
     thresholdCount: 0,
@@ -515,7 +615,9 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
   out.push('[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)')
   out.push('[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)')
   out.push('$e = [char]27')
-  if (state.mode === 'powerline') out.push('$ARROW = [string][char]0xE0B0')
+  // D1 gating：`$ARROW` 只在 powerline＋powerlineArrow=true 時 emit（false 時
+  // 無段間箭頭、也無收尾 cap，變數本身無用武之地）。
+  if (state.mode === 'powerline' && state.powerlineArrow) out.push('$ARROW = [string][char]0xE0B0')
 
   // 閾值段常數陣列（emit 期預算、執行期只索引）。
   for (const decl of state.thresholdDecls) out.push(decl)
@@ -541,7 +643,7 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
   out.push('')
   const join =
     state.mode === 'powerline'
-      ? joinPowerline(config.lastArrowCap)
+      ? joinPowerline(config.lastArrowCap, config.powerlineArrow)
       : joinPlain(config.separator.value)
   out.push(...join)
 

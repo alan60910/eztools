@@ -56,7 +56,7 @@ $Segs = @()
 # model — always/empty
 $v = $d.model.display_name
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]::ConvertFromUtf32(0x1F916) + ' ' + $v
   $Segs += "$e[0m$e[38;5;75m" + $disp
 }
 
@@ -69,70 +69,70 @@ if ($null -ne $v -and $v -ne '') {
     if ($v -eq $hm) { $pv = '~' }
     elseif ($v.StartsWith($hm + '/') -or $v.StartsWith($hm + '\')) { $pv = '~' + $v.Substring($hm.Length) }
   }
-  $disp = '@ ' + $pv
+  $disp = '@' + [char]::ConvertFromUtf32(0x1F4C1) + ' ' + $pv
   $Segs += "$e[0m" + $disp
 }
 
 # project-dir — always/empty
 $v = $d.workspace.project_dir
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]::ConvertFromUtf32(0x1F4C2) + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # output-style — always/empty
 $v = $d.output_style.name
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]::ConvertFromUtf32(0x1F3A8) + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # version — always/empty
 $v = $d.version
 if ($null -ne $v -and $v -ne '') {
-  $disp = 'v ' + $v
+  $disp = 'v' + [char]::ConvertFromUtf32(0x1F516) + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # cost — always/empty
 $v = $d.cost.total_cost_usd
 if ($null -ne $v) {
-  $disp = ' ' + (Format-Cost $v)
+  $disp = [char]::ConvertFromUtf32(0x1F4B0) + ' ' + (Format-Cost $v)
   $Segs += "$e[0m$e[38;5;220m" + $disp
 }
 
 # duration — always/empty
 $v = $d.cost.total_duration_ms
 if ($null -ne $v) {
-  $disp = ' ' + (Format-Duration $v)
+  $disp = [char]0x231B + ' ' + (Format-Duration $v)
   $Segs += "$e[0m" + $disp
 }
 
 # lines-changed — always/empty
 $v = $d.cost
 if ($null -ne $v) {
-  $disp = ' ' + (Format-Lines $v)
+  $disp = [char]::ConvertFromUtf32(0x1F4DD) + ' ' + (Format-Lines $v)
   $Segs += "$e[0m" + $disp
 }
 
 # context-size — always/empty
 $v = $d.context_window
 if ($null -ne $v) {
-  $disp = ' ' + (Format-ContextSize $v)
+  $disp = [char]::ConvertFromUtf32(0x1F9E0) + ' ' + (Format-ContextSize $v)
   $Segs += "$e[0m" + $disp
 }
 
 # thinking — always/empty
 $v = $d.thinking.enabled
 if ($v -eq $true) {
-  $disp = ' ' + 'on'
+  $disp = [char]::ConvertFromUtf32(0x1F4AD) + ' ' + 'on'
   $Segs += "$e[0m" + $disp
 }
 
 # context-used — percentage/dash＋threshold
 $v = $d.context_window.used_percentage
 if ($null -eq $v) {
-  $disp = 'it''s  ' + '--'
+  $disp = 'it''s ' + [char]::ConvertFromUtf32(0x1F4CA) + ' ' + '--'
   $Segs += "$e[0m" + $disp
 } else {
   $p = [double]$v
@@ -141,7 +141,7 @@ if ($null -eq $v) {
   if ($idx -gt 9) { $idx = 9 }
   if ($idx -lt 0) { $idx = 0 }
   $fg = $Th0Fg[$idx]
-  $s = "$e[0m" + 'it''s  '
+  $s = "$e[0m" + 'it''s ' + [char]::ConvertFromUtf32(0x1F4CA) + ' '
   $s += "$e[0m"
   if ($fg -ne '') { $s += "$e[" + $fg + 'm' }
   $s += $vt
@@ -155,7 +155,7 @@ if ($null -eq $v) {
 } else {
   $vt = ([string][long][math]::Floor([double]$v)) + '%'
 }
-$disp = ' ' + $vt
+$disp = [char]::ConvertFromUtf32(0x1F50B) + ' ' + $vt
 $Segs += "$e[0m" + $disp
 
 # rate-5h — percentage/dash
@@ -166,7 +166,7 @@ if ($null -eq $v) {
 } else {
   $vt = ([string][long][math]::Floor([double]$v)) + '%'
 }
-$disp = ' ' + $vt + $sfx
+$disp = [char]0x23F3 + ' ' + $vt + $sfx
 $Segs += "$e[0m" + $disp
 
 # rate-7d — percentage/dash
@@ -177,62 +177,62 @@ if ($null -eq $v) {
 } else {
   $vt = ([string][long][math]::Floor([double]$v)) + '%'
 }
-$disp = ' ' + $vt + $sfx
+$disp = [char]::ConvertFromUtf32(0x1F4C5) + ' ' + $vt + $sfx
 $Segs += "$e[0m" + $disp
 
 # session-name — conditional/hide
 $v = $d.session_name
 if ($null -ne $v -and $v -ne '') {
-  $disp = '$(x) ' + $v
+  $disp = '$(x)' + [char]::ConvertFromUtf32(0x1F4AC) + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # effort — conditional/hide
 $v = $d.effort.level
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]0x26A1 + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # vim-mode — conditional/hide
 $v = $d.vim.mode
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]0x2328 + [char]0xFE0F + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # agent-name — conditional/hide
 $v = $d.agent.name
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]::ConvertFromUtf32(0x1F3AD) + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # pr — conditional/hide
 $v = $d.pr
 if ($null -ne $v) {
-  $disp = ' ' + (Format-Pr $v)
+  $disp = [char]::ConvertFromUtf32(0x1F500) + ' ' + (Format-Pr $v)
   $Segs += "$e[0m" + $disp
 }
 
 # repo — conditional/hide
 $v = $d.workspace.repo
 if ($null -ne $v) {
-  $disp = ' ' + (Format-Repo $v)
+  $disp = [char]::ConvertFromUtf32(0x1F4E6) + ' ' + (Format-Repo $v)
   $Segs += "$e[0m" + $disp
 }
 
 # worktree — conditional/hide
 $v = $(if ($null -ne $d.workspace.git_worktree) { $d.workspace.git_worktree } else { $d.worktree.name })
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]::ConvertFromUtf32(0x1F333) + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
 # worktree-branch — conditional/hide
 $v = $d.worktree.branch
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]::ConvertFromUtf32(0x1F331) + ' ' + $v
   $Segs += "$e[0m" + $disp
 }
 
@@ -240,7 +240,7 @@ if ($null -ne $v -and $v -ne '') {
 $so = ''
 try { $so = [string](& git branch --show-current 2>$null | Select-Object -First 1) } catch { }
 if ($null -ne $so -and $so -ne '') {
-  $disp = ' ' + $so
+  $disp = [char]::ConvertFromUtf32(0x1F33F) + ' ' + $so
   $Segs += "$e[0m" + $disp
 }
 
@@ -248,13 +248,13 @@ if ($null -ne $so -and $so -ne '') {
 $so = ''
 try { $so = [string](& git status --porcelain 2>$null | Select-Object -First 1) } catch { }
 if ($null -ne $so -and $so -ne '') {
-  $disp = ' ' + '*'
+  $disp = [char]::ConvertFromUtf32(0x1F6A7) + ' ' + '*'
   $Segs += "$e[0m" + $disp
 }
 
 # clock — shell-out/empty
 $ck = (Get-Date -Format 'HH:mm')
-$disp = ' ' + $ck
+$disp = [char]::ConvertFromUtf32(0x1F550) + ' ' + $ck
 $Segs += "$e[0m" + $disp
 
 $out = ''

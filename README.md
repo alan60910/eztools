@@ -32,7 +32,7 @@ npm run preview
 # 執行測試（vitest 一次性執行）
 npm test
 
-# 驗證 build 產物（入口頁零 JS、工具頁骨架等不變量；需先 npm run build）
+# 驗證 build 產物（入口頁零框架 JS（主題 inline script 白名單）、工具頁骨架等不變量；需先 npm run build）
 npm run verify:dist
 ```
 
@@ -60,7 +60,7 @@ statusline-builder 於瀏覽器端產生 Claude Code 自訂 statusline 的設定
 
 ## License
 
-本專案自身之授權：<license name>（待定）。
+本專案自身之授權：[MIT License](LICENSE)。
 
 ### 第三方元件
 
@@ -70,14 +70,7 @@ wasm 二進位（版本 0.12.10，未經修改），其授權為 **GPL-2.0-or-la
 [ffmpeg.wasm 專案](https://github.com/ffmpegwasm/ffmpeg.wasm)與
 [FFmpeg 官方](https://ffmpeg.org/legal.html)。
 
-statusline-builder 工具內含 **Symbols Nerd Font Mono** 的 28-glyph 子集
-（`tools/statusline-builder/fonts/symbols-nerd-font-mono-subset.woff2`，
-3,556 bytes），僅供工具內終端模擬預覽渲染 powerline 箭頭與 segment 圖示，
-**不隨產出的腳本散布**（使用者終端需自行安裝 Nerd Font）。來源為
-[ryanoasis/nerd-fonts](https://github.com/ryanoasis/nerd-fonts) **v3.4.0**
-的 `NerdFontsSymbolsOnly` release 資產（版本釘死）；子集內字形輪廓全數
-取自 MIT 授權之上游 glyph 集（Powerline Symbols、Octicons），本子集依較
-嚴格之 **SIL Open Font License 1.1** 散布（nerd-fonts 未宣告 Reserved Font
-Name，無改名義務）。完整授權全文、逐來源 MIT 署名與再生工序見
-[tools/statusline-builder/fonts/LICENSE-nerd-fonts.md](tools/statusline-builder/fonts/LICENSE-nerd-fonts.md)
-與 [tools/statusline-builder/fonts/README.md](tools/statusline-builder/fonts/README.md)。
+statusline-builder 工具的模型／effort 自動配色屬**後續 sprint（06c）規劃**，
+尚未出貨（目前程式碼中無 `{kind: 'auto'}`）。落地時預計僅取用
+[howar31/claude-statusline](https://github.com/howar31/claude-statusline)
+的配色構想（色票重新編碼為 256 色索引），不會複製其程式碼。

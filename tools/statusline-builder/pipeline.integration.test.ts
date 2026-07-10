@@ -54,8 +54,25 @@ const A = (index: number): ColorSpec => ({ kind: 'ansi256', index })
 function segT(id: string, over: Partial<SegmentConfig> = {}): SegmentConfig {
   return { id, enabled: true, icon: false, color: { kind: 'default' }, ...over }
 }
-function cfgT(mode: BuilderConfig['mode'], segments: SegmentConfig[]): BuilderConfig {
-  return { version: 1, mode, separator: { kind: 'preset', value: '|' }, lastArrowCap: true, segments }
+/**
+ * MAGI code review Important #8 修復：`powerlineArrow` 開放可控（預設仍
+ * ＝`mode === 'powerline'`，既有呼叫端零改動）——先前恆由 mode 派生，本檔
+ * 從無 `powerline+powerlineArrow:false`（v2 預設模式）真執行覆蓋，見下方
+ * 「D1 gating 真執行覆蓋」區塊。
+ */
+function cfgT(
+  mode: BuilderConfig['mode'],
+  segments: SegmentConfig[],
+  powerlineArrow: boolean = mode === 'powerline',
+): BuilderConfig {
+  return {
+    version: 2,
+    mode,
+    separator: { kind: 'preset', value: '|' },
+    lastArrowCap: true,
+    powerlineArrow,
+    segments,
+  }
 }
 
 // ── 1. 比對函式（byte-exact）＋正負自測 ──
@@ -479,6 +496,53 @@ describe.skipIf(!(BASH.ok && PS1.ok))('shell-out 等價 — bash vs ps1（真 gi
     expect(strip(b.stdout)).toBe('') // 空鏈（僅行尾 reset）
   })
 })
+
+// ── D1 gating 真執行覆蓋（powerline＋powerlineArrow:false；threshold／
+//    dash-null／shell-out 三者共存於單一 config；MAGI code review
+//    Important #8 修復）──
+// cfgT 先前恆令 powerlineArrow = mode==='powerline'，本檔從無
+// powerline+powerlineArrow:false（v2 預設模式、新使用者最常見輸出）之
+// 真執行覆蓋——emit-bash.test.ts／emit-ps1.test.ts 的「D1 gating」describe
+// 僅有結構性子字串斷言（無 byte-exact／真執行）。本區塊補：bash／ps1 各
+// 真跑於真 clean git repo（branch='main'、乾淨），輸出與 oracle
+// （resolve+toAnsi，shell 通道釘住為同一 clean 態）byte-exact，同時涵蓋
+// 閾值分裂桶色（context-used=55%→桶 5＝ansi256(226)）、dash-null
+// （rate-5h=null→'--'，無閾值）、shell-out（git-branch，真 repo）三者
+// 共存於單一 powerline+powerlineArrow:false config。
+describe.skipIf(!(BASH.ok && PS1.ok))(
+  'D1 gating 真執行覆蓋 — powerline+powerlineArrow:false（threshold／dash-null／shell-out）',
+  () => {
+    it('context-used 55%（threshold）＋rate-5h null（dash）＋git-branch（clean repo）：bash/ps1 皆與 oracle byte-exact', () => {
+      const config = cfgT(
+        'powerline',
+        [
+          segT('context-used', { threshold: TRAFFIC, color: A(240) }),
+          segT('rate-5h', { color: A(99) }),
+          segT('git-branch', { color: A(46) }),
+        ],
+        false, // powerlineArrow=false（D1 gating：無箭頭、lastArrowCap 全面無效）
+      )
+      const data = clone(FULL.data)
+      data.context_window.used_percentage = 55 // 桶索引 5 → TRAFFIC[5]=ansi256(226)
+      data.rate_limits!.five_hour!.used_percentage = null // dash-null（無閾值段）
+      // shell 通道釘住＝真 clean repo 狀態（branch='main'、無 dirty）——oracle
+      // 與真執行環境同一態，byte-exact 才有意義（非決定論通道人工對齊）。
+      const shell = { ...FULL.shell, 'git-branch': 'main', 'git-dirty': false }
+      const input = { data, shell, env: FULL.env }
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+      // 前置自檢：D1 padding（每段尾綴一格）＋無箭頭／無 cap 之顯示形。
+      expect(strip(o), '前置自檢：oracle 顯示').toBe('55% -- main ')
+
+      const dir = repoClean()
+      const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), dir)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data), dir)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    })
+  },
+)
 
 // ── 4. skipIf meta（CI 設定不變量；PLAN §CI 拓撲） ──
 

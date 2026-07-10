@@ -1,66 +1,18 @@
 /**
- * S5-T3.2：render-preview.ts 的純函式接縫測試（DOM-free，node 環境）。
+ * S5-T3.2／S6-T3.2：render-preview.ts 的純函式接縫測試（DOM-free，node 環境）。
  * DOM 組裝（renderRuns／createPreview 等 browser-only 面）不在 node 測試範圍
  * （PLAN：browser-only DOM 模組不強制 node 測試；視覺實渲染歸 T4.4 SP-3）。
- * 匯入本模組會觸發 `import './preview-font.css'`——vitest node 環境回空模組，
- * 不影響純函式；此測試存在本身即證匯入不炸。
  */
 import { describe, expect, it } from 'vitest'
 import { colorSpecToHex, type ColorSpec } from './color.js'
-import type { BuilderConfig, SegmentConfig } from './config.js'
-import type { StyledRun } from './resolve.js'
+import { POWERLINE_ARROW, type StyledRun } from './resolve.js'
 import {
-  needsNerdFont,
+  PREVIEW_ARROW_CLASS,
   PREVIEW_THEME_CLASSES,
   runInlineColors,
+  runRenderSpec,
   themeModifierClass,
 } from './render-preview.js'
-
-function seg(overrides: Partial<SegmentConfig> & Pick<SegmentConfig, 'id'>): SegmentConfig {
-  return { enabled: false, icon: false, color: { kind: 'default' }, ...overrides }
-}
-
-function config(overrides: Partial<BuilderConfig> = {}): BuilderConfig {
-  return {
-    version: 1,
-    mode: 'plain',
-    separator: { kind: 'preset', value: '|' },
-    lastArrowCap: true,
-    segments: [],
-    ...overrides,
-  }
-}
-
-describe('needsNerdFont', () => {
-  it('powerline 模式恆需字型（箭頭為 PUA glyph），與 icon 無關', () => {
-    expect(needsNerdFont(config({ mode: 'powerline', segments: [] }))).toBe(true)
-    expect(
-      needsNerdFont(config({ mode: 'powerline', segments: [seg({ id: 'model', enabled: true })] })),
-    ).toBe(true)
-  })
-
-  it('plain 模式：有啟用且開 icon 的段 → 需字型', () => {
-    expect(
-      needsNerdFont(config({ segments: [seg({ id: 'model', enabled: true, icon: true })] })),
-    ).toBe(true)
-  })
-
-  it('plain 模式：icon 開但段未啟用 → 不需（停用段不計）', () => {
-    expect(
-      needsNerdFont(config({ segments: [seg({ id: 'model', enabled: false, icon: true })] })),
-    ).toBe(false)
-  })
-
-  it('plain 模式：段啟用但無 icon → 不需', () => {
-    expect(
-      needsNerdFont(config({ segments: [seg({ id: 'model', enabled: true, icon: false })] })),
-    ).toBe(false)
-  })
-
-  it('plain 模式：無段 → 不需', () => {
-    expect(needsNerdFont(config({ segments: [] }))).toBe(false)
-  })
-})
 
 describe('runInlineColors', () => {
   it('fg → color、bg → backgroundColor（truecolor 直取 hex）', () => {
@@ -102,5 +54,67 @@ describe('themeModifierClass', () => {
     expect(themeModifierClass('dark')).not.toBe(themeModifierClass('light'))
     expect(themeModifierClass('dark')).toBe(PREVIEW_THEME_CLASSES.dark)
     expect(themeModifierClass('light')).toBe(PREVIEW_THEME_CLASSES.light)
+  })
+})
+
+describe('runRenderSpec', () => {
+  it('一般文字 run → kind:"text"，text 保留、fg/bg 依 runInlineColors 掛色', () => {
+    const run: StyledRun = {
+      text: 'Sonnet 5',
+      fg: { kind: 'truecolor', hex: '#abcdef' },
+      bg: { kind: 'truecolor', hex: '#123456' },
+    }
+    expect(runRenderSpec(run)).toEqual({
+      kind: 'text',
+      text: 'Sonnet 5',
+      color: '#abcdef',
+      backgroundColor: '#123456',
+    })
+  })
+
+  it('分隔符等裝飾文字 run（非箭頭字元）仍走 text 分支', () => {
+    expect(runRenderSpec({ text: '|', ariaText: '' })).toEqual({
+      kind: 'text',
+      text: '|',
+      color: null,
+      backgroundColor: null,
+    })
+  })
+
+  it('箭頭 run（text===POWERLINE_ARROW）→ kind:"arrow"，回傳形無 text 欄位（不落 PUA 文字節點）', () => {
+    const run: StyledRun = {
+      text: POWERLINE_ARROW,
+      ariaText: '',
+      fg: { kind: 'truecolor', hex: '#112233' },
+      bg: { kind: 'truecolor', hex: '#445566' },
+    }
+    const spec = runRenderSpec(run)
+    expect(spec).toEqual({ kind: 'arrow', background: '#445566', arrowFg: '#112233' })
+    expect(spec).not.toHaveProperty('text')
+  })
+
+  it('箭頭三角形本體色＝run.fg（掛 --arrow-fg，非一般文字的 color）', () => {
+    const fg: ColorSpec = { kind: 'ansi256', index: 226 }
+    const spec = runRenderSpec({ text: POWERLINE_ARROW, ariaText: '', fg })
+    expect(spec).toEqual({ kind: 'arrow', background: null, arrowFg: colorSpecToHex(fg) })
+  })
+
+  it('cap 箭頭（無 bg）→ background=null（透明，退回終端底色）', () => {
+    const run: StyledRun = { text: POWERLINE_ARROW, ariaText: '', fg: { kind: 'ansi256', index: 16 } }
+    expect(runRenderSpec(run)).toEqual({ kind: 'arrow', background: null, arrowFg: colorSpecToHex(run.fg!) })
+  })
+
+  it('箭頭 run 缺 fg/bg → 兩者皆 null（不著色三角形亦合法，如 default 色鏈）', () => {
+    expect(runRenderSpec({ text: POWERLINE_ARROW, ariaText: '' })).toEqual({
+      kind: 'arrow',
+      background: null,
+      arrowFg: null,
+    })
+  })
+})
+
+describe('PREVIEW_ARROW_CLASS', () => {
+  it('為 style.css 三角形容器的 class 名（.preview-terminal 命名空間下）', () => {
+    expect(PREVIEW_ARROW_CLASS).toBe('preview-terminal__arrow')
   })
 })

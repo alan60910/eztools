@@ -8,6 +8,33 @@
       name="description"
       content="在瀏覽器端設計 Claude Code 狀態列：勾選 segment、排序、配色、設定百分比閾值變色，即時預覽並產出 bash／PowerShell 腳本與 settings.json 片段，全程不上傳。"
     />
+    <!-- 讓瀏覽器在任何 CSS 套用前就能為深色偏好使用者選深色預設畫布（配合下方換頁白閃防護 style）。 -->
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      主題切換 FOUC 防護（magi/06-statusline-ui-refresh/PLAN.md §D4，
+      實文釘死；四個工具頁 byte-identical）：在樣式表套用前先讀
+      localStorage 的手動切換紀錄並補上 data-theme，避免「深色 OS 手選
+      淺色」重整時先閃一下深色 UA 預設。優先次序（localStorage＞系統＞
+      淺色）與 toggle 鈕的 wiring／aria-pressed 同步在 src/theme.ts，
+      main.ts 於任何渲染前 import。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('eztools-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      /* 防換頁白閃：首繪前先給 html 主題底色（色值須與 src/style.css 的 --bg／--dark-bg 保持同步） */
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
   </head>
   <body>
     <!--
@@ -32,10 +59,7 @@
         bash（<code>.sh</code>）與 PowerShell（<code>.ps1</code>）腳本，以及
         <code>settings.json</code> 片段。所有處理都在瀏覽器端完成，不會上傳任何資料。
       </p>
-      <p>
-        預覽區的 powerline 箭頭與 segment 圖示以本頁內建的 Nerd Font 子集渲染；實際狀態列的圖示需你的終端自行安裝
-        Nerd Font（詳見預覽區提示）。
-      </p>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
     </header>
     <main>
       <!--
@@ -94,8 +118,33 @@
           </div>
 
           <!--
+            powerlineArrow（PLAN §D1 gating 條件表；config.ts
+            BuilderConfig.powerlineArrow，v2 預設 false）：段間是否 emit
+            powerline 箭頭（PUA 字元，需終端安裝相容特殊字型方能正確顯示——
+            06a 移除內建字型資產後，此為進階選項，見下方 build 產物字型
+            資產零殘留檢查）。未勾＝色塊直接相接（resolve.ts／emit-bash／
+            emit-ps1 補右側一格 padding 防黏連）；勾選＝完整 v1 語意
+            （箭頭＋lastArrowCap 收尾、不套 padding）。plain 模式無意義，
+            main.ts 於非 powerline 時停用。「需字型支援」警語常駐顯示
+            （不待勾選才出現）：讓使用者在勾選前就知道字型前提，避免勾了
+            才在終端看到豆腐，經 aria-describedby 關聯。
+          -->
+          <div class="control-group">
+            <label class="inline-choice">
+              <input type="checkbox" id="powerline-arrow" aria-describedby="powerline-arrow-hint" />
+              Powerline 箭頭
+            </label>
+            <p class="control-hint" id="powerline-arrow-hint">
+              需終端安裝支援此符號的特殊字型，否則箭頭會顯示為方塊或亂碼。
+            </p>
+          </div>
+
+          <!--
             lastArrowCap（PLAN Q1，預設 true）：powerline 末段是否補收尾
-            箭頭。plain 模式無意義，main.ts 於 plain 時停用。
+            箭頭。plain 模式無意義，main.ts 於 plain 時停用；D1 gating
+            （PLAN §D1 gating 條件表）：powerlineArrow=false 時本控件本身
+            即無效（不 emit cap），main.ts 一併停用（disabled = !powerline
+            || !config.powerlineArrow）。
           -->
           <div class="control-group">
             <label class="inline-choice">
@@ -119,6 +168,22 @@
             />
           </div>
         </div>
+
+        <!--
+          D1「全段預設色＋powerline＋無箭頭」無色塊邊界提示（PLAN §D1
+          條件表末句）：powerline 模式、箭頭未開、且所有已啟用 segment
+          皆為終端預設色時，相鄰色塊間無箭頭轉場亦無背景色差，無法辨識
+          段落邊界。main.ts 依此組合條件顯隱（hidden 屬性，同
+          #separator-custom-field／色選 panel 慣例）——刻意**不**走 live
+          region：此為隨 config 而定的持續狀態提示，非一次性事件，逐次
+          commitConfig 都重算會流於頻繁播報（違反「live region 不得
+          spam」），故採常駐可視/可讀節點、切 hidden 決定是否進 a11y tree。
+        -->
+        <p class="control-hint" id="powerline-no-boundary-hint" hidden>
+          目前所有已啟用的 segment 皆使用終端預設色、且未開啟 Powerline
+          箭頭：相鄰色塊將無法區分邊界，建議開啟箭頭或為部分 segment
+          指定顏色。
+        </p>
 
         <!--
           全域播報 live region（常駐、sr-only）：mode 切換的「顏色語意
@@ -194,29 +259,6 @@
         tabindex="-1"
       >
         <h2 id="preview-heading">即時預覽</h2>
-
-        <!--
-          Nerd Font 提示橫幅（PLAN §預覽契約）：常駐 a11y tree，以「內容
-          切換」承載顯隱——**不得以 display:none/hidden 切換**（那會使
-          aria-describedby 目標與常駐提示失效）。main.ts 於 icon／powerline
-          啟用時把 icon 切換鈕與 mode 控件 aria-describedby 指向本節點 id，
-          並切 .nerd-font-banner--active 加強視覺；停用時退回中性內容。
-          安裝連結佔位 href 由 main.ts／T3.2 確認最終 URL。
-        -->
-        <div class="nerd-font-banner" id="nerd-font-banner">
-          <p class="nerd-font-banner__text" id="nerd-font-banner-text">
-            圖示需你的終端安裝 Nerd Font；此預覽使用內建字型，實際顯示以你的終端為準。
-          </p>
-          <a
-            class="nerd-font-banner__link"
-            id="nerd-font-install-link"
-            href="https://www.nerdfonts.com/"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Nerd Font 安裝說明
-          </a>
-        </div>
 
         <div class="preview-controls">
           <!--
@@ -339,6 +381,10 @@
 
     <footer>
       <p>EZTools — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/eztools/blob/main/LICENSE">MIT License</a>
+      </p>
     </footer>
 
     <!--

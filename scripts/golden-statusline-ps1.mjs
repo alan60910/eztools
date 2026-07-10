@@ -26,14 +26,18 @@ const A = (index) => ({ kind: 'ansi256', index })
 /** traffic 模板（threshold.ts THRESHOLD_TEMPLATES.traffic 之值；黃金固定參照）。 */
 const TRAFFIC = { buckets: [46, 82, 118, 154, 190, 226, 220, 214, 208, 196].map(A) }
 const seg = (id, over = {}) => ({ id, enabled: true, icon: true, color: { kind: 'default' }, ...over })
-const cfg = (over) => ({
-  version: 1,
-  mode: 'plain',
-  separator: { kind: 'preset', value: '|' },
-  lastArrowCap: true,
-  segments: [],
-  ...over,
-})
+const cfg = (over) => {
+  const mode = over.mode ?? 'plain'
+  return {
+    version: 2,
+    mode,
+    separator: { kind: 'preset', value: '|' },
+    lastArrowCap: true,
+    powerlineArrow: mode === 'powerline', // v2 新欄；emitPs1 忽略之，僅供 runtime 形狀一致
+    segments: [],
+    ...over,
+  }
+}
 
 /** 黃金 config 集（名稱＝檔名 stem）。 */
 export const CANONICAL_CONFIGS = [
@@ -86,6 +90,28 @@ export const CANONICAL_CONFIGS = [
         seg('session-name', { prefix: '[s]', color: A(99) }),
         seg('context-used', { threshold: TRAFFIC, color: A(240) }),
         seg('cost', { color: A(16) }),
+      ],
+    }),
+  },
+  {
+    name: 'powerline-noarrow',
+    // powerline＋powerlineArrow:false（MAGI code review Important #8 修復；
+    // 與 scripts/statusline-golden-configs.ts 內同名 case 邏輯同構）：v2
+    // 預設模式的完整黃金 byte 覆蓋——lastArrowCap:true 但 powerlineArrow:
+    // false → cap 全面無效（收尾箭頭區塊恆不 emit，證 cap 值本身不影響
+    // 輸出）。段組合：context-used（threshold）＝閾值桶陣列段；rate-5h
+    // （無 threshold）＝dash 政策段；session-name／git-branch＝2 個
+    // icon-enabled 段（pad＋emoji codepoint 跳脫＋無箭頭三者共存）。
+    config: cfg({
+      mode: 'powerline',
+      powerlineArrow: false,
+      lastArrowCap: true,
+      segments: [
+        seg('model', { color: A(226) }),
+        seg('session-name', { prefix: '[s]', color: A(99) }),
+        seg('context-used', { icon: false, threshold: TRAFFIC, color: A(240) }),
+        seg('rate-5h', { icon: false, color: A(99) }),
+        seg('git-branch', { color: A(46) }),
       ],
     }),
   },

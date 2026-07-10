@@ -182,7 +182,7 @@ export interface TriPath {
 /**
  * tri-path 描述子——三後端取值語意的單一事實來源（PLAN 型別契約）。
  * 契約沉默處的本檔擴充欄：resetsAt／shellOut／provisional(+Note)；
- * icon 收窄為必填（凍結表 25 段全覆蓋，見 fonts/README.md）。
+ * icon 收窄為必填（06a 核可 emoji 對照表 25 段全覆蓋）。
  */
 export interface SegmentDescriptor {
   id: SegmentId
@@ -193,7 +193,7 @@ export interface SegmentDescriptor {
   jqPath: string
   ps1Path: string
   format: FormatKind
-  /** glyph＝T1.6 凍結 PUA 碼位；ariaText＝SR 文字等價（中文）。 */
+  /** glyph＝06a 核可對照表 emoji 字面（T1.2 結論：無需字寬／可辨識性調整）；ariaText＝SR 文字等價（中文）。 */
   icon: { glyph: string; ariaText: string }
   nullPolicy: NullPolicy
   /** 允許集（目錄衍生）；預設＝variants[0]（見 defaultVariant）。 */
@@ -436,7 +436,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.model.display_name',
     ps1Path: '$d.model.display_name',
     format: 'text',
-    icon: { glyph: '', ariaText: '模型' },
+    icon: { glyph: '🤖', ariaText: '模型' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -450,7 +450,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.cwd',
     ps1Path: '$d.cwd',
     format: 'path',
-    icon: { glyph: '', ariaText: '目前目錄' },
+    icon: { glyph: '📁', ariaText: '目前目錄' },
     nullPolicy: 'empty',
     variants: CWD_VARIANTS,
     provisional: false,
@@ -463,7 +463,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.workspace.project_dir',
     ps1Path: '$d.workspace.project_dir',
     format: 'text',
-    icon: { glyph: '', ariaText: '專案目錄' },
+    icon: { glyph: '📂', ariaText: '專案目錄' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -475,7 +475,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.output_style.name',
     ps1Path: '$d.output_style.name',
     format: 'text',
-    icon: { glyph: '', ariaText: '輸出風格' },
+    icon: { glyph: '🎨', ariaText: '輸出風格' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -487,7 +487,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.version',
     ps1Path: '$d.version',
     format: 'text',
-    icon: { glyph: '', ariaText: '版本' },
+    icon: { glyph: '🔖', ariaText: '版本' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -499,7 +499,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.cost.total_cost_usd',
     ps1Path: '$d.cost.total_cost_usd',
     format: 'cost',
-    icon: { glyph: '', ariaText: '費用' },
+    icon: { glyph: '💰', ariaText: '費用' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -512,7 +512,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.cost.total_duration_ms',
     ps1Path: '$d.cost.total_duration_ms',
     format: 'duration',
-    icon: { glyph: '', ariaText: '工作時長' },
+    icon: { glyph: '⌛', ariaText: '工作時長' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -525,7 +525,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.cost',
     ps1Path: '$d.cost',
     format: 'lines-changed',
-    icon: { glyph: '', ariaText: '行數增減' },
+    icon: { glyph: '📝', ariaText: '行數增減' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -538,7 +538,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.context_window',
     ps1Path: '$d.context_window',
     format: 'context-size',
-    icon: { glyph: '', ariaText: '上下文大小' },
+    icon: { glyph: '🧠', ariaText: '上下文大小' },
     nullPolicy: 'empty',
     provisional: false,
   },
@@ -550,7 +550,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.thinking.enabled',
     ps1Path: '$d.thinking.enabled',
     format: 'flag',
-    icon: { glyph: '', ariaText: '思考模式' },
+    icon: { glyph: '💭', ariaText: '思考模式' },
     // empty＝null/false 同視為不顯示（jq `// empty` 對 false 亦 fallback
     // ——刻意選擇，PLAN 契約 3）。
     nullPolicy: 'empty',
@@ -565,7 +565,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.context_window.used_percentage',
     ps1Path: '$d.context_window.used_percentage',
     format: 'percentage',
-    icon: { glyph: '', ariaText: '上下文已用' },
+    icon: { glyph: '📊', ariaText: '上下文已用' },
     nullPolicy: 'dash',
     provisional: false,
   },
@@ -577,7 +577,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.context_window.remaining_percentage',
     ps1Path: '$d.context_window.remaining_percentage',
     format: 'percentage',
-    icon: { glyph: '', ariaText: '上下文剩餘' },
+    icon: { glyph: '🔋', ariaText: '上下文剩餘' },
     nullPolicy: 'dash',
     provisional: false,
   },
@@ -591,7 +591,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.rate_limits.five_hour.used_percentage',
     ps1Path: '$d.rate_limits.five_hour.used_percentage',
     format: 'percentage',
-    icon: { glyph: '', ariaText: '5 小時限額' },
+    icon: { glyph: '⏳', ariaText: '5 小時限額' },
     nullPolicy: 'dash',
     variants: RATE_VARIANTS,
     resetsAt: {
@@ -609,7 +609,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.rate_limits.seven_day.used_percentage',
     ps1Path: '$d.rate_limits.seven_day.used_percentage',
     format: 'percentage',
-    icon: { glyph: '', ariaText: '7 日限額' },
+    icon: { glyph: '📅', ariaText: '7 日限額' },
     nullPolicy: 'dash',
     variants: RATE_VARIANTS,
     resetsAt: {
@@ -628,7 +628,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.session_name',
     ps1Path: '$d.session_name',
     format: 'text',
-    icon: { glyph: '', ariaText: '工作階段名稱' },
+    icon: { glyph: '💬', ariaText: '工作階段名稱' },
     nullPolicy: 'hide',
     provisional: false,
   },
@@ -640,7 +640,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.effort.level',
     ps1Path: '$d.effort.level',
     format: 'text',
-    icon: { glyph: '', ariaText: '推理強度' },
+    icon: { glyph: '⚡', ariaText: '推理強度' },
     nullPolicy: 'hide',
     provisional: false,
   },
@@ -652,7 +652,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.vim.mode',
     ps1Path: '$d.vim.mode',
     format: 'text',
-    icon: { glyph: '', ariaText: 'Vim 模式' },
+    icon: { glyph: '⌨️', ariaText: 'Vim 模式' },
     nullPolicy: 'hide',
     provisional: true,
     provisionalNote:
@@ -666,7 +666,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.agent.name',
     ps1Path: '$d.agent.name',
     format: 'text',
-    icon: { glyph: '', ariaText: '代理名稱' },
+    icon: { glyph: '🎭', ariaText: '代理名稱' },
     nullPolicy: 'hide',
     provisional: false,
   },
@@ -679,7 +679,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.pr',
     ps1Path: '$d.pr',
     format: 'pr',
-    icon: { glyph: '', ariaText: '拉取請求' },
+    icon: { glyph: '🔀', ariaText: '拉取請求' },
     nullPolicy: 'hide',
     provisional: true,
     provisionalNote:
@@ -694,7 +694,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.workspace.repo',
     ps1Path: '$d.workspace.repo',
     format: 'repo',
-    icon: { glyph: '', ariaText: '儲存庫' },
+    icon: { glyph: '📦', ariaText: '儲存庫' },
     nullPolicy: 'hide',
     provisional: false,
   },
@@ -710,7 +710,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     ps1Path:
       '$(if ($null -ne $d.workspace.git_worktree) { $d.workspace.git_worktree } else { $d.worktree.name })',
     format: 'text',
-    icon: { glyph: '', ariaText: 'Git 工作樹' },
+    icon: { glyph: '🌳', ariaText: 'Git 工作樹' },
     nullPolicy: 'hide',
     provisional: false,
   },
@@ -720,13 +720,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     category: 'conditional',
     // SP-0 實證（fixture L22）：worktree.branch＝工作樹分支名
     // （'worktree-calm-purring-sifakis'）；與 worktree 名稱段互補。普通
-    // stdin 段（ps1Path === $d + jqPath）。glyph U+F418（oct-git_branch）
-    // 以碼位建構（避免 PUA 字面在編輯／工具鏈損毀），length 1、非 .notdef。
+    // stdin 段（ps1Path === $d + jqPath）。glyph＝🌱（U+1F331，06a 核可
+    // 對照表）；emoji 字面直書（TS 源檔 UTF-8，非 PUA 字面損毀疑慮）。
     tsPath: (d) => d.worktree?.branch,
     jqPath: '.worktree.branch',
     ps1Path: '$d.worktree.branch',
     format: 'text',
-    icon: { glyph: String.fromCodePoint(0xf418), ariaText: 'Git 工作樹分支' },
+    icon: { glyph: '🌱', ariaText: 'Git 工作樹分支' },
     nullPolicy: 'hide',
     provisional: false,
   },
@@ -739,7 +739,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '',
     ps1Path: '',
     format: 'text',
-    icon: { glyph: '', ariaText: '分支' },
+    icon: { glyph: '🌿', ariaText: '分支' },
     // 非 git 目錄／detached → 空輸出 → 剔段。
     nullPolicy: 'hide',
     shellOut: { bash: 'git branch --show-current', ps1: 'git branch --show-current' },
@@ -753,7 +753,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '',
     ps1Path: '',
     format: 'dirty',
-    icon: { glyph: '', ariaText: '未提交變更' },
+    icon: { glyph: '🚧', ariaText: '未提交變更' },
     // porcelain 空（乾淨）／非 git 目錄 → 剔段；非空 → '*'。
     nullPolicy: 'hide',
     shellOut: { bash: 'git status --porcelain', ps1: 'git status --porcelain' },
@@ -767,7 +767,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '',
     ps1Path: '',
     format: 'clock',
-    icon: { glyph: '', ariaText: '時鐘' },
+    icon: { glyph: '🕐', ariaText: '時鐘' },
     // 恆有值；啟用 → settings 附 refreshInterval: 60（emit-settings）。
     nullPolicy: 'empty',
     shellOut: { bash: 'date +%H:%M', ps1: 'Get-Date -Format HH:mm' },

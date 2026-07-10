@@ -1,0 +1,6 @@
+# Shell 腳本一律 LF checkout（Unix 可執行前提；防 core.autocrlf=true 轉 CRLF）
+*.sh text eol=lf
+
+# 黃金比對 fixtures 為 byte-exact 契約：禁止任何 EOL／內容轉換
+# （emit-bash.test.ts 斷言黃金檔皆 LF、無 CR；emit 輸出與檔案逐 byte 比對）
+tools/statusline-builder/__golden__/** -text

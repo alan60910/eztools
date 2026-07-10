@@ -10,7 +10,7 @@
   `tools/*/index.html` 組成 `rollupOptions.input`；`base: './'`（相對路徑）
 - inline plugin `inject-tool-list`：於 `transformIndexHtml` 建置／開發期將
   `src/tools.ts` 清單經 `src/render.ts` 注入根 `index.html`（靜態優先，
-  入口頁零 JS）
+  入口頁零框架 JS；唯一例外為主題切換 inline script）
 - runtime dependencies：`apng-js@1.1.5`／`gifenc@1.0.3`（exact pin、MIT、
   零 transitive 依賴）；`gifuct-js@2.1.2`（exact pin、MIT、自帶型別、
   一顆 transitive dep `js-binary-schema-parser@^2.0.3`——lockfile 鎖定
@@ -24,10 +24,9 @@
   Transferable 轉移（無-SAB 約束見下方 Constraints，不重述）；
   video-converter 的內部 module worker 由 `@ffmpeg/ffmpeg` 自帶
   （worker chunk 由 Rollup 自動 emit，非自寫）
-- statusline-builder：**零 runtime npm 依賴**（純 TS 邏輯＋DOM，無 worker／
-  wasm）；Nerd Font subset（`symbols-nerd-font-mono-subset.woff2` 簽入
-  repo，build 時由 Vite base64 inline 進工具 CSS chunk，含授權與再生工序
-  記錄）僅供終端模擬預覽渲染，**不隨產出腳本散布**
+- statusline-builder：**零 runtime npm 依賴**；預覽以系統 monospace＋原生
+  emoji 渲染，無簽入字型資產（sprint 06a 已移除先前簽入的 Nerd Font
+  subset 與其建置工序，devDependency 淨刪記錄見 Deployment）
 
 ## Database / storage
 - 無（所有處理在瀏覽器端記憶體中完成）
@@ -49,6 +48,10 @@
   node_modules 複製 `@ffmpeg/core` esm 資產至 `public/vendor/ffmpeg/`
   （dev 由 `predev` 同理；複製前斷言安裝版本與 pin 同步）；npm ci 因
   core 進 dependencies 於 cache-miss 多拉 ~64 MB
+- sprint 06a（statusline-builder UI refresh 第一段）淨刪除兩個
+  devDependency：`subset-font`（原用於產生現已移除的 Nerd Font subset）
+  與其唯一消費者 `fontkit`；`package.json` 現無殘留，`verify:dist` 對此
+  設有永久回歸斷言（見 scripts/verify-dist.mjs）
 - 分支策略：DEV 開發、main 部署（merge 即發布）
 - 前置需求（一次性）：GitHub Settings → Pages → Source = GitHub Actions
 

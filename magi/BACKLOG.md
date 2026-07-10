@@ -8,9 +8,10 @@ one into a new sprint.
 <!-- /magi:commit appends C-class drift items here -->
 - [ ] 決定 `_probe` 的長期去留（保留為活範本，或於掃描時排除底線資料夾，避免探針頁長期公開於正式站）
   > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
+  > 06a 更新：範本已補全 footer＋主題 boilerplate（更像真頁面，公開部署姿態未變）；另缺 style.css stub 使三件套不完整 — `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [ ] 引入 lint/format 工具（eslint/prettier）與對應 CI 檢查
   > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
-- [ ] README 的 License 段落補齊（目前為佔位符）
+- [x] ~~README 的 License 段落補齊（目前為佔位符）~~（06a T5.2 已填 MIT＋howar31 註記，2026-07-11）
   > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
 - [ ] footer 與 header 標語文案去重微調
   > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
@@ -40,6 +41,21 @@ one into a new sprint.
   > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
 - [ ] statusline-builder：複製到剪貼簿的 `.ps1` 無 UTF-8 BOM（僅下載 Blob 帶）——複製亦前置 BOM 或 README 明示
   > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
+  > 06a 更新：icon 與 preset 分隔符（'›'/'·'）已改 `[char]` 碼位跳脫、不再依賴 BOM；殘餘風險縮小至使用者自訂 prefix／自訂分隔符的非 ASCII 內容 — `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
+- [ ] statusline-builder：CONFIG_VERSION 未來 bump 的「未知版本重置」是資料損失型陷阱——v3 時需 v2→v3 遷移階梯＋「v2 存檔存活」回歸測試（考慮 while 階梯式遷移）
+  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
+- [ ] 全站主題：OS 主題偏好即時跟隨（matchMedia change 監聽）＋跨分頁 storage 事件同步
+  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
+- [ ] verify-dist.mjs 補自動測試（合成 dist fixture：白名單正規化／遞迴掃描／負向斷言）＋script 擷取 regex 嚴謹化（大小寫不敏感、跳過 HTML 註解）
+  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
+- [ ] repo 級 `.gitattributes` 基線（如 `* text=auto`）——其他簽入 fixtures（jsonl 等）仍暴露於 CRLF checkout 轉換類 bug（目前無 byte-exact 消費者，屬預防）
+  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
+- [ ] statusline-builder 預覽：default 色 powerline 箭頭渲染為透明三角，真終端會以預設前景繪出——`var(--arrow-fg, currentColor)` 對齊
+  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
+- [ ] statusline-builder：`applyPreviewFontFamily` 死重清理（inline style 蓋掉 CSS 較豐富字族棧）＋index.html 既存「24 段」註解修正（實為 25 段）
+  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
+- [ ] statusline-builder：powerline 無箭頭模式末段帶尾隨空格（三後端一致、契約如此）——使用者文件一句話註記（部分 statusline 消費端會視覺右修剪）
+  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 
 ## Promoted to sprints
 <!-- /magi:plan moves consumed items here -->

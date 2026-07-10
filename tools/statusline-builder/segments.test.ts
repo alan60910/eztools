@@ -1,14 +1,19 @@
 /**
  * S5-T2.1（magi/05-statusline-builder/PLAN.md §Segment 目錄／§型別契約
  * SegmentDescriptor／§格式化對等規則／§Verification 1）：目錄結構不變量
- * （25 段、順序、icon 凍結碼位、nullPolicy 對應、tri-path idiom）、
- * tsPath 各情境 spot-check、TS 參考格式器對抗值（補尾零／float 乘積
- * 下緣／整數除法三階／10⁶ 門檻——跨後端行為相等歸 §3 真執行，本層
- * 不做跨後端斷言）、catalog×config.deserializeConfig integration
- * （真目錄餵清洗）。
+ * （25 段、順序、icon、nullPolicy 對應、tri-path idiom）、tsPath 各情境
+ * spot-check、TS 參考格式器對抗值（補尾零／float 乘積下緣／整數除法
+ * 三階／10⁶ 門檻——跨後端行為相等歸 §3 真執行，本層不做跨後端斷言）、
+ * catalog×config.deserializeConfig integration（真目錄餵清洗）。
+ *
+ * ── 06a T2.2（magi/06-statusline-ui-refresh/PLAN.md §D1）追補 ──
+ * icon.glyph 由 Nerd Font PUA 碼位改 emoji 字面（06a 核可對照表）；原
+ * 「凍結 PUA 碼位」不變量測試改為目錄級結構斷言＋非 PUA 斷言＋對照表
+ * 逐段比對，見下方 icon describe 區塊。
  */
 import { describe, expect, it } from 'vitest'
 import { defaultConfig, deserializeConfig, serializeConfig } from './config.js'
+import { containsPua } from './resolve.js'
 import {
   CWD_VARIANTS,
   DESCRIPTORS_BY_ID,
@@ -131,44 +136,53 @@ describe('segment 目錄結構', () => {
   })
 })
 
-describe('icon 凍結碼位（T1.6 fonts/README.md 凍結表）', () => {
-  it('25 段 glyph 逐一對應凍結碼位（單一 BMP PUA 字元）', () => {
-    // fonts/README.md 凍結表鏡像：worktree（名稱段）採 U+F414
-    // （oct-file_submodule）；worktree-branch 採 U+F418（oct-git_branch）。
-    const frozen: Record<SegmentId, number> = {
-      model: 0xf4bc,
-      cwd: 0xf413,
-      'project-dir': 0xf502,
-      'output-style': 0xf48f,
-      version: 0xf412,
-      cost: 0xf439,
-      duration: 0xf520,
-      'lines-changed': 0xf440,
-      'context-size': 0xf472,
-      thinking: 0xf400,
-      'context-used': 0xf463,
-      'context-remaining': 0xf463,
-      'rate-5h': 0xf4e3,
-      'rate-7d': 0xf455,
-      'session-name': 0xf461,
-      effort: 0xf490,
-      'vim-mode': 0xf448,
-      'agent-name': 0xf477,
-      pr: 0xf407,
-      repo: 0xf401,
-      worktree: 0xf414,
-      'worktree-branch': 0xf418,
-      'git-branch': 0xe0a0,
-      'git-dirty': 0xf444,
-      clock: 0xf43a,
-    }
-    const actual = Object.fromEntries(
-      SEGMENT_DESCRIPTORS.map((d) => [d.id, d.icon.glyph.codePointAt(0)]),
-    )
-    expect(actual).toEqual(frozen)
+describe('icon（06a emoji 化；magi/06-statusline-ui-refresh/PLAN.md §D1／T1.2 結論）', () => {
+  // T2.2：icon.glyph 由 Nerd Font PUA 碼位改為 emoji 字面（06a 核可對照表）；
+  // 舊「凍結 PUA 碼位」不變量測試已隨之廢除，改為下列三項斷言。
+
+  it('目錄級結構斷言：icon.glyph 非空 ⇒ icon.ariaText 非空（D1 Round 2 aria enforcement 補位——' +
+    '真正要防的是 descriptor 作者漏填，非 PUA_RE 擴充）', () => {
     for (const d of SEGMENT_DESCRIPTORS) {
-      expect(d.icon.glyph.length, d.id).toBe(1)
+      if (d.icon.glyph.length > 0) expect(d.icon.ariaText.length, d.id).toBeGreaterThan(0)
     }
+  })
+
+  it('25 段 glyph 皆非 PUA（Nerd Font 碼位已全數移除，containsPua 全 false）', () => {
+    for (const d of SEGMENT_DESCRIPTORS) {
+      expect(containsPua(d.icon.glyph), d.id).toBe(false)
+    }
+  })
+
+  it('25 段逐一對應 06a 核可對照表 emoji（T1.2 結論：無需字寬／可辨識性調整，字面照抄）', () => {
+    const expected: Record<SegmentId, string> = {
+      model: '🤖',
+      cwd: '📁',
+      'project-dir': '📂',
+      'output-style': '🎨',
+      version: '🔖',
+      cost: '💰',
+      duration: '⌛',
+      'lines-changed': '📝',
+      'context-size': '🧠',
+      thinking: '💭',
+      'context-used': '📊',
+      'context-remaining': '🔋',
+      'rate-5h': '⏳',
+      'rate-7d': '📅',
+      'session-name': '💬',
+      effort: '⚡',
+      'vim-mode': '⌨️',
+      'agent-name': '🎭',
+      pr: '🔀',
+      repo: '📦',
+      worktree: '🌳',
+      'worktree-branch': '🌱',
+      'git-branch': '🌿',
+      'git-dirty': '🚧',
+      clock: '🕐',
+    }
+    const actual = Object.fromEntries(SEGMENT_DESCRIPTORS.map((d) => [d.id, d.icon.glyph]))
+    expect(actual).toEqual(expected)
   })
 })
 

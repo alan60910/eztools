@@ -51,10 +51,11 @@ function seg(id: string, over: Partial<SegmentConfig> = {}): SegmentConfig {
 
 function cfg(mode: BuilderConfig['mode'], over: Partial<BuilderConfig>): BuilderConfig {
   return {
-    version: 1,
+    version: 2,
     mode,
     separator: { kind: 'preset', value: '|' },
     lastArrowCap: true,
+    powerlineArrow: mode === 'powerline', // v1 語意保值：既有 golden 全走 emitter 忽略之欄，僅供型別完整
     segments: [],
     ...over,
   }
@@ -181,5 +182,34 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
       ],
     }),
     // 無 scenario：真 git/date 非決定論，只作腳本文字人審。
+  },
+
+  // ── powerline＋powerlineArrow:false（golden-only）：MAGI code review
+  //    Important #8 修復——D1 gating 的 v2 預設模式（新使用者最常見輸出）
+  //    先前僅有結構性子字串斷言，本案補一組完整黃金 byte 覆蓋。
+  //    lastArrowCap:true 但 powerlineArrow:false → cap 全面無效（收尾
+  //    箭頭區塊恆不 emit，見 emit-bash.ts/emit-ps1.ts D1 gating 節）；
+  //    本案同時證「cap 值本身不影響輸出」。段組合：
+  //    - context-used（threshold: TRAFFIC）＝閾值桶陣列／bg 交接段。
+  //    - rate-5h（無 threshold）＝dash 政策段（null 時顯 '--'，不套桶色）。
+  //    - session-name（icon＋prefix）／git-branch（icon＋shell-out）
+  //      ＝2 個 icon-enabled 段，涵蓋 pad（每段 value 尾綴空白，D1）＋
+  //      emoji glyph 逐 codepoint 跳脫（ps1 面）同時共存於無箭頭輸出。
+  //    無 scenario：含 shell-out 段，真 git 非決定論，只作腳本文字人審
+  //    （同 shellout 案）；真執行 byte-exact 覆蓋見
+  //    pipeline.integration.test.ts 的 D1 gating 真執行覆蓋區塊。
+  {
+    name: 'powerline-noarrow',
+    config: cfg('powerline', {
+      powerlineArrow: false,
+      lastArrowCap: true,
+      segments: [
+        seg('model', { icon: true, color: A(226) }),
+        seg('session-name', { icon: true, prefix: '[s]', color: A(99) }),
+        seg('context-used', { threshold: TRAFFIC, color: A(240) }),
+        seg('rate-5h', { color: A(99) }),
+        seg('git-branch', { icon: true, color: A(46) }),
+      ],
+    }),
   },
 ]

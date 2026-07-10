@@ -3,9 +3,8 @@
  * §預覽契約／§產生器契約 8）：工具頁 UI 全流程狀態機（browser-only）。
  *
  * 職責分工（不重複既有模組）：
- * - 預覽渲染／字型／Nerd Font 提示 → render-preview.ts 的 createPreview
- *   controller（本檔只呼 setConfig/setScenario/setTheme/describeWithHint，
- *   不自碰預覽 DOM 或字型、不自行 resolve）。
+ * - 預覽渲染 → render-preview.ts 的 createPreview controller（本檔只呼
+ *   setConfig/setScenario/setTheme，不自碰預覽 DOM、不自行 resolve）。
  * - resolve／emit-ansi／aria-label 純函式在 controller 內；三後端產生器
  *   emitBash／emitPs1／emitSettings 於本檔呼叫填三 <pre>。
  * - config 型別／清洗、色盤色表、閾值模板、輸入驗證皆用既有純函式模組。
@@ -18,6 +17,12 @@
  * 掛載：檔尾 <script type="module">（deferred，執行時 DOM 已解析）；仍以
  * readyState 守衛使初始化嚴格於 DOMContentLoaded 後（PLAN 明訂）。
  */
+// T4.2（magi/06-statusline-ui-refresh/PLAN.md §D4）：主題模組於任何渲染前
+// import——<head> 的 inline script 已在解析階段套用 data-theme（防 FOUC），
+// 這裡只需接上 toggle 鈕的 wiring 與 aria-pressed 同步，故在檔案最上方、
+// 其餘功能邏輯（含下方 init() 的實際渲染）之前完成。
+import { initThemeToggle } from '../../src/theme.js'
+
 import '../../src/style.css'
 import './style.css'
 
@@ -164,12 +169,13 @@ const modePowerlineEl = byId<HTMLInputElement>('mode-powerline')
 const separatorPresetEl = byId<HTMLSelectElement>('separator-preset')
 const separatorCustomFieldEl = byId('separator-custom-field')
 const separatorCustomEl = byId<HTMLInputElement>('separator-custom')
+const powerlineArrowEl = byId<HTMLInputElement>('powerline-arrow')
 const lastArrowCapEl = byId<HTMLInputElement>('last-arrow-cap')
+const powerlineNoBoundaryHintEl = byId('powerline-no-boundary-hint')
 const settingsPathEl = byId<HTMLInputElement>('settings-path')
 const segmentMoveStatusEl = byId('segment-move-status')
 const previewBgDarkEl = byId<HTMLInputElement>('preview-bg-dark')
 const previewBgLightEl = byId<HTMLInputElement>('preview-bg-light')
-const nerdFontBannerEl = byId('nerd-font-banner')
 const previewTerminalEl = byId('preview-terminal')
 const outputStatusEl = byId('output-status')
 const copyBashEl = byId<HTMLButtonElement>('copy-bash')
@@ -183,6 +189,10 @@ const outputPs1CodeEl = outputCode('output-ps1')
 const outputSettingsCodeEl = outputCode('output-settings')
 // segment 清單容器（無 id，以 class 取得）：mode 切換時作焦點移轉目標。
 const segmentListsEl = queryOne<HTMLElement>('.segment-lists')
+
+// 主題切換鈕 wiring：模組層級立即執行，早於下方 init()（無論 init() 是同步
+// 立即跑或掛在 DOMContentLoaded，這行都先執行——見上方 import 註解）。
+initThemeToggle(queryOne<HTMLButtonElement>('.theme-toggle'))
 
 const SEGMENT_LIST_BY_CATEGORY: Record<SegmentCategory, HTMLOListElement> = {
   always: byId<HTMLOListElement>('segment-list-always'),
@@ -501,7 +511,7 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   moveUp.addEventListener('click', () => moveSegment(descriptor.id, 'up'))
   moveDown.addEventListener('click', () => moveSegment(descriptor.id, 'down'))
 
-  // 圖示 checkbox（+ Nerd Font 提示 aria-describedby）。
+  // 圖示 checkbox。
   const iconInput = li.querySelector<HTMLInputElement>('.segment-row__icon')!
   contextSpan(iconInput.closest('.segment-row__field')!).textContent = `${descriptor.label} — `
   iconInput.checked = seg.icon
@@ -509,7 +519,6 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
     seg.icon = iconInput.checked
     commitConfig()
   })
-  preview.describeWithHint(iconInput)
 
   // 前綴（≤8；過 validate.ts＋PUA 補判；拒收→role=alert）。
   const prefixInput = li.querySelector<HTMLInputElement>('.segment-row__prefix')!
@@ -742,14 +751,38 @@ function commitConfig(): void {
     // 防禦性顯示以免整頁凍結。
     showError(`產生輸出時發生非預期錯誤：${error instanceof Error ? error.message : String(error)}`)
   }
+  updateNoBoundaryHint() // segment 色／啟用態亦可能改變 D1 無邊界提示條件，逐次收束時一併重算。
 }
 
 // ── 全域控制 ──
 
+/**
+ * D1「全段預設色＋powerline＋無箭頭」無色塊邊界提示判定（PLAN §D1 條件
+ * 表末句）：純函式（無 DOM），main.ts 無既有測試環境（無 jsdom/happy-dom
+ * 依賴，import 會在模組頂層即執行 DOM query 而在 node 測試環境拋錯），
+ * 依 task brief 裁決保留於 main.ts 內、以簡單易於肉眼核對為原則，不另立
+ * 測試檔。條件：powerline 模式＋箭頭未開＋至少一個啟用中 segment＋
+ * 全部啟用中 segment 皆為終端預設色（無啟用 segment 時空集合視為
+ * 「無色塊可言」，不構成邊界問題，故排除）。
+ */
+function hasNoBoundaryRisk(cfg: BuilderConfig): boolean {
+  if (cfg.mode !== 'powerline' || cfg.powerlineArrow) return false
+  const enabled = cfg.segments.filter((seg) => seg.enabled)
+  if (enabled.length === 0) return false
+  return enabled.every((seg) => seg.color.kind === 'default')
+}
+
+/** 依 hasNoBoundaryRisk 顯隱提示節點（hidden 屬性，非 live region，見 index.html 註解）。 */
+function updateNoBoundaryHint(): void {
+  setHidden(powerlineNoBoundaryHintEl, !hasNoBoundaryRisk(config))
+}
+
 function applyModeConstraints(): void {
   const powerline = config.mode === 'powerline'
-  lastArrowCapEl.disabled = !powerline // 收尾箭頭僅 powerline 有意義。
+  powerlineArrowEl.disabled = !powerline // 箭頭選項僅 powerline 有意義。
+  lastArrowCapEl.disabled = !powerline || !config.powerlineArrow // D1 gating：false 時 cap 本身無效，一併停用。
   separatorCustomEl.disabled = powerline // powerline 以箭頭轉場，停用自訂分隔符（D3）。
+  updateNoBoundaryHint()
 }
 
 function syncGlobalControls(): void {
@@ -767,6 +800,7 @@ function syncGlobalControls(): void {
     separatorCustomEl.value = config.separator.value
   }
 
+  powerlineArrowEl.checked = config.powerlineArrow
   lastArrowCapEl.checked = config.lastArrowCap
   applyModeConstraints()
 }
@@ -826,6 +860,12 @@ function wireGlobalControls(): void {
     }
     clearError()
     config.separator = { kind: 'custom', value: separatorCustomEl.value }
+    commitConfig()
+  })
+
+  powerlineArrowEl.addEventListener('change', () => {
+    config.powerlineArrow = powerlineArrowEl.checked
+    applyModeConstraints() // 連動 last-arrow-cap 停用態＋無邊界提示重算。
     commitConfig()
   })
 
@@ -896,14 +936,10 @@ function init(): void {
 
   preview = createPreview({
     container: previewTerminalEl,
-    hint: nerdFontBannerEl,
     config,
     scenarioId: 'full',
     theme: 'dark',
   })
-  // Nerd Font 提示綁 mode 控件（icon 控件於各列建置時綁定）。
-  preview.describeWithHint(modePlainEl)
-  preview.describeWithHint(modePowerlineEl)
 
   buildSegmentRows()
   syncGlobalControls()

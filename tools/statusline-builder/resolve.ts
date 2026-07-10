@@ -20,6 +20,16 @@
  * SegmentConfig.color（fg=autoFg 或 fgOverride）——鏈上每存活段恆有
  * 定義的 bg（含 `default`＝不著色），箭頭交接色恆有定義。
  *
+ * ── D1 gating（06a：`config.powerlineArrow`，僅 powerline 模式適用）──
+ * `powerlineArrow=false`（v2 預設）：joinPowerline **不** emit 段間箭頭、
+ * `lastArrowCap` 全面無效（cap 恆不 emit，與其值無關）；改為每段主 run
+ * 收尾補一格右側空白（`head + value + suffix + ' '`，composition 單源，
+ * 併入段的著色 run——色塊直接相接，行前無 padding，靠此格分隔避免視覺
+ * 黏連）。`powerlineArrow=true`（v1 遷移沿襲）：joinPowerline 語意不變
+ * （箭頭＋`lastArrowCap` 生效、run 不補格）。emit-bash／emit-ps1 對本欄
+ * 同構鏡像（bash `$v` 尾綴空格／ps1 `$disp` 尾綴 `' '`，powerline 模式
+ * 才適用；plain 模式完全不受 `powerlineArrow` 影響）。
+ *
  * ── 契約沉默處選擇（T2.3/T2.4/T2.5/T3.2 依賴面，勿改動語意）──
  * 1. **run 粒度**：powerline 段恆為單 run（段只有一組 fg/bg，箭頭交接
  *    才有唯一 bg 可取）；plain 段單 run，**唯一分裂例外**＝閾值生效且
@@ -39,6 +49,9 @@
  * 6. **resolve 輸入＝T2.1 三通道形**（data/shell/env）：MockScenario
  *    可整顆直傳（結構子集）；shell-out 段取 shell 通道（死值語意同
  *    isValueDead），tilde home 取 env 通道。
+ * 7. **D1 padding 不增 run 數**（T2.3）：`powerlineArrow=false` 的右
+ *    padding 併入既有段 run 的 text（`+ ' '`），不新開一個裝飾 run——
+ *    「powerline 段恆單 run」的粒度規則（選擇 1）不受影響。
  *
  * ── StyledRun.ariaText 規則（型別契約；toAriaLabel 機械 enforcement）──
  * 凡 text 含 PUA／裝飾 glyph 之 run 一律顯式設 ariaText：裝飾箭頭／
@@ -120,6 +133,7 @@ function resolveSegment(
   descriptor: SegmentDescriptor,
   input: ResolveInput,
   mode: BuilderConfig['mode'],
+  powerlineArrow: boolean,
 ): ResolvedSegment | null {
   const raw = mainValue(descriptor, input)
   const isDash = descriptor.nullPolicy === 'dash' && raw == null
@@ -156,7 +170,11 @@ function resolveSegment(
       threshold !== null
         ? autoFgBuckets(threshold.rule, seg.fgOverride)[threshold.index]
         : (seg.fgOverride ?? autoFg(seg.color))
-    const run: StyledRun = { text: head + valueText + suffix }
+    // D1 gating：powerlineArrow=false → 每段 value 後補一格右側空白（併入
+    // 著色 run，composition 單源）；ariaText 維持不補格——toAriaLabel 逐
+    // chunk trim，補了也會被削掉，省略較不易誤導閱讀者「aria 有格」。
+    const pad = powerlineArrow ? '' : ' '
+    const run: StyledRun = { text: head + valueText + suffix + pad }
     if (headAria !== null) run.ariaText = `${headAria} ${valueText}${suffix}`
     assignColor(run, 'fg', fg)
     assignColor(run, 'bg', bg)
@@ -189,10 +207,19 @@ function joinPlain(segments: readonly ResolvedSegment[], separator: string): Sty
   return runs
 }
 
-function joinPowerline(segments: readonly ResolvedSegment[], lastArrowCap: boolean): StyledRun[] {
+/**
+ * D1 gating：`powerlineArrow=false` → 不 emit 段間箭頭、`lastArrowCap`
+ * 全面無效（cap 恆不 emit）；段本身的右 padding 已在 resolveSegment 併入
+ * run.text，此函式僅需視 powerlineArrow 決定是否插箭頭／cap。
+ */
+function joinPowerline(
+  segments: readonly ResolvedSegment[],
+  lastArrowCap: boolean,
+  powerlineArrow: boolean,
+): StyledRun[] {
   const runs: StyledRun[] = []
   for (let i = 0; i < segments.length; i++) {
-    if (i > 0) {
+    if (powerlineArrow && i > 0) {
       const arrow: StyledRun = { text: POWERLINE_ARROW, ariaText: '' }
       assignColor(arrow, 'fg', segments[i - 1].bg)
       assignColor(arrow, 'bg', segments[i].bg)
@@ -200,7 +227,7 @@ function joinPowerline(segments: readonly ResolvedSegment[], lastArrowCap: boole
     }
     runs.push(...segments[i].runs)
   }
-  if (lastArrowCap && segments.length > 0) {
+  if (powerlineArrow && lastArrowCap && segments.length > 0) {
     // 收尾箭頭：fg=末段bg、bg 缺席＝對終端底色 reset 過渡（Q1）。
     const cap: StyledRun = { text: POWERLINE_ARROW, ariaText: '' }
     assignColor(cap, 'fg', segments[segments.length - 1].bg)
@@ -222,11 +249,11 @@ export function resolve(config: BuilderConfig, input: ResolveInput): StyledRun[]
     if (descriptor === undefined) {
       throw new TypeError(`未知 segment id：${seg.id}（config 應先經 deserializeConfig 清洗）`)
     }
-    const segment = resolveSegment(seg, descriptor, input, config.mode)
+    const segment = resolveSegment(seg, descriptor, input, config.mode, config.powerlineArrow)
     if (segment !== null) alive.push(segment)
   }
   return config.mode === 'powerline'
-    ? joinPowerline(alive, config.lastArrowCap)
+    ? joinPowerline(alive, config.lastArrowCap, config.powerlineArrow)
     : joinPlain(alive, config.separator.value)
 }
 

@@ -25,14 +25,18 @@ const seg = (id: string, over: Partial<SegmentConfig> = {}): SegmentConfig => ({
   color: { kind: 'default' },
   ...over,
 })
-const cfg = (over: Partial<BuilderConfig> = {}): BuilderConfig => ({
-  version: 1,
-  mode: 'plain',
-  separator: { kind: 'preset', value: '|' },
-  lastArrowCap: true,
-  segments: [],
-  ...over,
-})
+const cfg = (over: Partial<BuilderConfig> = {}): BuilderConfig => {
+  const mode = over.mode ?? 'plain'
+  return {
+    version: 2,
+    mode,
+    separator: { kind: 'preset', value: '|' },
+    lastArrowCap: true,
+    powerlineArrow: mode === 'powerline',
+    segments: [],
+    ...over,
+  }
+}
 
 /** 產出 → 解析後的 statusLine 物件（同時斷言 JSON.parse 合法）。 */
 const sl = (config: BuilderConfig, opts: Parameters<typeof emitSettings>[1]): Record<string, unknown> => {

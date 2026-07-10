@@ -34,6 +34,14 @@
  *    emit-ps1 Format-ResetsAt；三後端同機同 TZ 一致）。後綴附於 value 部、
  *    與主值 dash 正交（`-- (HH:mm)`），閾值分裂時隨值色。
  *
+ * ── D1 gating（S6-T2.3：`config.powerlineArrow`，僅 powerline 模式）──
+ * `powerlineArrow=false`（v2 預設）：不 emit `ARROW=` 變數、join 迴圈不插
+ * 段間箭頭、`lastArrowCap` 全面無效（cap 區塊恆不 emit）；改為每段 value
+ * 尾綴一格右側空白（`"$v "` 等，併入該段既有雙引號 value 運算式——與
+ * resolve.ts `head + value + suffix + ' '` 同一 composition）。
+ * `powerlineArrow=true`（v1 遷移沿襲）：語意不變（箭頭＋`lastArrowCap`
+ * 依其值＋無 padding）。plain 模式完全不受本欄影響（pad 恆為空字串）。
+ *
  * 純函式、零 DOM import，node 可測。與 emit-ps1（T2.5）為平行後端、互不
  * 依賴；兩者共用 color.ts 的 SGR 建構規則與 resolve/segments/threshold
  * 的取值語意單一來源。
@@ -169,6 +177,13 @@ function segmentHead(seg: SegmentConfig, descriptor: SegmentDescriptor): string 
 
 interface Emitter {
   mode: BuilderConfig['mode']
+  /** D1 gating：powerline 模式下 `config.powerlineArrow` 之值；plain 模式忽略。 */
+  powerlineArrow: boolean
+}
+
+/** D1 padding：powerline 模式且 `powerlineArrow=false` → 每段 value 尾綴一格空白；否則 ''。 */
+function valuePad(em: Emitter): string {
+  return em.mode === 'powerline' && !em.powerlineArrow ? ' ' : ''
 }
 
 /** 存活 push 一列（依 mode 決定平行陣列）。dynamic：value 在 `$v`；靜態則直接給 textExpr。 */
@@ -184,10 +199,10 @@ function pushLine(
 }
 
 /**
- * head 非空 → `'<head>'<valueRef>`；head 空 → `<valueRef>`。valueRef 預設
- * `"$v"`；percentage 段掛 resets 後綴時傳 `"$v$sfx"`（值＋後綴同 run）。
+ * head 非空 → `'<head>'<valueRef>`；head 空 → `<valueRef>`。valueRef 呼叫端
+ * 給定（D1：powerline 模式且 `powerlineArrow=false` 時已內含尾綴 pad）。
  */
-function textDynamic(headLit: string, valueRef = '"$v"'): string {
+function textDynamic(headLit: string, valueRef: string): string {
   return headLit === '' ? valueRef : `${headLit}${valueRef}`
 }
 
@@ -203,6 +218,8 @@ function emitSegment(
   const mainBg = sgrTail(seg.color)
   // 段主色的 push 尾參（powerline：bg 尾；plain：segstart）。
   const mainTail = em.mode === 'powerline' ? sgrLit(mainBg) : '1'
+  // D1 padding：powerline＋powerlineArrow=false → 每段 value 尾綴一格空白。
+  const pad = valuePad(em)
 
   lines.push(`# ${descriptor.id}`)
 
@@ -214,7 +231,10 @@ function emitSegment(
     lines.push(`v=$(${descriptor.shellOut.bash} 2>/dev/null || true)`)
     lines.push(`if [ -n "$v" ]; then`)
     // dirty＝存活即 '*'（$v 僅作非空判定）；其餘＝head+值。
-    const textExpr = descriptor.format === 'dirty' ? bashSingleQuote(head + '*') : textDynamic(headLit)
+    const textExpr =
+      descriptor.format === 'dirty'
+        ? bashSingleQuote(head + '*' + pad)
+        : textDynamic(headLit, `"$v${pad}"`)
     lines.push(`  ${pushLine(em, textExpr, sgrLit(mainFg), mainTail)}`)
     lines.push(`fi`)
     return lines
@@ -231,11 +251,12 @@ function emitSegment(
     // number → ` (HH:mm)`、null／缺席鏈 → ''（jq null 傳播不報錯，鏡像
     // resetsAtSuffix 語意）。與 emit-ps1 的 Format-ResetsAt 對照同構。
     const hasResets = descriptor.resetsAt !== undefined && seg.variant === 'percent-reset'
-    let valueRef = '"$v"'
+    // D1 padding 併入 valueRef（見上）：pad 恆位於 value（＋後綴）尾端。
+    let valueRef = `"$v${pad}"`
     if (hasResets) {
       const sfxProg = `${descriptor.resetsAt!.jqPath} | if type == "number" then " (" + strflocaltime("%H:%M") + ")" else "" end`
       lines.push(`sfx=$(jq -r ${bashSingleQuote(sfxProg)} <<<"$input")`)
-      valueRef = '"$v$sfx"'
+      valueRef = `"$v$sfx${pad}"`
     }
 
     if (seg.threshold === undefined) {
@@ -287,31 +308,38 @@ function emitSegment(
   const argHome = needsHome ? '--arg home "$HOME" ' : ''
   lines.push(`v=$(jq -r ${argHome}${bashSingleQuote(prog)} <<<"$input")`)
   lines.push(`if [ -n "$v" ]; then`)
-  lines.push(`  ${pushLine(em, textDynamic(headLit), sgrLit(mainFg), mainTail)}`)
+  lines.push(`  ${pushLine(em, textDynamic(headLit, `"$v${pad}"`), sgrLit(mainFg), mainTail)}`)
   lines.push(`fi`)
   return lines
 }
 
 // ── join 段（第二趟；oracle emission 規則的機械展開，.t23 §5） ──
 
-function joinPowerline(lastArrowCap: boolean): string[] {
-  const lines = [
-    'out=""',
-    'n=${#texts[@]}',
-    'for ((i = 0; i < n; i++)); do',
-    '  if [ "$i" -gt 0 ]; then',
-    '    out+="${ESC}[0m"',
-    '    if [ -n "${bgs[$((i - 1))]}" ]; then out+="${ESC}[38;${bgs[$((i - 1))]}m"; fi',
-    '    if [ -n "${bgs[$i]}" ]; then out+="${ESC}[48;${bgs[$i]}m"; fi',
-    '    out+="$ARROW"',
-    '  fi',
+/**
+ * D1 gating：`powerlineArrow=false` → 不 emit 段間箭頭迴圈區塊、
+ * `lastArrowCap` 全面無效（cap 區塊恆不 emit，與其值無關）；段本身的
+ * padding 已在 emitSegment 併入 texts 陣列元素，本函式無需另處理。
+ */
+function joinPowerline(lastArrowCap: boolean, powerlineArrow: boolean): string[] {
+  const lines = ['out=""', 'n=${#texts[@]}', 'for ((i = 0; i < n; i++)); do']
+  if (powerlineArrow) {
+    lines.push(
+      '  if [ "$i" -gt 0 ]; then',
+      '    out+="${ESC}[0m"',
+      '    if [ -n "${bgs[$((i - 1))]}" ]; then out+="${ESC}[38;${bgs[$((i - 1))]}m"; fi',
+      '    if [ -n "${bgs[$i]}" ]; then out+="${ESC}[48;${bgs[$i]}m"; fi',
+      '    out+="$ARROW"',
+      '  fi',
+    )
+  }
+  lines.push(
     '  out+="${ESC}[0m"',
     '  if [ -n "${fgs[$i]}" ]; then out+="${ESC}[${fgs[$i]}m"; fi',
     '  if [ -n "${bgs[$i]}" ]; then out+="${ESC}[48;${bgs[$i]}m"; fi',
     '  out+="${texts[$i]}"',
     'done',
-  ]
-  if (lastArrowCap) {
+  )
+  if (powerlineArrow && lastArrowCap) {
     // 收尾箭頭：fg=末段bg、bg 缺席＝對終端底色（Q1）。
     lines.push(
       'if [ "$n" -gt 0 ]; then',
@@ -359,7 +387,7 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
     return { seg, descriptor }
   })
   const needsJq = resolved.some(({ descriptor }) => descriptor.category !== 'shell-out')
-  const em: Emitter = { mode: config.mode }
+  const em: Emitter = { mode: config.mode, powerlineArrow: config.powerlineArrow }
 
   const out: string[] = []
   out.push('#!/usr/bin/env bash')
@@ -380,7 +408,11 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
   out.push('')
   // 契約 7：ANSI 組碼常數。
   out.push("ESC=$'\\033'")
-  if (config.mode === 'powerline') out.push(`ARROW=${bashSingleQuote(POWERLINE_ARROW)}`)
+  // D1 gating：`ARROW=` 只在 powerline＋powerlineArrow=true 時 emit（false 時
+  // 無段間箭頭、也無收尾 cap，變數本身無用武之地）。
+  if (config.mode === 'powerline' && config.powerlineArrow) {
+    out.push(`ARROW=${bashSingleQuote(POWERLINE_ARROW)}`)
+  }
   if (config.mode === 'plain') out.push(`SEP=${bashSingleQuote(config.separator.value)}`)
   out.push('')
   // 平行陣列（第一趟累加器）。
@@ -395,7 +427,11 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
   }
   out.push('')
   out.push('# ── join（第二趟：逐 run 拼接） ──')
-  out.push(...(config.mode === 'powerline' ? joinPowerline(config.lastArrowCap) : joinPlain()))
+  out.push(
+    ...(config.mode === 'powerline'
+      ? joinPowerline(config.lastArrowCap, config.powerlineArrow)
+      : joinPlain()),
+  )
   out.push('')
   // 契約 6：使用者文字不進格式位——$out 在引數位。契約 9：結尾顯式 exit 0。
   out.push(`printf '%s' "$out"`)

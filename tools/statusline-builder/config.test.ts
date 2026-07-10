@@ -3,7 +3,8 @@
  * 註解／§Verification 1）：defaultConfig 工廠、serialize/deserialize
  * roundtrip、drop-unknown-and-continue 全類（未知 id／variant／欄、
  * 越界色、壞 hex、桶數 8/12、separator/prefix 驗證退預設）、目錄變動
- * 對帳（舊 config×新目錄）、version 0/2 重置、清洗冪等。
+ * 對帳（舊 config×新目錄）、v1→v2 遷移（powerlineArrow 派生）、其他
+ * 版本 0/3 重置、清洗冪等。
  *
  * catalog 為假目錄注入（segments.ts 於 M2 才建立——契約即為此設計）。
  */
@@ -31,10 +32,11 @@ const CATALOG: SegmentCatalog = {
 /** 有效且含全部選填欄的滿配 config（覆蓋 catalog 全 id、非目錄序）。 */
 function fullConfig(): BuilderConfig {
   return {
-    version: 1,
+    version: 2,
     mode: 'powerline',
     separator: { kind: 'preset', value: '›' },
     lastArrowCap: false,
+    powerlineArrow: true,
     segments: [
       {
         id: 'context-used',
@@ -65,12 +67,13 @@ function fullConfig(): BuilderConfig {
 }
 
 describe('defaultConfig 工廠', () => {
-  it('version 1／plain／preset "|"／lastArrowCap true／目錄序全列全停用', () => {
+  it('version 2／plain／preset "|"／lastArrowCap true／powerlineArrow false／目錄序全列全停用', () => {
     expect(defaultConfig(CATALOG)).toEqual({
-      version: 1,
+      version: 2,
       mode: 'plain',
       separator: { kind: 'preset', value: '|' },
       lastArrowCap: true,
+      powerlineArrow: false,
       segments: [
         { id: 'model', enabled: false, icon: false, color: { kind: 'default' } },
         { id: 'cwd', enabled: false, icon: false, color: { kind: 'default' } },
@@ -95,8 +98,8 @@ describe('defaultConfig 工廠', () => {
     expect(a.segments[0]).not.toBe(b.segments[0])
   })
 
-  it('CONFIG_VERSION＝1；SEPARATOR_PRESETS 正面表列', () => {
-    expect(CONFIG_VERSION).toBe(1)
+  it('CONFIG_VERSION＝2；SEPARATOR_PRESETS 正面表列', () => {
+    expect(CONFIG_VERSION).toBe(2)
     expect(SEPARATOR_PRESETS).toEqual(['|', '›', '·', ' '])
   })
 })
@@ -163,8 +166,8 @@ describe('整份層級的保底（絕不丟例外）', () => {
     expect(deserializeConfig(json, CATALOG)).toEqual(defaultConfig(CATALOG))
   })
 
-  it('version≠1 → migrate（現階段＝重置）：0／2／"1" 字串／缺欄', () => {
-    for (const version of [0, 2, '1', undefined]) {
+  it('version∉{1,2}（v1 專用遷移之外的其他版本）→ 重置：0／3／"2" 字串／缺欄', () => {
+    for (const version of [0, 3, '2', undefined]) {
       const json = JSON.stringify({ version, mode: 'powerline', segments: [] })
       expect(deserializeConfig(json, CATALOG), `version=${String(version)}`).toEqual(
         defaultConfig(CATALOG),
@@ -172,9 +175,82 @@ describe('整份層級的保底（絕不丟例外）', () => {
     }
   })
 
-  it('version=1 但其餘全壞 → 逐欄退預設，等同預設 config（不整份拒收）', () => {
+  it('version=1 但其餘全壞 → 逐欄退預設＋powerlineArrow false，等同預設 config（不整份拒收）', () => {
     const json = JSON.stringify({ version: 1, mode: 9, separator: null, segments: 'nope' })
-    expect(deserializeConfig(json, CATALOG)).toEqual(defaultConfig(CATALOG))
+    const result = deserializeConfig(json, CATALOG)
+    expect(result).toEqual(defaultConfig(CATALOG))
+    expect(result.powerlineArrow).toBe(false)
+  })
+})
+
+describe('v2 遷移（migrateConfig：v1→v2 powerlineArrow 派生／其他版本重置）', () => {
+  it('v1 mode:"powerline" → powerlineArrow true（保留既有箭頭觀感）', () => {
+    const json = JSON.stringify({ version: 1, mode: 'powerline', segments: [] })
+    const result = deserializeConfig(json, CATALOG)
+    expect(result.version).toBe(2)
+    expect(result.mode).toBe('powerline')
+    expect(result.powerlineArrow).toBe(true)
+  })
+
+  it('v1 mode:"plain" → powerlineArrow false', () => {
+    const json = JSON.stringify({ version: 1, mode: 'plain', segments: [] })
+    const result = deserializeConfig(json, CATALOG)
+    expect(result.mode).toBe('plain')
+    expect(result.powerlineArrow).toBe(false)
+  })
+
+  it('v1 缺 mode 欄 → 退 plain／powerlineArrow false', () => {
+    const json = JSON.stringify({ version: 1, segments: [] })
+    const result = deserializeConfig(json, CATALOG)
+    expect(result.mode).toBe('plain')
+    expect(result.powerlineArrow).toBe(false)
+  })
+
+  it('v1 損壞存檔（mode 非法值／segments 壞形）→ 各欄退預設＋powerlineArrow false（不整份拒收）', () => {
+    const json = JSON.stringify({
+      version: 1,
+      mode: { nested: true },
+      separator: 42,
+      segments: [{ id: 'ghost' }, 42, null],
+    })
+    const result = deserializeConfig(json, CATALOG)
+    expect(result.mode).toBe('plain')
+    expect(result.powerlineArrow).toBe(false)
+    expect(result.separator).toEqual({ kind: 'preset', value: '|' })
+    expect(result.segments.map((s) => s.id).sort()).toEqual([...CATALOG.ids].sort())
+  })
+
+  it('version 0／3／"1" 字串／缺欄 → 完整重置（無前代 schema 可依，非 v1 專用遷移）', () => {
+    for (const version of [0, 3, '1', undefined]) {
+      const json = JSON.stringify({ version, mode: 'powerline', powerlineArrow: true, segments: [] })
+      expect(deserializeConfig(json, CATALOG), `version=${String(version)}`).toEqual(
+        defaultConfig(CATALOG),
+      )
+    }
+  })
+
+  it('v2 sanitize 冪等：dirty v2 存檔清洗一次後，再 serialize→deserialize 不再變形', () => {
+    const dirty = JSON.stringify({
+      version: 2,
+      mode: 'powerline',
+      separator: { kind: 'custom', value: 'x'.repeat(9) },
+      powerlineArrow: 'yes', // 非布林 → false
+      segments: [{ id: 'ghost', enabled: true }],
+      bogusTop: true,
+    })
+    const once = deserializeConfig(dirty, CATALOG)
+    expect(once.powerlineArrow).toBe(false)
+    const twice = deserializeConfig(serializeConfig(once), CATALOG)
+    expect(twice).toEqual(once)
+  })
+
+  it('v2 powerlineArrow 非布林（字串／數字／缺欄）→ false；true 保留', () => {
+    for (const powerlineArrow of ['yes', 1, undefined]) {
+      const json = JSON.stringify({ version: 2, mode: 'plain', powerlineArrow, segments: [] })
+      expect(deserializeConfig(json, CATALOG).powerlineArrow, String(powerlineArrow)).toBe(false)
+    }
+    const json = JSON.stringify({ version: 2, mode: 'powerline', powerlineArrow: true, segments: [] })
+    expect(deserializeConfig(json, CATALOG).powerlineArrow).toBe(true)
   })
 })
 

@@ -4,23 +4,121 @@
    '../../src/style.css'` 之後），僅補充本工具頁特有的元件；不重複
    src/style.css 已涵蓋的 header/main/footer/連結/焦點/reduced-motion。
 
-   色票沿用 src/style.css 與 tools/gif-editor/style.css 已驗算值（對比
-   以 WCAG 相對亮度估算，一般文字 AA 4.5:1、UI 元件/焦點 3:1）：
-   - 主文字 #1f2328 / 白底 ≈ 16.2:1
-   - 次文字 #4b5563 / 白底 ≈ 7.6:1
-   - 連結/焦點 #1d4ed8 / 白底 ≈ 6.7:1（文字與非文字皆過）
-   - 主按鈕文字 #ffffff / #1d4ed8 ≈ 6.71:1
-   - 錯誤 #991b1b / #fee2e2 ≈ 6.80:1（沿用 gif-editor）
-   - 狀態 #1e3a8a / #eff6ff ≈ 9.52:1；左邊框 #1d4ed8（沿用 gif-editor）
-   本檔新增元件：
-   - .nerd-font-banner（提示橫幅）：文字 #713f12 / 背景 #fefce8 ≈ 8.7:1；
-     --active 左邊框 #a16207（對白底 ≈ 4.6:1，非文字門檻達標）。
-   - .preview-terminal（終端模擬）：--dark 背景 #1e1e1e／文字 #e6e6e6
-     ≈ 13.6:1；--light 背景 #f6f8fa／文字 #1f2328 ≈ 15.3:1。此為「終端
-     預設」底色，ANSI 著色由 render-preview.ts（T3.2）逐 span 覆寫。
+   色彩 token 化（T4.1）：凡與 src/style.css 共用 token 同色/同義的
+   硬編碼色，一律改引用 var(--fg)／var(--fg-muted)／var(--link)／
+   var(--border)／var(--surface)／var(--surface-dim)／
+   var(--accent-fill)／var(--accent-fill-hover)／var(--accent-fill-fg)
+   等共用 token（其淺/深對比值已在 src/style.css 檔頭驗算，此處不
+   重算）。主按鈕填色（.button-like、.skip-link 背景＋邊框＋白字）
+   消費共用 --accent-fill／--accent-fill-hover／--accent-fill-fg，
+   不再另立本地 --sb-accent-fill／--sb-accent-fill-hover／
+   --sb-accent-fill-fg（原深色值沿用 #1d4ed8 對 --dark-bg 僅
+   ≈2.76:1，未達 UI 元件 3:1 門檻，已隨改用共用 token 一併修正為
+   #2563eb ≈3.58:1，見 src/style.css 檔頭）。次要按鈕
+   （.button-like--secondary）文字／邊框改共同覆寫為 --link（覆寫
+   繼承自 .button-like 的 --accent-fill 邊框；不採 --accent-fill 是
+   因為深色 --dark-accent-fill 對頁面深色背景僅 ≈3.58:1，未達一般
+   文字 4.5:1 門檻）：淺色 --link 與 --accent-fill 同值 #1d4ed8，
+   渲染像素不變；深色 --dark-link #60a5fa 對頁面深色背景 ≈7.28:1，
+   同時滿足文字 4.5:1 與邊框 3:1 門檻，見下方規則旁註解。無共用對應
+   的本頁專屬色，改為 --sb- 前綴的在地
+   token，深色調色盤（--dark-sb-*）比照 src/style.css 單一來源慣例：
+   色值只在 :root 定義一次，下方兩個深色情境（跟隨系統／手動切換）
+   只做 `--sb-x: var(--dark-sb-x)` 式引用，不重複色值。
+
+   --sb- 在地 token 對比值（WCAG 相對亮度估算，一般文字 AA 4.5:1、
+   UI 元件/焦點 3:1）：
+   - 錯誤方塊：淺色 --sb-error-fg #991b1b／--sb-error-bg #fee2e2
+     ≈ 6.80:1（沿用 apng-to-gif／gif-editor 已驗算值）；深色
+     --dark-sb-error-fg #fca5a5／--dark-sb-error-bg #450a0a ≈ 8.50:1。
+   - 狀態方塊：淺色 --sb-status-fg #1e3a8a／--sb-status-bg #eff6ff
+     ≈ 9.52:1；深色 --dark-sb-status-fg #bfdbfe／--dark-sb-status-bg
+     #172554 ≈ 10.35:1。左側強調邊框沿用共用 --link token。
+   - --sb-row-enabled-bg（啟用列底色，非唯一辨識——checkbox 勾選狀態
+     才是主辨識，見下方 .segment-row--enabled 註解）：淺色 #fbfdff
+     為白底極淺藍調，深色 --dark-sb-row-enabled-bg #111b24 為深色
+     surface（#0f1419）極淺藍調的對應版本，不需個別驗算文字對比
+     （其上文字仍走 var(--fg)，對比見 src/style.css 檔頭）。
+   - --sb-disabled-bg（停用態底色，僅裝飾，控件另有 opacity: 0.6
+     輔助辨識，不受 AA 門檻拘束）：淺色 #f3f4f6，深色
+     --dark-sb-disabled-bg #21262d。
+   - --sb-swatch-border（色票 chip 裝飾性描邊，見下方 .color-swatch__chip
+     註解，用途是讓任意 ANSI 色塊皆可見邊界，非文字/非唯一辨識手段，
+     比照 src/style.css 的 --shadow-color 作法讓 rgba 疊色隨主題調整）：
+     淺色 rgba(31, 35, 40, 0.35)，深色 --dark-sb-swatch-border
+     rgba(0, 0, 0, 0.6)（提高不透明度以維持在深色底上的可見度）。
+   - --sb-code-bg／--sb-code-fg（產出腳本程式碼區塊，見下方
+     .output-block__code 註解）：#1e1e1e／#e6e6e6 ≈ 13.6:1，深色情境
+     刻意沿用同一組值不變——此區塊呈現的是使用者要貼到終端機的原始
+     腳本文字，維持固定的深底色碼區塊觀感（不隨站台淺/深主題切換），
+     與下方「終端模擬」的排版精神一致，但因非 ANSI 派生、非
+     radio 驅動，仍納入 token 架構以避免裸色殘留。
+
+   本檔新增元件（沿用 src/style.css 與 tools/gif-editor/style.css 已
+   驗算之共用色票結構，見上方 token 對應）：
+   - .preview-terminal（終端模擬，深/淺兩色**不**token 化，見下方註解）：
+     --dark 背景 #1e1e1e／文字 #e6e6e6 ≈ 13.6:1；--light 背景 #f6f8fa／
+     文字 #1f2328 ≈ 15.3:1。此為「終端預設」底色，ANSI 著色由
+     render-preview.ts（T3.2）逐 span 覆寫。
    - 觸控目標（色選 swatch、移位鈕、spinbutton 步進鈕）一律 ≥24×24
      CSS px（WCAG 2.5.8）。
    ============================================================ */
+
+/* ---- 本頁在地 token（--sb- 前綴）：無共用 token 對應的專屬色，
+   定義處與對比計算見上方檔頭。深色調色盤（--dark-sb-*）單一來源，
+   下方兩個深色情境只做引用，不重複色值。 ---- */
+:root {
+  --sb-error-bg: #fee2e2;
+  --sb-error-fg: #991b1b;
+  --sb-status-bg: #eff6ff;
+  --sb-status-fg: #1e3a8a;
+  --sb-row-enabled-bg: #fbfdff;
+  --sb-disabled-bg: #f3f4f6;
+  --sb-swatch-border: rgba(31, 35, 40, 0.35);
+  --sb-code-bg: #1e1e1e;
+  --sb-code-fg: #e6e6e6;
+
+  /* 深色調色盤單一來源：色值只在此定義一次，見上方檔頭對比計算 */
+  --dark-sb-error-bg: #450a0a;
+  --dark-sb-error-fg: #fca5a5;
+  --dark-sb-status-bg: #172554;
+  --dark-sb-status-fg: #bfdbfe;
+  --dark-sb-row-enabled-bg: #111b24;
+  --dark-sb-disabled-bg: #21262d;
+  --dark-sb-swatch-border: rgba(0, 0, 0, 0.6);
+  --dark-sb-code-bg: #1e1e1e;
+  --dark-sb-code-fg: #e6e6e6;
+}
+
+/* 深色情境（跟隨系統）：與 src/style.css 同一守衛條件，只引用
+   --dark-sb-* token，不重複色值；須與下方 :root[data-theme='dark']
+   保持同步。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --sb-error-bg: var(--dark-sb-error-bg);
+    --sb-error-fg: var(--dark-sb-error-fg);
+    --sb-status-bg: var(--dark-sb-status-bg);
+    --sb-status-fg: var(--dark-sb-status-fg);
+    --sb-row-enabled-bg: var(--dark-sb-row-enabled-bg);
+    --sb-disabled-bg: var(--dark-sb-disabled-bg);
+    --sb-swatch-border: var(--dark-sb-swatch-border);
+    --sb-code-bg: var(--dark-sb-code-bg);
+    --sb-code-fg: var(--dark-sb-code-fg);
+  }
+}
+
+/* 深色情境（使用者手動切換）：與上方 @media 區塊須保持同步。 */
+:root[data-theme='dark'] {
+  --sb-error-bg: var(--dark-sb-error-bg);
+  --sb-error-fg: var(--dark-sb-error-fg);
+  --sb-status-bg: var(--dark-sb-status-bg);
+  --sb-status-fg: var(--dark-sb-status-fg);
+  --sb-row-enabled-bg: var(--dark-sb-row-enabled-bg);
+  --sb-disabled-bg: var(--dark-sb-disabled-bg);
+  --sb-swatch-border: var(--dark-sb-swatch-border);
+  --sb-code-bg: var(--dark-sb-code-bg);
+  --sb-code-fg: var(--dark-sb-code-fg);
+}
 
 /* ---- a11y：視覺隱藏但保留於 a11y tree / tab order（clip，非 display:none） ---- */
 .sr-only {
@@ -47,8 +145,8 @@
   left: -9999px;
   z-index: 10;
   padding: 0.625rem 1.25rem;
-  background-color: #1d4ed8;
-  color: #ffffff; /* 對 #1d4ed8 ≈ 6.71:1 */
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg); /* 對比見 src/style.css 檔頭 */
   border-radius: 0 0 0.375rem 0;
   font-weight: 600;
   text-decoration: none;
@@ -77,7 +175,7 @@
 .tool-section h2 {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #1f2328;
+  color: var(--fg);
   margin-bottom: 0.75rem;
 }
 
@@ -85,10 +183,10 @@
 .button-like {
   display: inline-block;
   padding: 0.625rem 1.25rem;
-  border: 2px solid #1d4ed8;
+  border: 2px solid var(--accent-fill);
   border-radius: 0.375rem;
-  background-color: #1d4ed8;
-  color: #ffffff; /* ≈ 6.71:1 */
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg); /* 對比見 src/style.css 檔頭 */
   font-size: 1rem;
   font-weight: 600;
   text-decoration: none;
@@ -96,17 +194,23 @@
 }
 
 .button-like:hover {
-  background-color: #1e40af;
-  border-color: #1e40af;
+  background-color: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
 }
 
 .button-like--secondary {
-  background-color: #ffffff;
-  color: #1d4ed8; /* 對白底 ≈ 6.71:1 */
+  background-color: var(--surface);
+  /* 文字／邊框改共同覆寫為 --link（覆寫繼承自 .button-like 的
+     --accent-fill 邊框）：淺色 --link 與 --accent-fill 同值 #1d4ed8，
+     渲染像素不變；深色 --dark-link #60a5fa 對頁面深色背景 ≈7.28:1，
+     同時滿足文字 4.5:1 與邊框 3:1 門檻，且文字/邊框同色不再雙色，
+     見 src/style.css 檔頭。 */
+  color: var(--link);
+  border-color: var(--link);
 }
 
 .button-like--secondary:hover {
-  background-color: #f9fafb;
+  background-color: var(--surface-dim);
 }
 
 .button-like[disabled],
@@ -131,15 +235,15 @@ a.button-like:not([href]) {
 }
 
 .alert-message {
-  background-color: #fee2e2;
-  border-left-color: #991b1b;
-  color: #991b1b; /* ≈ 6.80:1 */
+  background-color: var(--sb-error-bg);
+  border-left-color: var(--sb-error-fg);
+  color: var(--sb-error-fg); /* ≈ 6.80:1／深色 ≈ 8.50:1，見檔頭 */
 }
 
 .status-message {
-  background-color: #eff6ff;
-  border-left-color: #1d4ed8;
-  color: #1e3a8a; /* 對 #eff6ff ≈ 9.52:1 */
+  background-color: var(--sb-status-bg);
+  border-left-color: var(--link);
+  color: var(--sb-status-fg); /* ≈ 9.52:1／深色 ≈ 10.35:1，見檔頭 */
 }
 
 /* 常駐 live region 收合視覺（不影響 a11y tree 掛載，見 index.html 註解） */
@@ -176,7 +280,7 @@ a.button-like:not([href]) {
   padding: 0;
   font-size: 0.9375rem;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--fg);
 }
 
 .control-subfield {
@@ -186,6 +290,17 @@ a.button-like:not([href]) {
   margin-top: 0.25rem;
 }
 
+/*
+  控件輔助說明（PLAN §D1：Powerline 箭頭「需字型支援」常駐警語＋
+  「全段預設色＋powerline＋無箭頭」無色塊邊界提示）：次文字色小字，
+  非唯一辨識手段，沿用 .segment-lists__hint 同一調性（見下方）。
+*/
+.control-hint {
+  margin: 0.25rem 0 0;
+  color: var(--fg-muted); /* ≈ 7.6:1，見 src/style.css 檔頭 */
+  font-size: 0.8125rem;
+}
+
 /* checkbox/radio 與其文字水平並排（label 包裹＝原生控件，非帶值 textbox） */
 .inline-choice {
   display: flex;
@@ -193,29 +308,30 @@ a.button-like:not([href]) {
   gap: 0.5rem;
   font-size: 0.9375rem;
   font-weight: 400;
-  color: #1f2328;
+  color: var(--fg);
   cursor: pointer;
 }
 
-/* 帶值控件（select／text／color）：邊框沿用次文字灰（對白底 ≈ 7.6:1，遠高於 3:1） */
+/* 帶值控件（select／text／color）：邊框沿用次文字色（對應共用 --fg-muted，
+   對白底 ≈ 7.6:1，遠高於 3:1，見 src/style.css 檔頭） */
 select,
 input[type='text'] {
   width: 100%;
   max-width: 100%;
   padding: 0.5rem 0.625rem;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--fg-muted);
   border-radius: 0.375rem;
   font-size: 1rem;
   font-family: inherit;
-  color: #1f2328;
-  background-color: #ffffff;
+  color: var(--fg);
+  background-color: var(--surface);
 }
 
 input[type='text']:disabled,
 select:disabled {
   cursor: not-allowed;
   opacity: 0.6;
-  background-color: #f3f4f6;
+  background-color: var(--sb-disabled-bg);
 }
 
 /* ============================================================
@@ -227,7 +343,7 @@ select:disabled {
 
 .segment-lists__hint {
   margin-bottom: 1rem;
-  color: #4b5563; /* ≈ 7.6:1 */
+  color: var(--fg-muted); /* ≈ 7.6:1 */
   font-size: 0.9375rem;
 }
 
@@ -238,15 +354,15 @@ select:disabled {
 .segment-section__heading {
   font-size: 1.125rem;
   font-weight: 700;
-  color: #1f2328;
+  color: var(--fg);
   margin-bottom: 0.25rem;
   padding-bottom: 0.375rem;
-  border-bottom: 2px solid #e5e7eb; /* 分區視覺分隔（裝飾，非唯一辨識手段） */
+  border-bottom: 2px solid var(--border); /* 分區視覺分隔（裝飾，非唯一辨識手段） */
 }
 
 .segment-section__desc {
   margin-bottom: 0.75rem;
-  color: #4b5563;
+  color: var(--fg-muted);
   font-size: 0.875rem;
 }
 
@@ -261,16 +377,17 @@ select:disabled {
 }
 
 .segment-row {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
   padding: 0.75rem;
-  background-color: #ffffff;
+  background-color: var(--surface);
 }
 
-/* 啟用列左側強調邊條（非唯一辨識——checkbox 勾選狀態才是主辨識） */
+/* 啟用列左側強調邊條（非唯一辨識——checkbox 勾選狀態才是主辨識）；
+   底色 --sb-row-enabled-bg 為極淺藍調，淺/深對應版本見檔頭 */
 .segment-row--enabled {
-  border-left: 4px solid #1d4ed8;
-  background-color: #fbfdff;
+  border-left: 4px solid var(--link);
+  background-color: var(--sb-row-enabled-bg);
 }
 
 .segment-row__enable-field {
@@ -282,7 +399,7 @@ select:disabled {
 .segment-row__name {
   font-size: 1rem;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--fg);
   cursor: pointer;
 }
 
@@ -299,7 +416,7 @@ select:disabled {
   gap: 0.75rem 1rem;
   margin-top: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--border);
 }
 
 .segment-row--enabled .segment-row__controls {
@@ -316,7 +433,7 @@ select:disabled {
 .segment-row__field > label:not(.inline-choice) {
   font-size: 0.8125rem;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--fg);
 }
 
 .segment-row__prefix {
@@ -360,18 +477,18 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   min-width: 1.75rem; /* 28px ≥ 24 */
   min-height: 1.75rem;
   padding: 0.25rem;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--fg-muted);
   border-radius: 0.375rem;
-  background-color: #ffffff;
-  color: #1f2328;
+  background-color: var(--surface);
+  color: var(--fg);
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .icon-button:hover {
-  border-color: #1d4ed8;
-  background-color: #f9fafb;
+  border-color: var(--link);
+  background-color: var(--surface-dim);
 }
 
 .icon-button[disabled] {
@@ -388,7 +505,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   gap: 0.5rem;
   margin: 0;
   padding: 0.5rem 0.625rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 0.375rem;
   min-width: 0;
 }
@@ -397,7 +514,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   padding: 0;
   font-size: 0.8125rem;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--fg);
 }
 
 .color-picker__modes {
@@ -440,21 +557,21 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   display: block;
   width: 1.5rem; /* 24px 觸控下限（WCAG 2.5.8） */
   height: 1.5rem;
-  border: 1px solid rgba(31, 35, 40, 0.35); /* 淺色 chip 也可見邊界 */
+  border: 1px solid var(--sb-swatch-border); /* 讓任意 ANSI 色塊皆可見邊界，見檔頭說明 */
   border-radius: 0.25rem;
   /* background-color 由 main.ts 依 ANSI 索引 inline 設定 */
 }
 
 /* 選中／聚焦環（focus 掛在 chip 上，因 input 視覺隱藏） */
 .color-swatch input:checked + .color-swatch__chip {
-  outline: 2px solid #1d4ed8;
+  outline: 2px solid var(--link);
   outline-offset: 2px;
 }
 
 .color-swatch input:focus-visible + .color-swatch__chip {
-  outline: 2px solid #1d4ed8;
+  outline: 2px solid var(--link);
   outline-offset: 2px;
-  box-shadow: 0 0 0 2px #ffffff;
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 /* ---- 自訂 spinbutton（原生 number 無法承載 aria-valuetext，見 SP-6） ---- */
@@ -466,7 +583,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 
 .color-spinbutton-field__label {
   font-size: 0.8125rem;
-  color: #1f2328;
+  color: var(--fg);
 }
 
 .color-spinbutton {
@@ -479,17 +596,17 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   min-width: 1.5rem; /* 24px */
   min-height: 1.5rem;
   padding: 0;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--fg-muted);
   border-radius: 0.25rem;
-  background-color: #ffffff;
-  color: #1f2328;
+  background-color: var(--surface);
+  color: var(--fg);
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
 }
 
 .color-spinbutton__step:hover {
-  border-color: #1d4ed8;
+  border-color: var(--link);
 }
 
 .color-spinbutton__control {
@@ -499,9 +616,9 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   min-width: 3.5rem; /* SP-6：spinbutton min 56×24 */
   min-height: 1.5rem;
   padding: 0.125rem 0.5rem;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--fg-muted);
   border-radius: 0.25rem;
-  background-color: #ffffff;
+  background-color: var(--surface);
   font-variant-numeric: tabular-nums;
   cursor: text;
 }
@@ -509,7 +626,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 .color-swatch--preview {
   width: 1.5rem;
   height: 1.5rem;
-  border: 1px solid rgba(31, 35, 40, 0.35);
+  border: 1px solid var(--sb-swatch-border);
   border-radius: 0.25rem;
   /* background-color 由 main.ts 即時反映當前 ANSI 索引色 */
 }
@@ -518,9 +635,9 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   width: 3rem;
   height: 2rem;
   padding: 0;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--fg-muted);
   border-radius: 0.375rem;
-  background-color: #ffffff;
+  background-color: var(--surface);
   cursor: pointer;
 }
 
@@ -537,17 +654,17 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #4b5563;
+  border: 1px solid var(--fg-muted);
   border-radius: 0.375rem;
-  background-color: #ffffff;
-  color: #1f2328;
+  background-color: var(--surface);
+  color: var(--fg);
   font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .threshold__toggle:hover {
-  border-color: #1d4ed8;
+  border-color: var(--link);
 }
 
 .threshold__toggle::before {
@@ -564,9 +681,9 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 .threshold__panel {
   margin-top: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 0.375rem;
-  background-color: #f9fafb;
+  background-color: var(--surface-dim);
 }
 
 .threshold__template-field {
@@ -580,7 +697,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 .threshold__template-field > label {
   font-size: 0.8125rem;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--fg);
 }
 
 /* 10 桶（main.ts 生成：label「0–9%」…＋色選 clone），窄視口不橫向溢出 */
@@ -595,36 +712,8 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
    ============================================================ */
 .preview-section {
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
-}
-
-/*
-  Nerd Font 提示橫幅（PLAN §預覽契約）：常駐、以內容切換承載顯隱
-  （main.ts 換文字＋切 --active），**不得 display:none**。
-*/
-.nerd-font-banner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.75rem;
-  margin-bottom: 1rem;
-  padding: 0.75rem 1rem;
-  border-radius: 0.375rem;
-  border-left: 4px solid #ca8a04; /* 中性態邊條（對白底 ≈ 3.9:1，非文字達標） */
-  background-color: #fefce8;
-  color: #713f12; /* 對 #fefce8 ≈ 8.7:1 */
-  font-size: 0.9375rem;
-}
-
-.nerd-font-banner__text {
-  margin: 0;
-}
-
-/* icon／powerline 啟用時加強視覺（main.ts 切 class） */
-.nerd-font-banner--active {
-  border-left-color: #a16207; /* 對白底 ≈ 4.6:1 */
-  background-color: #fef9c3;
 }
 
 .preview-controls {
@@ -635,23 +724,28 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 }
 
 /*
-  終端模擬框（role="img"）：等寬字＋橫向捲動（長狀態列不撐破版面）。
-  首行字型為 Nerd Font 子集，family 名須與 T3.2 的 @font-face 一致
-  （契約：'Symbols Nerd Font Mono'）；載入失敗則退回系統等寬字，
-  glyph 以豆腐/替代顯示（可接受的降級，實際圖示以使用者終端為準）。
+  終端模擬框（role="img"）：等寬字＋橫向捲動（長狀態列不撐破版面）。字型
+  資產已刪除（magi/06-statusline-ui-refresh PLAN §D1 Round 2），退回系統
+  等寬 fallback（render-preview.ts inline 鎖 `ui-monospace, monospace`，
+  此處 font-family 為載入 JS 前的靜態 fallback，同一等寬堆疊）。
 */
 .preview-terminal {
   min-height: 3rem;
   padding: 0.75rem 1rem;
   border-radius: 0.375rem;
-  font-family: 'Symbols Nerd Font Mono', ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo,
-    Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
   font-size: 0.9375rem;
   line-height: 1.6;
   white-space: pre;
   overflow-x: auto;
 }
 
+/*
+  T4.1 排除項（magi/06-statusline-ui-refresh PLAN §D4／TASKS T4.1 明文）：
+  預覽終端框底色模擬「使用者實際終端」的深／淺兩色，由本頁「預覽底色」
+  radio 獨立驅動，與站台深/淺主題無關——刻意維持硬編碼色，不套用
+  --bg/--dark-* 等站台 token。
+*/
 .preview-terminal--dark {
   background-color: #1e1e1e;
   color: #e6e6e6; /* 對 #1e1e1e ≈ 13.6:1（終端預設前景，ANSI 由 span 覆寫） */
@@ -662,12 +756,40 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   color: #1f2328; /* 對 #f6f8fa ≈ 15.3:1 */
 }
 
+/*
+  powerline 箭頭三角形（PLAN §D1 Round 2）：字型刪除後 PUA glyph 必為豆腐，
+  改以 CSS clip-path 三角形渲染箭頭視覺；aria 由既有 ariaText=''（resolve.ts）
+  經 toAriaLabel 承載，本元素 aria-hidden、不含任何文字節點。外層 span 的
+  background-color 由 render-preview.ts inline 設為過渡目標色（run.bg；cap
+  箭頭無 bg → 不落屬性＝透明，退回終端底色）；`::before` 為三角形本體，讀
+  render-preview.ts 掛的 `--arrow-fg` CSS 變數（run.fg），以 clip-path 裁出
+  右尖三角（PUA glyph 原視覺方向）。
+
+  T4.1 排除項：--arrow-fg 由 render-preview.ts 依 ANSI run.fg 逐一設定，
+  屬「ANSI 著色派生」樣式，模擬終端輸出而非站台 UI，不套用站台 token。
+*/
+.preview-terminal__arrow {
+  position: relative;
+  display: inline-block;
+  width: 0.6em;
+  height: 1.6em; /* 對齊 .preview-terminal line-height:1.6，避免與相鄰文字高度不一 */
+  vertical-align: bottom;
+}
+
+.preview-terminal__arrow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  background-color: var(--arrow-fg, transparent);
+}
+
 /* ============================================================
    產出腳本
    ============================================================ */
 .output-section {
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
 }
 
@@ -682,7 +804,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 .output-block__heading {
   font-size: 1rem;
   font-weight: 700;
-  color: #1f2328;
+  color: var(--fg);
   margin-bottom: 0.5rem;
 }
 
@@ -693,13 +815,18 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   margin-bottom: 0.5rem;
 }
 
-/* <pre tabindex="0">：可鍵盤聚焦捲動（WCAG 2.1.1），橫向捲動不撐破版面 */
+/*
+  <pre tabindex="0">：可鍵盤聚焦捲動（WCAG 2.1.1），橫向捲動不撐破版面。
+  底色 --sb-code-bg／--sb-code-fg 已納入 token 架構，但深色情境刻意沿用
+  同一組值（見檔頭說明）：此區塊呈現使用者要貼到終端機的原始腳本文字，
+  維持固定深底色碼區塊觀感，不隨站台淺/深主題切換。
+*/
 .output-block__code {
   margin: 0;
   padding: 0.75rem 1rem;
   border-radius: 0.375rem;
-  background-color: #1e1e1e;
-  color: #e6e6e6; /* 對 #1e1e1e ≈ 13.6:1 */
+  background-color: var(--sb-code-bg);
+  color: var(--sb-code-fg); /* ≈ 13.6:1，見檔頭 */
   font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
   font-size: 0.875rem;
   line-height: 1.5;

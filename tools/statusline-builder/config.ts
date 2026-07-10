@@ -8,7 +8,9 @@
  * 欄忽略、threshold buckets 桶數校正恰 10（不足補預設、超長截斷；
  * auto-fg 平行陣列不入 config——emit 期由 threshold.ts autoFgBuckets
  * 派生，校正後自然同步）、separator／prefix 過 validate.ts 失敗即退
- * 預設；version≠1 → migrate（v1 為首版 schema，現階段＝重置）。
+ * 預設；version≠CONFIG_VERSION（現＝2）→ migrate——v1 存檔逐欄清洗＋
+ * 依 mode 派生 powerlineArrow（v1→v2，PLAN §D2 06a）；其餘版本（0、3、
+ * 字串、缺欄）無前代可依，重置為預設。
  *
  * segment 目錄以 SegmentCatalog 注入（segments.ts 於 M2 才建立，本模組
  * 不依賴之）：id 型別暫為 string，清洗以「id ∈ catalog.ids」執行期保證
@@ -32,7 +34,7 @@ export interface SegmentCatalog {
 
 // ── 型別（PLAN 型別契約） ──
 
-export const CONFIG_VERSION = 1
+export const CONFIG_VERSION = 2
 
 /** 分隔符 preset 正面表列（PLAN：'|'／'›'／'·'／空格）。 */
 export const SEPARATOR_PRESETS = ['|', '›', '·', ' '] as const
@@ -58,6 +60,7 @@ export interface BuilderConfig {
   mode: 'plain' | 'powerline'
   separator: SeparatorConfig
   lastArrowCap: boolean // powerline 末段收尾箭頭（預設 true，Q1）
+  powerlineArrow: boolean // powerline 段間箭頭（預設 false，v2 新欄；D1 gating 見 emitter，本模組不碰）
   segments: SegmentConfig[]
 }
 
@@ -79,6 +82,7 @@ export function defaultConfig(catalog: SegmentCatalog): BuilderConfig {
     mode: 'plain',
     separator: defaultSeparator(),
     lastArrowCap: true,
+    powerlineArrow: false,
     segments: catalog.ids.map((id) => defaultSegmentConfig(id)),
   }
 }
@@ -200,24 +204,35 @@ function sanitizeConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): 
     mode: raw.mode === 'powerline' ? 'powerline' : 'plain',
     separator: sanitizeSeparator(raw.separator),
     lastArrowCap: typeof raw.lastArrowCap === 'boolean' ? raw.lastArrowCap : true,
+    powerlineArrow: typeof raw.powerlineArrow === 'boolean' ? raw.powerlineArrow : false,
     segments: sanitizeSegments(raw.segments, catalog),
   }
 }
 
 /**
- * migrate 骨架：v1 為首版 schema、無前代可遷——未知版本（0、2、字串、
- * 缺欄）一律重置為預設。未來 v2 時在此逐版遷移（v1→v2…）後再走
- * sanitizeConfig。
+ * migrate（v1→v2，PLAN §D2 06a）：raw.version===1（嚴格 ===）之存檔視為
+ * 前代 schema——逐欄清洗與 sanitizeConfig 同一套 drop-unknown-and-continue
+ * helper（separator／segments／lastArrowCap 等），另補 v2 新欄
+ * powerlineArrow：v1 無此欄，依 mode 派生——'powerline' 保留既有箭頭觀感
+ * （設 true，直到 T2.3 落地 gating 前 emitter 仍照 v1 全語意跑）、'plain'
+ * 或 mode 缺欄／非法 → false（sanitizeConfig 之 mode 判定已等價 raw.mode
+ * === 'powerline' 之嚴格比對，此處直接讀已清洗之 mode 即可）。
+ *
+ * 其餘版本（0、3、字串、缺欄——非 v1）無前代 schema 可依，一律重置為
+ * 預設（未來 v3 時在此加 v2→v3 分支，v1 分支不動）。
  */
-function migrateConfig(_raw: Record<string, unknown>, catalog: SegmentCatalog): BuilderConfig {
-  return defaultConfig(catalog)
+function migrateConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): BuilderConfig {
+  if (raw.version !== 1) return defaultConfig(catalog)
+  const sanitized = sanitizeConfig(raw, catalog)
+  return { ...sanitized, powerlineArrow: sanitized.mode === 'powerline' }
 }
 
 /**
  * JSON 字串 → BuilderConfig。絕不丟例外、絕不整份拒收：壞 JSON／非
- * 物件頂層 → 預設 config；version≠1（嚴格 ===，"1" 字串不收）→
- * migrate；version=1 → 逐欄清洗（drop-unknown-and-continue，未知
- * 頂層欄不搬運即忽略）。清洗為冪等純函式。
+ * 物件頂層 → 預設 config；version≠CONFIG_VERSION（嚴格 ===，"2" 字串
+ * 不收）→ migrate（v1 專用遷移；其他版本重置）；version=CONFIG_VERSION
+ * → 逐欄清洗（drop-unknown-and-continue，未知頂層欄不搬運即忽略）。
+ * 清洗為冪等純函式。
  */
 export function deserializeConfig(json: string, catalog: SegmentCatalog): BuilderConfig {
   let raw: unknown

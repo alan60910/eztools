@@ -25,7 +25,7 @@ $BgT = @()
 # model — always/empty
 $v = $d.model.display_name
 if ($null -ne $v -and $v -ne '') {
-  $disp = ' ' + $v
+  $disp = [char]::ConvertFromUtf32(0x1F916) + ' ' + $v
   $Segs += "$e[0m$e[38;5;16m$e[48;5;226m" + $disp
   $BgT += '5;226'
 }
@@ -33,7 +33,7 @@ if ($null -ne $v -and $v -ne '') {
 # session-name — conditional/hide
 $v = $d.session_name
 if ($null -ne $v -and $v -ne '') {
-  $disp = '[s] ' + $v
+  $disp = '[s]' + [char]::ConvertFromUtf32(0x1F4AC) + ' ' + $v
   $Segs += "$e[0m$e[38;5;16m$e[48;5;99m" + $disp
   $BgT += '5;99'
 }
@@ -41,7 +41,7 @@ if ($null -ne $v -and $v -ne '') {
 # context-used — percentage/dash＋threshold
 $v = $d.context_window.used_percentage
 if ($null -eq $v) {
-  $disp = ' ' + '--'
+  $disp = [char]::ConvertFromUtf32(0x1F4CA) + ' ' + '--'
   $Segs += "$e[0m$e[38;5;231m$e[48;5;240m" + $disp
   $BgT += '5;240'
 } else {
@@ -55,7 +55,7 @@ if ($null -eq $v) {
   $s = "$e[0m"
   if ($fg -ne '') { $s += "$e[" + $fg + 'm' }
   if ($bg -ne '') { $s += "$e[48;" + $bg + 'm' }
-  $s += ' ' + $vt
+  $s += [char]::ConvertFromUtf32(0x1F4CA) + ' ' + $vt
   $Segs += $s
   $BgT += $bg
 }
@@ -63,7 +63,7 @@ if ($null -eq $v) {
 # cost — always/empty
 $v = $d.cost.total_cost_usd
 if ($null -ne $v) {
-  $disp = ' ' + (Format-Cost $v)
+  $disp = [char]::ConvertFromUtf32(0x1F4B0) + ' ' + (Format-Cost $v)
   $Segs += "$e[0m$e[38;5;231m$e[48;5;16m" + $disp
   $BgT += '5;16'
 }

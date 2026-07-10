@@ -8,18 +8,94 @@
       name="description"
       content="純靜態瀏覽器端工具合集：APNG 轉 GIF、GIF 編輯、影片格式轉換"
     />
+    <!-- 讓瀏覽器在任何 CSS 套用前就能為深色偏好使用者選深色預設畫布（配合下方換頁白閃防護 style）。 -->
+    <meta name="color-scheme" content="light dark" />
     <link rel="stylesheet" href="./src/style.css" />
+    <!--
+      入口頁「零框架 JS」唯一例外（magi/06-statusline-ui-refresh/PLAN.md
+      §D4；scripts/verify-dist.mjs 的 ENTRY_ALLOWED_INLINE_SCRIPTS 白名單
+      需與本段逐字同步，改這裡務必同步更新該白名單）：零依賴、零網路請求。
+
+      上半段為四個工具頁 head 也有的 FOUC 防護（byte-identical，先讀
+      localStorage 的手動切換紀錄補上 data-theme，避免重整時先閃一下深色
+      UA 預設）；下半段是入口頁專屬的 toggle 鈕監聽，因入口頁零框架 JS、
+      不能 import src/theme.ts（那需要 module 型別的 script，會被
+      scripts/verify-dist.mjs 判定為外部/屬性化 script 而擋下），故以純
+      vanilla JS 併入同一支 inline script（與 src/theme.ts 邏輯對齊但各自
+      獨立維護，見 theme.ts 檔頭說明）。button 節點於 body 解析後才存在，
+      故監聽掛在 DOMContentLoaded。sync() 內同步補設 aria-label，呼應
+      src/theme.ts:102-105 syncToggleButton 的同一防禦性理由（可及名稱不
+      依賴按鈕目前的純文字內容，日後鈕面改純圖示也不失去可及名稱）——這行
+      同樣受本段開頭「逐字同步」規則約束，改動需同步更新 verify-dist.mjs
+      白名單。
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('eztools-theme');
+          if (t === 'dark' || t === 'light')
+            document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+
+      document.addEventListener('DOMContentLoaded', function () {
+        try {
+          var button = document.querySelector('.theme-toggle');
+          if (!button) return;
+
+          function isEffectiveDark() {
+            try {
+              var stored = localStorage.getItem('eztools-theme');
+              if (stored === 'dark' || stored === 'light') return stored === 'dark';
+            } catch (e) {}
+            try {
+              return window.matchMedia('(prefers-color-scheme: dark)').matches;
+            } catch (e) {
+              return false;
+            }
+          }
+
+          function sync() {
+            button.setAttribute('aria-pressed', String(isEffectiveDark()));
+            button.setAttribute('aria-label', '深色模式切換');
+          }
+
+          sync();
+          button.addEventListener('click', function () {
+            var next = isEffectiveDark() ? 'light' : 'dark';
+            try {
+              localStorage.setItem('eztools-theme', next);
+            } catch (e) {}
+            document.documentElement.setAttribute('data-theme', next);
+            sync();
+          });
+        } catch (e) {}
+      });
+    </script>
+    <style>
+      /* 防換頁白閃：首繪前先給 html 主題底色（色值須與 src/style.css 的 --bg／--dark-bg 保持同步） */
+      html { background-color: #ffffff; }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme='light']) { background-color: #0f1419; }
+      }
+      html[data-theme='dark'] { background-color: #0f1419; }
+    </style>
   </head>
   <body>
     <header>
       <h1>EZTools</h1>
       <p>純靜態、瀏覽器端執行的小工具合集，無需安裝、無需上傳。</p>
+      <button type="button" class="theme-toggle" aria-pressed="false">深色模式切換</button>
     </header>
     <main>
       <!--tool-list-->
     </main>
     <footer>
-      <p>EZTools — 所有處理皆於瀏覽器端完成，不會上傳任何檔案。</p>
+      <p>EZTools — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>
+        © 2026 alan60910 · <a href="https://github.com/alan60910">GitHub</a> ·
+        <a href="https://github.com/alan60910/eztools/blob/main/LICENSE">MIT License</a>
+      </p>
     </footer>
   </body>
 </html>

@@ -7,8 +7,9 @@ Architecture and feature spec, kept in sync with the codebase. Updated by
 EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署於 GitHub Pages。
 沒有後端伺服器，所有處理（媒體轉換／編輯與開發者小工具之設定產生）皆在使用者的
 瀏覽器端完成。以 Vite 建置為 MPA（Multi-Page Application）：入口頁面
-（`index.html`）靜態列出所有工具，零 JS；各工具為 `tools/<slug>/` 下的
-獨立頁面，建置時自動掃描收錄。入口頁清單於建置／開發期由 `src/tools.ts`
+（`index.html`）靜態列出所有工具；入口頁零框架 JS，唯一例外為 `<head>`
+內主題切換 inline script（零依賴、零網路請求，白名單受 verify-dist
+斷言把關）；各工具為 `tools/<slug>/` 下的獨立頁面，建置時自動掃描收錄。入口頁清單於建置／開發期由 `src/tools.ts`
 （唯一資料來源）經 `src/render.ts` 注入 HTML。部署管線：push/merge 到
 `main` 觸發 GitHub Actions：`npm ci` → typecheck/test → `vite build` →
 `actions/deploy-pages` 部署 `dist/` 至 GitHub Pages。
@@ -17,6 +18,14 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - 入口頁面 — 工具總覽與導覽（靜態產生，依 `available`／`planned` 狀態產生卡片）
 - 工具清單資料模組 `src/tools.ts`（唯一事實來源，定義各工具中繼資料與狀態）
 - 渲染模組 `src/render.ts`（依清單資料產生入口頁 HTML 的純函式）
+- 全站主題模組 `src/theme.ts`（唯一事實來源：三態主題邏輯——`<html>`
+  無 `data-theme` 跟隨系統、`data-theme="dark"`／`"light"` 為手動覆寫，
+  優先次序 localStorage＞系統偏好＞淺色預設；對外僅雙態的 toggle 切換、
+  `aria-pressed` 同步、localStorage 讀寫皆 best-effort）；五頁共用的
+  footer（作者／GitHub／授權連結）與主題切換鈕則以共用 markup＋
+  `src/style.css` token 呈現，各頁 `<head>` 另有防 FOUC 的 inline
+  bootstrap script（見 Conventions／Architecture overview 的零框架 JS
+  例外）
 - 工具頁範本 `tools/_probe/`（新增工具的起始骨架範本）
 - APNG → GIF 轉換工具 — apng-js 解碼 → 共用 `src/lib/` 合成／編碼管線
   （module Web Worker）；位於 `tools/apng-to-gif/`
@@ -30,7 +39,11 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   位於 `tools/video-converter/`
 - Claude Code statusline 產生器 — segment 目錄（tri-path 描述子）／閾值變色／
   執行期 join／三後端產生器（bash／ps1／settings.json 片段）＋emit-ansi oracle，
-  零 runtime 依賴，self-host Nerd Font subset（僅預覽用）；位於
+  零 runtime 依賴；圖示改為通用 emoji（不再簽入任何字型資產，預覽以系統
+  monospace＋原生 emoji 渲染）；powerline 段間箭頭（``）由 config schema
+  `powerlineArrow` 欄位條件化，新建 config 預設關閉（色塊直接相接＋每段
+  右側 padding），既有 v1 存檔依原 `mode` 自動遷移續用箭頭觀感；config
+  schema 現為 CONFIG_VERSION 2（含 v1→v2 遷移）；位於
   `tools/statusline-builder/`
 
 ## Public surface
@@ -46,8 +59,12 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   build 收錄）＋在 `src/tools.ts` 登記一筆（狀態 `planned` → `available`
   時卡片才會產生連結）
 - 工具頁範本要點：`lang="zh-Hant"`、`../../` 返回入口連結、`main.ts` 以
-  `import '../../src/style.css'` 消費共用樣式（入口頁因零 JS 改以 `<link>`
-  消費）——以 `tools/_probe/` 為範本
+  `import '../../src/style.css'` 消費共用樣式（入口頁零框架 JS，唯一
+  例外為主題切換 inline script（含 toggle 監聽），故改以 `<link>`
+  消費樣式）；範本並含 `<meta name="color-scheme">`、換頁白閃防護
+  critical style、header 尾端主題切換鈕（`.theme-toggle`）、`main.ts`
+  於任何渲染前 `import '../../src/theme.ts'`、五頁共用 footer 構成
+  （隱私句＋作者／GitHub／授權連結）——以 `tools/_probe/` 為範本
 - 樣式策略：純手寫 CSS、不引入框架，a11y 基線（`:focus-visible`、WCAG AA、
   `prefers-reduced-motion`）全站適用
 - a11y 實作細節：「規劃中」工具卡不產生 `<a>`、不可聚焦，狀態以可見文字標籤傳達
@@ -59,11 +76,13 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   腳本斷言版本與 pin 同步、verify-dist 斷言產物存在；經 dynamic import／
   Worker 載入之 runtime JS/wasm 資產一律以顯式同源**絕對** URL 載入，
   禁止依賴套件內建 CDN fallback
-- 非執行型小型第三方靜態資產（字型／圖片／資料，約數十 KB 級——精確上限
-  由 verify-dist 斷言把關，如 statusline-builder 的 Nerd Font subset
-  <100KB）可直接簽入工具目錄：須附授權聲明檔、來源版本＋再生工序記錄
-  （provenance），並列入 README 第三方元件段；以 HTML/CSS 同源相對參照
-  載入、由 Vite 資產管線處理，不受上述絕對-URL 條文約束
+- 非執行型小型第三方靜態資產（字型／圖片／資料，約數十 KB 級）可直接
+  簽入工具目錄：須附授權聲明檔、來源版本＋再生工序記錄（provenance），
+  並列入 README 第三方元件段；以 HTML/CSS 同源相對參照載入、由 Vite
+  資產管線處理，不受上述絕對-URL 條文約束；本慣例不設全站硬編上限，
+  下一個簽入此類資產的工具須自帶 verify-dist 斷言把關存在性與大小
+  （statusline-builder 的 Nerd Font subset <100KB 曾是此類活例＋把關
+  斷言，sprint 06a 已將字型資產與該斷言一併移除，見 Status）
 - 工具頁骨架：header（含返回入口連結）／`<main>`／footer、單一 `<h1>`、
   描述性 `<title>`、meta description
 - 互動工具 a11y 不變量：拖放具鍵盤等效（原生 file input 留在 tab
@@ -82,6 +101,9 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - 工具可含多模組切分（如 decode/composite/convert/worker），純邏輯模組須
   為 node 可測（不 import DOM runtime）；跨工具共用的純邏輯模組置於
   `src/lib/`，同樣須為 node 可測（不 import DOM runtime）
+- localStorage key 統一格式 `eztools-<scope>-<name>`；全站範圍慣例可省略
+  scope（如全站主題 `eztools-theme`）。此慣例為 06a 新增，不追溯既有
+  key——statusline-builder 既有的設定存檔 key 維持原命名不變
 
 ## Status
 入口頁骨架已完成（Vite MPA 架構、工具清單注入機制、a11y 基線）。部署
@@ -91,3 +113,14 @@ PRD 四大工具目標完成，statusline-builder 已上線（Claude Code status
 產生器；segment schema 基準版與人工重核註記見 README）。
 video-converter 之「上線」宣告以 GPL 授權聲明落地（README License 段）
 為前置。
+
+sprint 06a（statusline-builder UI refresh 第一段）已交付：segment 圖示
+全面改為通用 emoji（不再要求終端安裝字型，簽入字型資產與其建置工序、
+verify-dist 的字型把關斷言皆已移除，改為「字型資產不得回歸」的負向
+斷言）；powerline 段間箭頭（``）改由 config schema `powerlineArrow`
+欄位條件化，新建 config 恆預設關閉，config schema 隨之升版至
+CONFIG_VERSION 2（v1→v2 自動遷移，既有 v1 powerline 存檔續用原箭頭
+觀感）；全站（入口頁＋四個工具頁）新增深／淺主題切換（跟隨系統／手動
+切換／localStorage 記憶，含換頁白閃防護）與統一 footer（作者／GitHub／
+授權連結）。06a 範圍之外的多列輸出、雙欄版面、目錄擴充（25→30 段）、
+bar／auto 配色等能力留待 06b／06c 各自交付時再更新本段。

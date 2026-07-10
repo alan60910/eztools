@@ -67,7 +67,14 @@ function segT(id: string, over: Partial<SegmentConfig> = {}): SegmentConfig {
 }
 
 function cfgT(mode: BuilderConfig['mode'], cap: boolean, segments: SegmentConfig[]): BuilderConfig {
-  return { version: 1, mode, separator: { kind: 'preset', value: '|' }, lastArrowCap: cap, segments }
+  return {
+    version: 2,
+    mode,
+    separator: { kind: 'preset', value: '|' },
+    lastArrowCap: cap,
+    powerlineArrow: mode === 'powerline',
+    segments,
+  }
 }
 
 function mockScen(id: MockScenarioId): ByteExactScenario {
@@ -140,6 +147,46 @@ describe('產生器契約（結構斷言）', () => {
     expect(script).toContain('texts=()')
     expect(script).toContain(`printf '%s' "$out"`)
     expect(script.trimEnd().endsWith('exit 0')).toBe(true)
+  })
+})
+
+// ── D1 gating（powerlineArrow × lastArrowCap 四組合） ──
+
+describe('D1 gating（powerlineArrow × lastArrowCap，emit-bash）', () => {
+  const segs = [segT('model', { color: A(226) }), segT('git-dirty', { color: A(196) })]
+  const pa = (lastArrowCap: boolean, powerlineArrow: boolean): BuilderConfig => ({
+    ...cfgT('powerline', lastArrowCap, segs),
+    powerlineArrow,
+  })
+
+  it.each([true, false])(
+    'powerlineArrow=false（lastArrowCap=%s 無效）：無 ARROW 變數、無段間箭頭、無 cap 區塊、每段 value 補右側空格',
+    (lastArrowCap) => {
+      const script = emitBash(pa(lastArrowCap, false), CATALOG)
+      expect(script).not.toContain('ARROW=')
+      expect(script).not.toContain('$ARROW')
+      expect(script).not.toContain('if [ "$n" -gt 0 ]; then') // cap 區塊專屬結構
+      // 每段 value 尾綴一格空白：一般段 "$v "、dirty 段字面 '<icon>*<pad>'。
+      expect(script).toContain('"$v "')
+      expect(script).toContain("'* '") // git-dirty：head=''、字面 '*'+pad → '* '
+    },
+  )
+
+  it.each([true, false])(
+    'powerlineArrow=true（lastArrowCap=%s）：有 ARROW 變數、cap 區塊依 lastArrowCap、value 無 padding',
+    (lastArrowCap) => {
+      const script = emitBash(pa(lastArrowCap, true), CATALOG)
+      expect(script).toContain('ARROW=')
+      expect(script).toContain('$ARROW')
+      expect(script.includes('if [ "$n" -gt 0 ]; then')).toBe(lastArrowCap)
+      expect(script).not.toContain('"$v "')
+    },
+  )
+
+  it('padding 只在 powerline＋powerlineArrow=false 生效；plain 模式不受影響', () => {
+    const plainScript = emitBash(cfgT('plain', true, segs), CATALOG)
+    expect(plainScript).toContain('"$v"')
+    expect(plainScript).not.toContain('"$v "')
   })
 })
 

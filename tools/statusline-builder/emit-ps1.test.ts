@@ -50,14 +50,18 @@ const seg = (id: string, over: Partial<SegmentConfig> = {}): SegmentConfig => ({
   color: { kind: 'default' },
   ...over,
 })
-const cfg = (over: Partial<BuilderConfig>): BuilderConfig => ({
-  version: 1,
-  mode: 'plain',
-  separator: { kind: 'preset', value: '|' },
-  lastArrowCap: true,
-  segments: [],
-  ...over,
-})
+const cfg = (over: Partial<BuilderConfig>): BuilderConfig => {
+  const mode = over.mode ?? 'plain'
+  return {
+    version: 2,
+    mode,
+    separator: { kind: 'preset', value: '|' },
+    lastArrowCap: true,
+    powerlineArrow: mode === 'powerline',
+    segments: [],
+    ...over,
+  }
+}
 
 // canonical config（icon 全開＝seg 預設 true）
 const PLAIN_FULL: BuilderConfig = cfg({
@@ -103,9 +107,30 @@ const POWERLINE_THRESHOLD: BuilderConfig = cfg({
   ],
 })
 
+// powerline＋powerlineArrow:false（MAGI code review Important #8 修復；與
+// scripts/golden-statusline-ps1.mjs 內同名 config 逐字同步）：v2 預設模式
+// 的完整黃金 byte 覆蓋——lastArrowCap:true 但 powerlineArrow:false → cap
+// 全面無效（收尾箭頭區塊恆不 emit，證 cap 值本身不影響輸出）。段組合：
+// context-used（threshold）＝閾值桶陣列段；rate-5h（無 threshold）＝dash
+// 政策段；session-name／git-branch＝2 個 icon-enabled 段（pad＋emoji
+// codepoint 跳脫＋無箭頭三者共存於單一 fixture）。
+const POWERLINE_NOARROW: BuilderConfig = cfg({
+  mode: 'powerline',
+  powerlineArrow: false,
+  lastArrowCap: true,
+  segments: [
+    seg('model', { color: A(226) }),
+    seg('session-name', { prefix: '[s]', color: A(99) }),
+    seg('context-used', { icon: false, threshold: TRAFFIC, color: A(240) }),
+    seg('rate-5h', { icon: false, color: A(99) }),
+    seg('git-branch', { color: A(46) }),
+  ],
+})
+
 const GOLDENS: ReadonlyArray<{ name: string; config: BuilderConfig }> = [
   { name: 'plain-full', config: PLAIN_FULL },
   { name: 'powerline-threshold', config: POWERLINE_THRESHOLD },
+  { name: 'powerline-noarrow', config: POWERLINE_NOARROW },
 ]
 
 // ── 1. 結構契約（跨平台） ──
@@ -213,7 +238,119 @@ describe('mode 分歧與 cap 兩態', () => {
   })
 })
 
-// ── 2. 黃金（跨平台） ──
+// ── D1 gating（powerlineArrow × lastArrowCap 四組合） ──
+
+describe('D1 gating（powerlineArrow × lastArrowCap，emit-ps1）', () => {
+  const segs = [seg('model', { icon: false, color: A(226) }), seg('cost', { icon: false, color: A(16) })]
+  const pa = (lastArrowCap: boolean, powerlineArrow: boolean): BuilderConfig => ({
+    ...cfg({ mode: 'powerline', lastArrowCap, segments: segs }),
+    powerlineArrow,
+  })
+
+  it.each([true, false])(
+    'powerlineArrow=false（lastArrowCap=%s 無效）：無 $ARROW、無段間箭頭迴圈、無 cap 區塊、每段 value 尾綴空白',
+    (lastArrowCap) => {
+      const script = emitPs1(pa(lastArrowCap, false), CATALOG)
+      expect(script).not.toContain('$ARROW')
+      expect(script).not.toContain('if ($n -gt 0) {')
+      // 每段 value 顯示運算式尾綴 `+ ' '`（padLit）。
+      expect(script).toContain(`+ ' '`)
+    },
+  )
+
+  it.each([true, false])(
+    'powerlineArrow=true（lastArrowCap=%s）：有 $ARROW、cap 區塊依 lastArrowCap、value 無 padding',
+    (lastArrowCap) => {
+      const script = emitPs1(pa(lastArrowCap, true), CATALOG)
+      expect(script).toContain('$ARROW = [string][char]0xE0B0')
+      expect(script.includes('if ($n -gt 0) {')).toBe(lastArrowCap)
+      expect(script).not.toContain(`+ ' '`)
+    },
+  )
+
+  it('padding 只在 powerline＋powerlineArrow=false 生效；plain 模式不受影響', () => {
+    const plainScript = emitPs1(cfg({ mode: 'plain', segments: segs }), CATALOG)
+    expect(plainScript).not.toContain(`+ ' '`)
+  })
+})
+
+// ── icon glyph 純 ASCII escape（S1／T1.2 裁決） ──
+
+describe('icon glyph 純 ASCII escape（T1.2 契約）', () => {
+  it('astral glyph（🤖 模型）：[char]::ConvertFromUtf32 escape、無原始 emoji bytes', () => {
+    const script = emitPs1(cfg({ segments: [seg('model', { icon: true })] }), CATALOG)
+    expect(script).toContain('[char]::ConvertFromUtf32(0x1F916)')
+    expect(script).not.toContain('🤖')
+  })
+
+  it('BMP glyph（⌛ 工作時長）：[char]0xHEX escape（跟隨既有 $ARROW idiom），非 ConvertFromUtf32', () => {
+    const script = emitPs1(cfg({ segments: [seg('duration', { icon: true })] }), CATALOG)
+    expect(script).toContain('[char]0x231B')
+    expect(script).not.toContain('ConvertFromUtf32(0x231B)')
+    expect(script).not.toContain('⌛')
+  })
+
+  it('多 codepoint glyph（⌨️ Vim 模式，U+2328+U+FE0F）：兩個 [char] escape 以 + 相接', () => {
+    const script = emitPs1(cfg({ segments: [seg('vim-mode', { icon: true })] }), CATALOG)
+    expect(script).toContain('[char]0x2328 + [char]0xFE0F')
+    expect(script).not.toContain('⌨')
+  })
+
+  it('icon 全開：每一段 icon.glyph 字面皆不出現於產出腳本（僅留檔頭中文註解等非 icon 內容）', () => {
+    // 注意：整份腳本仍含檔頭中文註解（非 icon 內容，不受本契約約束）；
+    // pure-ASCII 保證的範圍僅「icon glyph」本身——逐段斷言其字面缺席。
+    const script = emitPs1(PLAIN_FULL, CATALOG)
+    for (const s of PLAIN_FULL.segments) {
+      if (!s.icon) continue
+      const glyph = CATALOG[s.id as keyof typeof CATALOG].icon.glyph
+      expect(script, `${s.id} 的 icon.glyph（${glyph}）不應以字面出現`).not.toContain(glyph)
+    }
+  })
+})
+
+// ── 分隔符 preset 純 ASCII escape（MAGI code review Important #7 修復） ──
+
+describe('分隔符跳脫（preset ›/·，Important #7 修復）', () => {
+  it("preset '›'（U+203A）：emit 腳本內分隔符運算式純 ASCII、無原始字面", () => {
+    const script = emitPs1(
+      cfg({ segments: [seg('model', { icon: false }), seg('cost', { icon: false })], separator: { kind: 'preset', value: '›' } }),
+      CATALOG,
+    )
+    expect(script).toContain('[char]0x203A')
+    expect(script).not.toContain('›')
+  })
+
+  it("preset '·'（U+00B7）：emit 腳本內分隔符運算式純 ASCII、無原始字面", () => {
+    const script = emitPs1(
+      cfg({ segments: [seg('model', { icon: false }), seg('cost', { icon: false })], separator: { kind: 'preset', value: '·' } }),
+      CATALOG,
+    )
+    expect(script).toContain('[char]0xB7')
+    expect(script).not.toContain('·')
+  })
+
+  it('preset 分隔符純 ASCII（|、空白）：退化為單一 psSingleQuote 呼叫（行為與修復前零差異）', () => {
+    const pipeScript = emitPs1(
+      cfg({ segments: [seg('model', { icon: false })], separator: { kind: 'preset', value: '|' } }),
+      CATALOG,
+    )
+    expect(pipeScript).toContain(`+ '|' }`)
+    const spaceScript = emitPs1(
+      cfg({ segments: [seg('model', { icon: false })], separator: { kind: 'preset', value: ' ' } }),
+      CATALOG,
+    )
+    expect(spaceScript).toContain(`+ ' ' }`)
+  })
+
+  it("custom 分隔符混 ASCII＋非 ASCII（'a›b'）：ASCII 段落單引號、非 ASCII 逐 codepoint 跳脫、以 + 相接", () => {
+    const script = emitPs1(
+      cfg({ segments: [seg('model', { icon: false })], separator: { kind: 'custom', value: 'a›b' } }),
+      CATALOG,
+    )
+    expect(script).toContain(`'a' + [char]0x203A + 'b'`)
+    expect(script).not.toContain('›')
+  })
+})
 
 const goldenPath = (name: string): string => fileURLToPath(new URL(`./__golden__/${name}.ps1`, import.meta.url))
 const stripBom = (s: string): string => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s)
@@ -228,6 +365,15 @@ describe('黃金檔（emitPs1 產出 == 簽入 __golden__/*.ps1）', () => {
   it.each(GOLDENS)('$name：檔案首 3 bytes ＝ UTF-8 BOM（EF BB BF；契約 8）', ({ name }) => {
     const bytes = readFileSync(goldenPath(name))
     expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf])
+  })
+
+  // R2 Note（MAGI code review 對稱缺口）：bash 側黃金已有無 CR 斷言
+  // （emit-bash.test.ts:53-56），ps1 側先前缺對稱——normEol 剝 CRLF 後
+  // toEqual 比對無法抓 CRLF 回歸（正規化後兩者字面相同）。此處補上，
+  // BOM 3 bytes（EF BB BF）本身不含 0x0D，不干擾判定。
+  it.each(GOLDENS)('$name：黃金檔皆 LF、無 CR（對稱 emit-bash.test.ts 契約）', ({ name }) => {
+    const bytes = readFileSync(goldenPath(name))
+    expect(bytes.includes(0x0d), `${name} 含 CR`).toBe(false)
   })
 })
 
@@ -354,6 +500,21 @@ function decimalCase(): E2ECase {
   return { id: 'decimal-0.0029', config, data, input: { data, shell: FULL.shell, env: FULL.env } }
 }
 
+// 分隔符 preset 跳脫 byte-exact（Important #7 修復；證逐 codepoint escape
+// 只改「原始碼」bytes，runtime 輸出與 oracle 一致——'›'/'·' 兩組 preset）。
+function separatorPresetCases(): E2ECase[] {
+  const build = (value: '›' | '·'): E2ECase => {
+    const data = clone(FULL.data)
+    const config = cfg({
+      mode: 'plain',
+      separator: { kind: 'preset', value },
+      segments: [seg('model', { icon: false }), seg('cost', { icon: false })],
+    })
+    return { id: `separator-preset/${value}`, config, data, input: { data, shell: FULL.shell, env: FULL.env } }
+  }
+  return [build('›'), build('·')]
+}
+
 // plain 滿配（非 shell-out 21 段）× 3 情境行為驗證（USERPROFILE=情境 home）
 function fullBehaviorCases(): Array<E2ECase & { home: string }> {
   const nonShellOut = PLAIN_FULL.segments.filter(
@@ -397,6 +558,14 @@ describe.skipIf(!IS_WIN)('端到端 byte-exact（win32；powershell 真執行）
     const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
     // 前置：oracle 確為 $0.0028（Decimal 未轉型會得 $0.0029）
     expect(expected.toString('utf8')).toContain('$0.0028')
+    const r = runPs1(script, JSON.stringify(c.data))
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  it.each(separatorPresetCases())('$id：preset 分隔符跳脫 byte-exact（runtime 輸出與 oracle 一致，證跳脫只改原始碼 bytes）', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
     const r = runPs1(script, JSON.stringify(c.data))
     expect(r.status, `stderr=${r.stderr}`).toBe(0)
     expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)

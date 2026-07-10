@@ -61,16 +61,16 @@ fi
 # thinking
 v=$(jq -r '.thinking.enabled // empty | "on"' <<<"$input")
 if [ -n "$v" ]; then
-  texts+=(' '"$v"); fgs+=('38;5;220'); segstart+=(1)
+  texts+=('💭 '"$v"); fgs+=('38;5;220'); segstart+=(1)
 fi
 # context-remaining
 v=$(jq -r '.context_window.remaining_percentage // "--" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
 idx=$(jq -r '.context_window.remaining_percentage | if type == "number" then ((. / 10 | floor) | (if . > 9 then 9 elif . < 0 then 0 else . end)) else -1 end' <<<"$input")
 tf=('38;5;196' '38;5;208' '38;5;214' '38;5;220' '38;5;226' '38;5;190' '38;5;154' '38;5;118' '38;5;82' '38;5;46')
 if [ "$idx" = "-1" ]; then
-  texts+=('R '"$v"); fgs+=('38;5;214'); segstart+=(1)
+  texts+=('R🔋 '"$v"); fgs+=('38;5;214'); segstart+=(1)
 else
-  texts+=('R '); fgs+=('38;5;214'); segstart+=(1)
+  texts+=('R🔋 '); fgs+=('38;5;214'); segstart+=(1)
   texts+=("$v"); fgs+=("${tf[$idx]}"); segstart+=(0)
 fi
 
