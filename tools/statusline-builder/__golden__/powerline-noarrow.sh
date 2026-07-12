@@ -20,12 +20,12 @@ bgs=()
 # model
 v=$(jq -r '.model.display_name // empty' <<<"$input")
 if [ -n "$v" ]; then
-  texts+=('🤖 '"$v "); fgs+=('38;5;16'); bgs+=('5;226')
+  texts+=('model: '"$v "); fgs+=('38;5;16'); bgs+=('5;226')
 fi
 # session-name
 v=$(jq -r '.session_name // empty' <<<"$input")
 if [ -n "$v" ]; then
-  texts+=('[s]💬 '"$v "); fgs+=('38;5;16'); bgs+=('5;99')
+  texts+=('[s]sess: '"$v "); fgs+=('38;5;16'); bgs+=('5;99')
 fi
 # context-used
 v=$(jq -r '.context_window.used_percentage // "--" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
@@ -43,7 +43,7 @@ texts+=("$v "); fgs+=('38;5;16'); bgs+=('5;99')
 # git-branch
 v=$(git branch --show-current 2>/dev/null || true)
 if [ -n "$v" ]; then
-  texts+=('🌿 '"$v "); fgs+=('38;5;16'); bgs+=('5;46')
+  texts+=('git: '"$v "); fgs+=('38;5;16'); bgs+=('5;46')
 fi
 
 # ── join（第二趟：逐 run 拼接） ──

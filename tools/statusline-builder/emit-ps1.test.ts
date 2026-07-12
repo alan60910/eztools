@@ -36,6 +36,7 @@ import { resolve, type ResolveInput } from './resolve.js'
 import { DESCRIPTORS_BY_ID, type StatusData } from './segments.js'
 import { MOCK_SCENARIOS_BY_ID } from './mock-data.js'
 import { THRESHOLD_TEMPLATES } from './threshold.js'
+import { MULTIROW_GOLDEN_CASES } from './multirow-golden-configs.js'
 
 const CATALOG = DESCRIPTORS_BY_ID
 
@@ -277,21 +278,34 @@ describe('D1 gating（powerlineArrow × lastArrowCap，emit-ps1）', () => {
 // ── icon glyph 純 ASCII escape（S1／T1.2 裁決） ──
 
 describe('icon glyph 純 ASCII escape（T1.2 契約）', () => {
-  it('astral glyph（🤖 模型）：[char]::ConvertFromUtf32 escape、無原始 emoji bytes', () => {
-    const script = emitPs1(cfg({ segments: [seg('model', { icon: true })] }), CATALOG)
+  // T1.5.2（prefix-table.md）：25 段 icon.glyph 由 emoji 改 ASCII 前綴後，
+  // 真 catalog 已無 astral／多 codepoint glyph（'model:'／'vim:' 皆純
+  // BMP 單 codepoint 逐字元）；iconGlyphExpr 逐 codepoint 跳脫機制本身
+  // 維持不動（最小改動原則，機制對 astral／多 codepoint 輸入仍正確）。
+  // 下列兩案改以 test-local 合成 catalog（真 descriptor 覆寫 icon.glyph）
+  // 保留對該機制的覆蓋，不依賴真 catalog 現已不存在的 astral／多
+  // codepoint 字面。
+
+  it('astral glyph（🤖，合成 fixture）：[char]::ConvertFromUtf32 escape、無原始 emoji bytes', () => {
+    const astralCatalog = { ...CATALOG, model: { ...CATALOG.model, icon: { ...CATALOG.model.icon, glyph: '🤖' } } }
+    const script = emitPs1(cfg({ segments: [seg('model', { icon: true })] }), astralCatalog)
     expect(script).toContain('[char]::ConvertFromUtf32(0x1F916)')
     expect(script).not.toContain('🤖')
   })
 
-  it('BMP glyph（⌛ 工作時長）：[char]0xHEX escape（跟隨既有 $ARROW idiom），非 ConvertFromUtf32', () => {
+  it('BMP glyph（dur: 工作時長，T1.5.2 前綴）：[char]0xHEX escape（跟隨既有 $ARROW idiom），非 ConvertFromUtf32', () => {
     const script = emitPs1(cfg({ segments: [seg('duration', { icon: true })] }), CATALOG)
-    expect(script).toContain('[char]0x231B')
-    expect(script).not.toContain('ConvertFromUtf32(0x231B)')
-    expect(script).not.toContain('⌛')
+    expect(script).toContain('[char]0x64 + [char]0x75 + [char]0x72 + [char]0x3A')
+    expect(script).not.toContain('ConvertFromUtf32')
+    expect(script).not.toContain('dur:')
   })
 
-  it('多 codepoint glyph（⌨️ Vim 模式，U+2328+U+FE0F）：兩個 [char] escape 以 + 相接', () => {
-    const script = emitPs1(cfg({ segments: [seg('vim-mode', { icon: true })] }), CATALOG)
+  it('多 codepoint glyph（⌨️，合成 fixture，U+2328+U+FE0F）：兩個 [char] escape 以 + 相接', () => {
+    const multiCpCatalog = {
+      ...CATALOG,
+      'vim-mode': { ...CATALOG['vim-mode'], icon: { ...CATALOG['vim-mode'].icon, glyph: '⌨️' } },
+    }
+    const script = emitPs1(cfg({ segments: [seg('vim-mode', { icon: true })] }), multiCpCatalog)
     expect(script).toContain('[char]0x2328 + [char]0xFE0F')
     expect(script).not.toContain('⌨')
   })
@@ -374,6 +388,164 @@ describe('黃金檔（emitPs1 產出 == 簽入 __golden__/*.ps1）', () => {
   it.each(GOLDENS)('$name：黃金檔皆 LF、無 CR（對稱 emit-bash.test.ts 契約）', ({ name }) => {
     const bytes = readFileSync(goldenPath(name))
     expect(bytes.includes(0x0d), `${name} 含 CR`).toBe(false)
+  })
+})
+
+// MAGI code review 2026-07-11 Important #2（Fix 2）：4 個 multirow golden
+// 先前僅由 T3.3 人審產出（golden-statusline.mjs／golden-statusline-ps1.mjs
+// 各自 inline 定義），未被本檔黃金比對迴圈覆蓋——emit 回歸不會轉紅。config
+// 單一來源已收攏至 multirow-golden-configs.ts（bash／ps1 共用），此處補一
+// 個純 emit（不牽 powershell 真執行）常駐比對迴圈，比對口徑同上方既有
+// GOLDENS 迴圈（剝 BOM＋正規化 EOL）。
+describe('黃金比對（多列，emitPs1 === __golden__/multirow-*.ps1；Fix 2）', () => {
+  it.each(MULTIROW_GOLDEN_CASES)('$name：文字 toEqual（剝 BOM＋正規化 EOL）', ({ name, config }) => {
+    const golden = normEol(stripBom(readFileSync(goldenPath(name), 'utf8')))
+    expect(normEol(emitPs1(config, CATALOG))).toEqual(golden)
+  })
+
+  it.each(MULTIROW_GOLDEN_CASES)('$name：檔案首 3 bytes ＝ UTF-8 BOM（EF BB BF；契約 8）', ({ name }) => {
+    const bytes = readFileSync(goldenPath(name))
+    expect([bytes[0], bytes[1], bytes[2]]).toEqual([0xef, 0xbb, 0xbf])
+  })
+
+  it.each(MULTIROW_GOLDEN_CASES)('$name：黃金檔皆 LF、無 CR（對稱 emit-bash.test.ts 契約）', ({ name }) => {
+    const bytes = readFileSync(goldenPath(name))
+    expect(bytes.includes(0x0d), `${name} 含 CR`).toBe(false)
+  })
+})
+
+// ── 多列展開（T3.2；四步展開結構斷言，PLAN §多列輸出／emit-ps1.ts 多列分支同構） ──
+
+describe('多列展開（T3.2）：plain 兩列', () => {
+  const TWO_ROW_PLAIN: BuilderConfig = cfg({
+    mode: 'plain',
+    separator: { kind: 'preset', value: '|' },
+    segments: [
+      seg('model', { icon: false, row: 0 }),
+      seg('cost', { icon: false, row: 0 }),
+      seg('git-branch', { icon: false, row: 1 }),
+      seg('duration', { icon: false, row: 1 }),
+    ],
+  })
+  const script = emitPs1(TWO_ROW_PLAIN, CATALOG)
+
+  it('步驟 1：逐列緩衝宣告＋列內段 emit 依渲染列序出現（row0 先於 row1）', () => {
+    const decl0 = script.indexOf('$Segs0 = @()')
+    const decl1 = script.indexOf('$Segs1 = @()')
+    const modelLine = script.indexOf('# model')
+    const costLine = script.indexOf('# cost')
+    const branchLine = script.indexOf('# git-branch')
+    const durationLine = script.indexOf('# duration')
+    expect(decl0).toBeGreaterThan(-1)
+    expect(decl1).toBeGreaterThan(decl0)
+    // row0 段（model／cost）落在兩列宣告之間；row1 段（git-branch／duration）在 row1 宣告之後。
+    expect(modelLine).toBeGreaterThan(decl0)
+    expect(modelLine).toBeLessThan(decl1)
+    expect(costLine).toBeGreaterThan(decl0)
+    expect(costLine).toBeLessThan(decl1)
+    expect(branchLine).toBeGreaterThan(decl1)
+    expect(durationLine).toBeGreaterThan(decl1)
+  })
+
+  it('步驟 1（續）：逐列 join 讀寫該列自己的累加器／輸出變數（$Segs0→$RowOut0、$Segs1→$RowOut1）', () => {
+    expect(script).toContain('$RowOut0 = ')
+    expect(script).toContain('$n = $Segs0.Count')
+    expect(script).toContain('$RowOut0 += $Segs0[$i]')
+    expect(script).toContain('$RowOut1 = ')
+    expect(script).toContain('$n = $Segs1.Count')
+    expect(script).toContain('$RowOut1 += $Segs1[$i]')
+  })
+
+  it('列內分隔符只出現於該列 join 區塊（各列各一次、不跨列共用）', () => {
+    const sepRow0 = `if ($i -gt 0) { $RowOut0 += "$e[0m" + '|' }`
+    const sepRow1 = `if ($i -gt 0) { $RowOut1 += "$e[0m" + '|' }`
+    expect(script).toContain(sepRow0)
+    expect(script).toContain(sepRow1)
+    // 不得有跨列混用的分隔符寫法（$RowOut0 搭配讀 $Segs1 或反之）。
+    expect(script).not.toContain(`$RowOut0 += "$e[0m" + '|' }\n  $RowOut0 += $Segs1`)
+  })
+
+  it('步驟 2–4：存活列過濾＋LF 串接＋零存活列退化', () => {
+    expect(script).toContain('$Rows = @()')
+    expect(script).toContain('if ($Segs0.Count -gt 0) { $Rows += $RowOut0 }')
+    expect(script).toContain('if ($Segs1.Count -gt 0) { $Rows += $RowOut1 }')
+    expect(script).toContain('if ($Rows.Count -gt 0) {')
+    expect(script).toContain('$out = [string]::Join("`n", $Rows)')
+    expect(script).toContain('$out = "$e[0m"')
+    // 過濾／組裝在兩列的 join 之後（執行序：先兩列各自 join 完，才過濾組裝）。
+    const lastRowOut1Join = script.lastIndexOf('$RowOut1 += "$e[0m"')
+    const filterBlock = script.indexOf('$Rows = @()')
+    expect(filterBlock).toBeGreaterThan(lastRowOut1Join)
+  })
+
+  it('no-CR：產出腳本不含 CR（LF 串接不引入 CRLF）', () => {
+    expect(script.includes('\r')).toBe(false)
+  })
+
+  it('$out 仍以 [Console]::Out.Write($out) 輸出（輸出介面不變）', () => {
+    expect(script).toContain('[Console]::Out.Write($out)')
+    expect(script).not.toContain('WriteLine')
+  })
+})
+
+describe('多列展開（T3.2）：powerline 兩列（箭頭／cap 列內獨立）', () => {
+  const TWO_ROW_POWERLINE: BuilderConfig = cfg({
+    mode: 'powerline',
+    powerlineArrow: true,
+    lastArrowCap: true,
+    segments: [
+      seg('model', { icon: false, row: 0, color: A(226) }),
+      seg('cost', { icon: false, row: 0, color: A(16) }),
+      seg('git-branch', { icon: false, row: 1, color: A(46) }),
+      seg('duration', { icon: false, row: 1, color: A(99) }),
+    ],
+  })
+  const script = emitPs1(TWO_ROW_POWERLINE, CATALOG)
+
+  it('逐列緩衝宣告含 $BgT<k>（powerline 專用）', () => {
+    expect(script).toContain('$Segs0 = @()')
+    expect(script).toContain('$BgT0 = @()')
+    expect(script).toContain('$Segs1 = @()')
+    expect(script).toContain('$BgT1 = @()')
+  })
+
+  it('段間箭頭迴圈讀寫該列自己的 $BgT<k>（不跨列）', () => {
+    expect(script).toContain(`if ($BgT0[$i - 1] -ne '') { $RowOut0 += "$e[38;" + $BgT0[$i - 1] + 'm' }`)
+    expect(script).toContain(`if ($BgT1[$i - 1] -ne '') { $RowOut1 += "$e[38;" + $BgT1[$i - 1] + 'm' }`)
+  })
+
+  it('lastArrowCap 逐列各自收尾（cap 區塊出現兩次，各用自己列的 $BgT<k>／$RowOut<k>）', () => {
+    expect(script).toContain(`if ($BgT0[$n - 1] -ne '') { $RowOut0 += "$e[38;" + $BgT0[$n - 1] + 'm' }`)
+    expect(script).toContain(`if ($BgT1[$n - 1] -ne '') { $RowOut1 += "$e[38;" + $BgT1[$n - 1] + 'm' }`)
+    const capBlocks = script.match(/if \(\$n -gt 0\) \{/g) ?? []
+    expect(capBlocks.length).toBe(2)
+  })
+
+  it('步驟 2–4：存活列過濾＋LF 串接＋零存活列退化', () => {
+    expect(script).toContain('if ($Segs0.Count -gt 0) { $Rows += $RowOut0 }')
+    expect(script).toContain('if ($Segs1.Count -gt 0) { $Rows += $RowOut1 }')
+    expect(script).toContain('$out = [string]::Join("`n", $Rows)')
+  })
+
+  it('no-CR：產出腳本不含 CR', () => {
+    expect(script.includes('\r')).toBe(false)
+  })
+})
+
+describe('多列展開（T3.2）：單列（含零啟用段）退化為既有扁平結構', () => {
+  it('單列 config：不含任何 $Segs0／$RowOut0／$Rows（走既有扁平路徑，非多列展開）', () => {
+    const script = emitPs1(PLAIN_FULL, CATALOG)
+    expect(script).not.toContain('$Segs0')
+    expect(script).not.toContain('$RowOut0')
+    expect(script).not.toContain('$Rows')
+    expect(script).toContain('$Segs = @()')
+  })
+
+  it('零啟用段 config：同走扁平路徑（$Segs = @()、無多列變數）', () => {
+    const script = emitPs1(cfg({ segments: [] }), CATALOG)
+    expect(script).toContain('$Segs = @()')
+    expect(script).not.toContain('$Segs0')
+    expect(script).not.toContain('$Rows')
   })
 })
 
@@ -534,7 +706,47 @@ function fullBehaviorCases(): Array<E2ECase & { home: string }> {
   })
 }
 
+// 兩列真執行對 oracle byte-exact（T3.2 選配補強；四步展開真機驗證，非
+// shell-out 段——temp 目錄非 git repo，比照 fullBehaviorCases 排除 shell-out）。
+function twoRowCases(): E2ECase[] {
+  const data = clone(FULL.data)
+  const plainConfig = cfg({
+    mode: 'plain',
+    separator: { kind: 'preset', value: '|' },
+    segments: [
+      seg('model', { icon: false, row: 0 }),
+      seg('cost', { icon: false, row: 0 }),
+      seg('duration', { icon: false, row: 1 }),
+      seg('context-size', { icon: false, row: 1 }),
+    ],
+  })
+  const powerlineConfig = cfg({
+    mode: 'powerline',
+    powerlineArrow: true,
+    lastArrowCap: true,
+    segments: [
+      seg('model', { icon: false, row: 0, color: A(226) }),
+      seg('cost', { icon: false, row: 0, color: A(16) }),
+      seg('duration', { icon: false, row: 1, color: A(46) }),
+      seg('context-size', { icon: false, row: 1, color: A(99) }),
+    ],
+  })
+  return [
+    { id: 'two-row/plain', config: plainConfig, data, input: { data, shell: FULL.shell, env: FULL.env } },
+    { id: 'two-row/powerline', config: powerlineConfig, data, input: { data, shell: FULL.shell, env: FULL.env } },
+  ]
+}
+
 describe.skipIf(!IS_WIN)('端到端 byte-exact（win32；powershell 真執行）', () => {
+  it.each(twoRowCases())('$id：兩列 stdout == toAnsi(resolve()) ＋exit 0（LF 列分隔、非 CRLF）', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data))
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+
   it.each(sp5Cases())('SP-5 $id：stdout == toAnsi(resolve()) ＋exit 0', (c) => {
     const script = emitPs1(c.config, CATALOG)
     const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')

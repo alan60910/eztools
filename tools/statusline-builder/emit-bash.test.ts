@@ -31,6 +31,7 @@ import {
   GOLDEN_CASES,
   type ByteExactScenario,
 } from '../../scripts/statusline-golden-configs.js'
+import { MULTIROW_GOLDEN_CASES } from './multirow-golden-configs.js'
 
 const CATALOG: SegmentDescriptorCatalog = DESCRIPTORS_BY_ID
 
@@ -55,6 +56,19 @@ describe('黃金比對（emitBash === __golden__/*.sh）', () => {
       const bytes = readFileSync(goldenPath(name))
       expect(bytes.includes(0x0d), `${name} 含 CR`).toBe(false)
     }
+  })
+})
+
+// MAGI code review 2026-07-11 Important #2（Fix 2）：4 個 multirow golden
+// 先前僅由 T3.3 人審產出（scripts/golden-statusline.mjs／
+// golden-statusline-ps1.mjs 各自 inline 定義），未被本檔黃金比對迴圈覆蓋
+// ——emit 回歸不會轉紅。config 單一來源已收攏至 multirow-golden-configs.ts
+// （bash／ps1 共用），此處補一個純 emit（不牽 bash 真執行）常駐比對迴圈。
+describe('黃金比對（多列，emitBash === __golden__/multirow-*.sh；Fix 2）', () => {
+  it.each(MULTIROW_GOLDEN_CASES.map((c) => [c.name, c] as const))('%s', (name, testCase) => {
+    const script = emitBash(testCase.config, CATALOG)
+    const golden = readFileSync(goldenPath(name), 'utf8')
+    expect(script).toEqual(golden)
   })
 })
 
@@ -190,6 +204,143 @@ describe('D1 gating（powerlineArrow × lastArrowCap，emit-bash）', () => {
   })
 })
 
+// ── T3.1 多列：emit 期依 row 分組 → 執行期四步展開（PLAN §shell 端執行期展開語意） ──
+
+describe('多列（T3.1：emit-bash 執行期四步展開，結構斷言）', () => {
+  const twoRowPlain = cfgT('plain', true, [
+    segT('model', { color: A(226), row: 0 }),
+    segT('cost', { color: A(220), row: 1 }),
+  ])
+  const script = emitBash(twoRowPlain, CATALOG)
+
+  it('步驟 1：逐列緩衝——各列各自宣告獨立陣列變數（texts_N/fgs_N/segstart_N），依列序 emit', () => {
+    const idxTexts0 = script.indexOf('texts_0=()')
+    const idxTexts1 = script.indexOf('texts_1=()')
+    expect(idxTexts0).toBeGreaterThan(-1)
+    expect(idxTexts1).toBeGreaterThan(-1)
+    expect(idxTexts0).toBeLessThan(idxTexts1)
+    expect(script).toContain('fgs_0=()')
+    expect(script).toContain('fgs_1=()')
+    // plain 模式：segstart_N（無 bgs_N，powerline 專屬）。
+    expect(script).toContain('segstart_0=()')
+    expect(script).toContain('segstart_1=()')
+    expect(script).not.toContain('bgs_0=()')
+    // 單列扁平變數（texts=()／不帶列尾碼）不應出現在多列腳本。
+    expect(script).not.toMatch(/\btexts=\(\)/)
+  })
+
+  it('步驟 2：runtime 空列過濾——依各列存活計數（n_N）條件性收進 outs，不吐空行', () => {
+    expect(script).toContain('outs=()')
+    expect(script).toContain('if [ "$n_0" -gt 0 ]; then outs+=("$out_0"); fi')
+    expect(script).toContain('if [ "$n_1" -gt 0 ]; then outs+=("$out_1"); fi')
+  })
+
+  it('步驟 3：存活列以 LF 串接、reset 恆在 LF 之前（各列 out_N 本身已含尾端 reset）', () => {
+    expect(script).toContain('out_0+="${ESC}[0m"')
+    expect(script).toContain('out_1+="${ESC}[0m"')
+    expect(script).toContain(`out+=$'\\n'`)
+  })
+
+  it('步驟 4：零存活列退化——outs 為空時 out 直接賦值單一 SGR reset', () => {
+    expect(script).toContain('if [ "${#outs[@]}" -eq 0 ]; then')
+    expect(script).toContain('out="${ESC}[0m"')
+  })
+
+  it('段落順序正確：逐列緩衝（texts_0…texts_1）先於逐列 join（out_0…out_1）、join 先於過濾＋LF 串接', () => {
+    const buffer0 = script.indexOf('texts_0=()')
+    const buffer1 = script.indexOf('texts_1=()')
+    const join0 = script.indexOf('out_0=""')
+    const join1 = script.indexOf('out_1=""')
+    const filter = script.indexOf('outs=()')
+    expect(buffer0).toBeLessThan(buffer1)
+    expect(buffer1).toBeLessThan(join0)
+    expect(join0).toBeLessThan(join1)
+    expect(join1).toBeLessThan(filter)
+  })
+
+  it('列內分隔符只作用於該列緩衝：SEP 插入條件式各自引用該列 segstart_N（不跨列）', () => {
+    expect(script).toContain('[ "${segstart_0[$i]}" = "1" ]')
+    expect(script).toContain('[ "${segstart_1[$i]}" = "1" ]')
+    expect(script).not.toContain('[ "${segstart[$i]}" = "1" ]')
+  })
+
+  it('列內 cap 只作用於該列緩衝（powerline＋cap）：cap 區塊各自引用該列 bgs_N/n_N', () => {
+    const twoRowPowerline = cfgT('powerline', true, [
+      segT('model', { color: A(226), row: 0 }),
+      segT('cost', { color: A(220), row: 1 }),
+    ])
+    const psScript = emitBash(twoRowPowerline, CATALOG)
+    expect(psScript).toContain('if [ "$n_0" -gt 0 ]; then')
+    expect(psScript).toContain('if [ "$n_1" -gt 0 ]; then')
+    expect(psScript).toContain('${bgs_0[$((n_0 - 1))]}')
+    expect(psScript).toContain('${bgs_1[$((n_1 - 1))]}')
+    expect(psScript).not.toContain('if [ "$n" -gt 0 ]; then')
+  })
+
+  it('三列 config：非連續 row 值（5,0,2）壓縮為 3 個緩衝區塊（texts_0/_1/_2），無 texts_3', () => {
+    const threeRow = cfgT('plain', true, [
+      segT('model', { color: A(226), row: 5 }),
+      segT('cost', { color: A(220), row: 0 }),
+      segT('duration', { color: A(45), row: 2 }),
+    ])
+    const s = emitBash(threeRow, CATALOG)
+    expect(s).toContain('texts_0=()')
+    expect(s).toContain('texts_1=()')
+    expect(s).toContain('texts_2=()')
+    expect(s).not.toContain('texts_3=()')
+  })
+
+  it('產出腳本 no-CR（plain／powerline 皆同，既有慣例沿用）', () => {
+    expect(script.includes('\r')).toBe(false)
+    const psScript = emitBash(
+      cfgT('powerline', true, [
+        segT('model', { color: A(226), row: 0 }),
+        segT('cost', { color: A(220), row: 1 }),
+      ]),
+      CATALOG,
+    )
+    expect(psScript.includes('\r')).toBe(false)
+  })
+
+  it('契約 6/9 維持：printf \'%s\' "$out"、結尾 exit 0', () => {
+    expect(script).toContain(`printf '%s' "$out"`)
+    expect(script.trimEnd().endsWith('exit 0')).toBe(true)
+  })
+})
+
+describe('單列退化（T3.1：emit 期分組壓縮為 1 列 → 扁平結構逐位元組不變）', () => {
+  it('同 row 顯式值與缺 row（隱式 0）皆視為單列：不 emit 任何多列標記，且兩者產出逐位元組相同', () => {
+    const sameRowExplicit = cfgT('plain', true, [
+      segT('model', { color: A(226), row: 0 }),
+      segT('cost', { color: A(220), row: 0 }),
+    ])
+    const noRow = cfgT('plain', true, [segT('model', { color: A(226) }), segT('cost', { color: A(220) })])
+    for (const cfg of [sameRowExplicit, noRow]) {
+      const s = emitBash(cfg, CATALOG)
+      expect(s).toContain('texts=()')
+      expect(s).not.toMatch(/texts_\d/)
+      expect(s).not.toContain('outs=()')
+      expect(s).not.toMatch(/out_\d/)
+    }
+    // 分組鍵 `seg.row ?? 0` 同構：顯式 row:0 與缺 row 產出逐位元組相同。
+    expect(emitBash(sameRowExplicit, CATALOG)).toEqual(emitBash(noRow, CATALOG))
+  })
+
+  it('單一啟用段亦視為單列（0 或 1 個分組桶皆走扁平路徑）：不 emit 多列標記', () => {
+    const single = cfgT('plain', true, [segT('model', { color: A(226) })])
+    const s = emitBash(single, CATALOG)
+    expect(s).not.toMatch(/texts_\d/)
+    expect(s).not.toContain('outs=()')
+  })
+
+  it('黃金比對套件（既有 GOLDEN_CASES，皆單列 config）已於本檔頂部驗證逐位元組不變；此處另證扁平路徑未洩漏多列標記', () => {
+    for (const { name, config } of GOLDEN_CASES) {
+      const s = emitBash(config, CATALOG)
+      expect(s, `${name} 不應含多列標記`).not.toMatch(/texts_\d/)
+    }
+  })
+})
+
 // ── 3. 端到端 byte-exact（真跑 bash＋jq） ──
 
 type RealExec = { ok: true; bash: string; jqDir: string | undefined } | { ok: false; reason: string }
@@ -237,11 +388,24 @@ function withPath(env: NodeJS.ProcessEnv, newPath: string): NodeJS.ProcessEnv {
   return env
 }
 
+/**
+ * `strictPath`＝true 時 PATH **嚴格等於** `jqDir`（不附加系統 PATH）——
+ * 供「PATH 無 jq」的負向情境使用（契約 2），對齊呼叫端「PATH 僅空目錄」
+ * 的測試語意；預設 false 維持一般 byte-exact combo 現行行為（`jqDir` 前
+ * 綴系統 PATH，令 `cat` 等一般工具仍可用）。環境洩漏修復：本機系統 PATH
+ * 含 scoop jq shim，非嚴格模式下「emptyDir＋系統 PATH」會意外命中系統
+ * jq，令契約 2 假陰性通過真輸出分支而非提示分支（sp5 時代機器無此洩漏，
+ * 僥倖通過）。bash 以絕對路徑 spawn、不依賴 PATH 尋找自身，嚴格 PATH 下
+ * `cat` 亦缺（`command -v jq` 之前的 `input=$(cat)` 找不到 `cat`、失敗但
+ * 非致命——無 `set -e`，input 空、無害），僅 `command -v jq` 找不到 jq→
+ * 印 JQ_MISSING_HINT、exit 0，與契約 2 語意一致。
+ */
 function runScript(
   script: string,
   stdinJson: string,
   home: string,
   jqDir: string | undefined,
+  strictPath = false,
 ): { status: number | null; stdout: Buffer; stderr: string } {
   if (!REAL_EXEC.ok) throw new Error('runScript called without real-exec')
   const scriptPath = join(scriptDir, `sl-${scriptSeq++}.sh`)
@@ -252,7 +416,9 @@ function runScript(
   // 轉換；設此旗標令 win32 測試 leg 與 POSIX 引數傳遞等價（非 win32 上為無害
   // 空操作）。bash 本身的 $HOME 不受影響（env 變數不經引數轉換）。
   let env: NodeJS.ProcessEnv = { ...process.env, HOME: home, MSYS_NO_PATHCONV: '1' }
-  if (jqDir !== undefined) env = withPath(env, jqDir + delimiter + (process.env.PATH ?? ''))
+  if (jqDir !== undefined) {
+    env = withPath(env, strictPath ? jqDir : jqDir + delimiter + (process.env.PATH ?? ''))
+  }
   const r = spawnSync(REAL_EXEC.bash, [scriptPath], { input: Buffer.from(stdinJson, 'utf8'), env })
   return {
     status: r.status,
@@ -409,6 +575,25 @@ function buildByteExactCombos(): ByteExactCombo[] {
   for (const sid of ['full', 'windows-cjk', 'early-null'] as const) {
     combos.push({ name: `full-behavior/${sid}`, config: fullBehaviorConfig, scenario: mockScen(sid) })
   }
+  // T3.1（非必須，額外真跑信心）：兩列 config 真執行對 oracle byte-exact；
+  // 全景多列場景（三列、非末列全滅、全列全滅）留待 T3.3
+  // pipeline.integration，本任務單元測試已把展開結構釘住（見上方描述區塊）。
+  combos.push({
+    name: 'two-row-plain',
+    config: cfgT('plain', true, [
+      segT('model', { color: A(75), row: 0 }),
+      segT('cost', { color: A(220), row: 1 }),
+    ]),
+    scenario: mockScen('full'),
+  })
+  combos.push({
+    name: 'two-row-powerline',
+    config: cfgT('powerline', true, [
+      segT('model', { color: A(75), row: 0 }),
+      segT('cost', { color: A(220), row: 1 }),
+    ]),
+    scenario: mockScen('full'),
+  })
   return combos
 }
 
@@ -443,8 +628,10 @@ describe.skipIf(!REAL_EXEC.ok)('端到端 byte-exact（bash＋jq 真執行）', 
     const config = cfgT('plain', true, [segT('model', { color: A(226) })])
     const script = emitBash(config, CATALOG)
     const emptyDir = mkdtempSync(join(tmpdir(), 'sl-nojq-'))
-    // PATH 僅空目錄：command -v jq 找不到（cat 亦缺 → input 空、無害），走提示分支。
-    const r = runScript(script, JSON.stringify(mockScen('full').data), '/home/x', emptyDir)
+    // PATH 僅空目錄（strictPath＝true，不附加系統 PATH——見 runScript 文件：
+    // 本機系統 PATH 含 scoop jq shim，非嚴格模式會意外命中而假陰性通過）：
+    // command -v jq 找不到（cat 亦缺 → input 空、無害），走提示分支。
+    const r = runScript(script, JSON.stringify(mockScen('full').data), '/home/x', emptyDir, true)
     expect(r.status).toBe(0)
     expect(r.stdout.toString('utf8')).toBe(JQ_MISSING_HINT)
   })

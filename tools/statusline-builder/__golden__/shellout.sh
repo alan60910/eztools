@@ -26,17 +26,17 @@ fi
 # git-branch
 v=$(git branch --show-current 2>/dev/null || true)
 if [ -n "$v" ]; then
-  texts+=('🌿 '"$v"); fgs+=('38;5;46'); segstart+=(1)
+  texts+=('git: '"$v"); fgs+=('38;5;46'); segstart+=(1)
 fi
 # git-dirty
 v=$(git status --porcelain 2>/dev/null || true)
 if [ -n "$v" ]; then
-  texts+=('🚧 *'); fgs+=('38;5;196'); segstart+=(1)
+  texts+=('dirty: *'); fgs+=('38;5;196'); segstart+=(1)
 fi
 # clock
 v=$(date +%H:%M 2>/dev/null || true)
 if [ -n "$v" ]; then
-  texts+=('🕐 '"$v"); fgs+=('38;5;33'); segstart+=(1)
+  texts+=('time: '"$v"); fgs+=('38;5;33'); segstart+=(1)
 fi
 
 # ── join（第二趟：逐 run 拼接） ──

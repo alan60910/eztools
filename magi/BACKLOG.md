@@ -6,6 +6,22 @@ one into a new sprint.
 
 ## Pending
 <!-- /magi:commit appends C-class drift items here -->
+- [ ] statusline-builder 拖曳清理加固：drop handler 對 `is-segment-dragging`／rAF 取消單點依賴 dragend（抽 endDragCleanup 冪等共用），防「drop 發但 dragend 未發」邊際案 class 卡死
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
+- [ ] statusline-builder 位置制三小件加固：`lastRenderedSlots` 改淺拷貝快照、`reconcileRealSlots` 需實際增刪時 dev-warn 可觀測化、`seg.row` 直當 render-index 的正規化耦合補註解
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
+- [ ] 有中間 UI 空列時，重啟用段 clamp 落點的「顯示編號」可能與凍結 row 值直覺不符（契約一致非回歸；若使用者回報「跑錯列」此為根因，屆時評估 re-enable 感知顯示編號）
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
+- [ ] pending 空列補 region 地標（role="group"＋aria-label，rotor 可達）；renderPendingRowContainers 函式層焦點保全（現無觸發路徑，日後空列加控件時需要）
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
+- [ ] 評估 Chromium 133+ `Element.moveBefore()` progressive enhancement——原生保焦點搬移節點，可整族解決「relayout 即失焦」（含現靠顯式回焦的 select／移位鈕路徑）
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
+- [ ] statusline 引擎邊界補測：`toAnsi([])` 零列文件性測試（不變量現僅靠 resolve 恆 `[[]]` 維繫）＋多列 × `powerlineArrow=false` 真執行案
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
+- [ ] `dragOrigin` 死狀態移除；相同播報文案 SR 不重讀（live region 尾端零寬變異等通用強化）
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
+- [ ] 補 jsdom 測試覆蓋 `renderRuns` spec→DOM；把 CDP 驗證腳本（多列拖曳／slots 九情境等）收編為可重跑整合案，取代每輪人工 CDP 複驗
+  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
 - [ ] 決定 `_probe` 的長期去留（保留為活範本，或於掃描時排除底線資料夾，避免探針頁長期公開於正式站）
   > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
   > 06a 更新：範本已補全 footer＋主題 boilerplate（更像真頁面，公開部署姿態未變）；另缺 style.css stub 使三件套不完整 — `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
@@ -50,9 +66,9 @@ one into a new sprint.
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [ ] repo 級 `.gitattributes` 基線（如 `* text=auto`）——其他簽入 fixtures（jsonl 等）仍暴露於 CRLF checkout 轉換類 bug（目前無 byte-exact 消費者，屬預防）
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
-- [ ] statusline-builder 預覽：default 色 powerline 箭頭渲染為透明三角，真終端會以預設前景繪出——`var(--arrow-fg, currentColor)` 對齊
+- [x] ~~statusline-builder 預覽：default 色 powerline 箭頭渲染為透明三角，真終端會以預設前景繪出——`var(--arrow-fg, currentColor)` 對齊~~（sprint 07 交付，2026-07-11）
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
-- [ ] statusline-builder：`applyPreviewFontFamily` 死重清理（inline style 蓋掉 CSS 較豐富字族棧）＋index.html 既存「24 段」註解修正（實為 25 段）
+- [x] ~~statusline-builder：`applyPreviewFontFamily` 死重清理（inline style 蓋掉 CSS 較豐富字族棧）＋index.html 既存「24 段」註解修正（實為 25 段）~~（sprint 07 交付，2026-07-11）
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [ ] statusline-builder：powerline 無箭頭模式末段帶尾隨空格（三後端一致、契約如此）——使用者文件一句話註記（部分 statusline 消費端會視覺右修剪）
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)

@@ -117,6 +117,23 @@ export const CANONICAL_CONFIGS = [
   },
 ]
 
+// ── 多列代表 case（T3.3；magi/07-statusline-multirow-layout/PLAN.md §golden
+//    全量重生／Verification 1）── config 單一來源已收攏至
+//    tools/statusline-builder/multirow-golden-configs.ts（MAGI code review
+//    2026-07-11 Important #2／Fix 2：與 golden-statusline.mjs 共用同一份
+//    config，消弭先前兩處 inline 字面重複的漂移風險；三列 row 0/1/2、
+//    列內兩段，驗分隔符／箭頭不跨列，plain 與 powerline 各一）。**不**
+//    要求與 emit-ps1.test.ts 內 GOLDENS 逐字同步（該常數僅追蹤 PLAIN_FULL
+//    ／POWERLINE_THRESHOLD／POWERLINE_NOARROW 三個既有 canonical config，
+//    見檔頭「canonical config…逐字同步」註記；multirow 兩案改由
+//    emit-ps1.test.ts 另一個獨立 it.each 迴圈直接 import
+//    multirow-golden-configs.ts 比對，見該檔案「多列 golden 常駐比對」節）。
+//    本檔僅於 main()（見下）動態 import 併入 CANONICAL_CONFIGS 供重生
+//    .ps1——**不**於檔案頂層 static import：multirow-golden-configs.ts 內部
+//    以 `./config.js` 等相對 import 指向實存 `./config.ts`，須待下方
+//    registerHooks() 註冊後才能解析（頂層 import 先於 registerHooks 執行
+//    會直接拋 ERR_MODULE_NOT_FOUND，已實測驗證——見本次修復回報）。
+
 // ── 主流程（只在直接執行時跑；被 import 時無副作用） ──
 
 async function main() {
@@ -140,13 +157,14 @@ async function main() {
   const toolDir = new URL('../tools/statusline-builder/', import.meta.url)
   const { emitPs1 } = await import(new URL('emit-ps1.ts', toolDir).href)
   const { DESCRIPTORS_BY_ID } = await import(new URL('segments.ts', toolDir).href)
+  const { MULTIROW_GOLDEN_CASES } = await import(new URL('multirow-golden-configs.ts', toolDir).href)
 
   const here = dirname(fileURLToPath(import.meta.url))
   const outDir = join(here, '..', 'tools', 'statusline-builder', '__golden__')
   mkdirSync(outDir, { recursive: true })
 
   const BOM = Buffer.from([0xef, 0xbb, 0xbf])
-  for (const { name, config } of CANONICAL_CONFIGS) {
+  for (const { name, config } of [...CANONICAL_CONFIGS, ...MULTIROW_GOLDEN_CASES]) {
     const script = emitPs1(config, DESCRIPTORS_BY_ID)
     const bytes = Buffer.concat([BOM, Buffer.from(script, 'utf8')])
     writeFileSync(join(outDir, `${name}.ps1`), bytes)

@@ -71,7 +71,26 @@
       -->
       <div role="alert" id="error-message" class="alert-message is-empty"></div>
 
-      <!-- ============ 全域設定 ============ -->
+      <!--
+        T5.8（magi/07-statusline-multirow-layout/PLAN.md §D3-R4，取代 T5.2
+        的雙欄 .builder-columns__primary）：三欄滿版版面「目錄」左欄
+        wrapper。DOM 順序不動——只把既有相鄰節點（全域設定／skip-nav／
+        segment 清單）分組包裹，供 style.css 的 main grid（≥1100px 兩欄時
+        目錄＋已選擇堆疊於左欄；≥1400px 三欄時獨立第一欄）落在目錄欄；
+        <1100px 退單欄時純為無樣式容器，內容續走原堆疊順序。main.ts 的
+        既有 selector 皆以 id／class query，不受此層級變動影響。
+
+        global-section 欄位歸屬（PLAN D3-R4 明言未鎖死、留待本棒裁決）：
+        置於目錄欄頂（沿用現行 DOM 序，未改動位置）——理由：(1) diff
+        最小、不影響現有 tab 序與可及性結構；(2) 其欄位以 radio／select
+        為主，密度低，即使目錄欄在三欄斷點變窄仍可正常排列，不像
+        segment 控件列需要較寬版面；(3) 「跨欄頂列」替代方案需額外
+        grid area／跨欄樣式與斷點行為驗證，本棒（純版面重構、不做
+        transfer-list 互動）範圍未見足夠必要性改動此點，故不採用，
+        留待後續棒次視實際視覺回饋再議。
+      -->
+      <div class="builder-columns__catalog">
+        <!-- ============ 全域設定 ============ -->
       <section class="tool-section" aria-labelledby="global-heading" id="global-section">
         <h2 id="global-heading">全域設定</h2>
         <div class="global-controls">
@@ -196,35 +215,40 @@
 
       <!--
         Segment 清單前的 skip 連結（PLAN §Builder UI a11y 契約「skip
-        機制」）：24 列複合控件全展開時 tab 停點眾多（SP-6 量測 S3≈423
-        停），讓鍵盤／SR 使用者一步跳到預覽或產出，不必逐列穿越。
-        預設離屏、聚焦時顯現（style.css .skip-link）。目標 section 帶
-        tabindex="-1" 以承接程式化焦點。
+        機制」）：25 段複合控件全展開時 tab 停點眾多（SP-6 量測 S3≈423
+        停），讓鍵盤／SR 使用者一步跳到已選擇／預覽／產出，不必逐段穿越。
+        預設離屏、聚焦時顯現（style.css .skip-link）。「跳至預覽」「跳至
+        產出腳本」目標 section 帶 tabindex="-1" 以承接程式化焦點；「跳至
+        已選擇」目標（.builder-columns__selected，MAGI code review
+        Important #5／Fix 4）刻意不帶 tabindex（非捲動容器，見該區塊自身
+        註解），瀏覽器原生錨點跳轉僅捲動至可視範圍、不奪取焦點。
       -->
       <nav class="skip-nav" aria-label="區塊快速跳轉">
+        <a href="#selected-section" class="skip-link">跳至已選擇</a>
         <a href="#preview-section" class="skip-link">跳至預覽</a>
         <a href="#output-section" class="skip-link">跳至產出腳本</a>
       </nav>
 
-      <!-- ============ Segment 清單（四類分區） ============ -->
+      <!-- ============ Segment 目錄（四類分區、輕量常駐項） ============ -->
       <div class="segment-lists">
         <p class="segment-lists__hint">
-          勾選以啟用 segment；啟用後才展開排序、配色、前綴等控件。以每列的上／下移鈕（或拖曳）調整顯示順序。
+          勾選以啟用 segment：勾選後本項原位灰化標記「已加入」，其完整控件列會出現在中間「已選擇」欄的對應列群組，
+          可於該處排序、配色、指派顯示列等；再點一次取消勾選即可移除。
         </p>
 
         <!--
-          排序播報 live region（常駐、sr-only）：上／下移或拖曳後，main.ts
-          填入「<段名> 移至第 N 位（共 M）」。與 #global-live-status 分開，
-          避免移位頻繁播報淹沒 mode 切換等重要提醒。
-        -->
-        <div role="status" aria-live="polite" id="segment-move-status" class="sr-only"></div>
-
-        <!--
-          四類 landmark（§Segment 目錄：永在10／百分比4／條件7／shell-out3
-          ＝24 段四類）。每 <section> 以 aria-labelledby 指向該類 <h2>＝
-          region 可及名稱，SR 可直接跳達。各 <ol> 初始為空，main.ts 依
-          SEGMENT_DESCRIPTORS（目錄順序＝清單順序）clone #segment-row-template
-          填入對應類別的列（生成契約見該 template 註解與 .t31-report.md）。
+          T5.9（magi/07-statusline-multirow-layout/PLAN.md §D3-R4
+          「transfer-list 互動（灰化留位）」，依賴 T5.8）：四類 landmark
+          （§Segment 目錄：永在10／百分比4／條件8／shell-out3＝25 段
+          四類）維持不變；但每 <section> 的 <ol> 內容由「完整控件列」
+          改為**輕量常駐項**（catalog.ts buildCatalogGroups 純函式計算
+          view-model，main.ts 依 SEGMENT_DESCRIPTORS 目錄定義序 clone
+          #catalog-item-template 填入，一次性建置、永不重排、無拖曳）。
+          勾選＝啟用：項目原位灰化＋顯示「已加入」徽章（可再點取消）；
+          完整控件列（buildSegmentRow 產出，含排序鈕／配色／前綴／列指派
+          等）改住中欄 #segment-row-groups（啟用）或 #segment-hidden-pool
+          （停用，不銷毀）——見中欄 wrapper 註解。地標／標題結構沿用
+          T5.3 既有結構。
         -->
         <section class="segment-section" aria-labelledby="segments-always-heading">
           <h2 id="segments-always-heading" class="segment-section__heading">永在 segment</h2>
@@ -250,7 +274,121 @@
           <ol class="segment-list" id="segment-list-shellout" data-category="shell-out"></ol>
         </section>
       </div>
+      </div>
+      <!-- /.builder-columns__catalog（T5.8） -->
 
+      <!--
+        T5.8（magi/07-statusline-multirow-layout/PLAN.md §D3-R4）：三欄滿版
+        版面「已選擇」中欄 wrapper——承載 T5.3 的 #segment-row-groups（原巢
+        在 .segment-lists 內，本棒搬出為中欄根；DOM 序仍維持「目錄→已選擇
+        →預覽」線性序）與其排序播報 live region #segment-move-status（一併
+        搬入：PLAN D3-R4「中＝已選擇（列群組容器＋排序＋列指派＋各段完整
+        控件列）」，排序播報語意本屬本欄，故隨列群組容器同遷）。main.ts
+        皆以 id query（byId('segment-move-status')／byId('segment-row-groups')），
+        不受此層級變動影響。
+
+        T5.9／T5.14（magi/07-statusline-multirow-layout/PLAN.md §D3-R4
+        「新增一列」／「隱藏池」／Rev 11「暫存列位置制」，依賴 T5.8）：
+        本欄掛點——#add-pending-row（頂部單一按鈕，取代 T5.4 每段獨立
+        按鈕）、#segment-row-groups（列群組容器；T5.14 起 UI 暫存空列
+        <div> 亦依 rowSlots 位置制插進此容器內、可落在真實列之間，原
+        #segment-pending-rows 獨立容器已移除）、#segment-hidden-pool
+        （停用段完整控件列的隱藏池，見其自身註解）。
+
+        MAGI code review 2026-07-11 Important #5（Fix 4）：左欄有四類
+        section 地標、右欄（.builder-columns__aside）有 role="region"，
+        中欄先前是裸 div——空列時 SR 落點零方位、鍵盤使用者無 skip 目標。
+        補 `role="region"`＋`aria-label`（同左／右欄慣例）＋`id` 供上方
+        skip-nav「跳至已選擇」連結；**不**加 `tabindex`——本容器非捲動
+        容器（縱向捲動隨頁面本身），不比照 .builder-columns__aside 的
+        `tabindex="0"` 給鍵盤捲動停點，維持 tab 序不新增停點。
+      -->
+      <div class="builder-columns__selected" id="selected-section" role="region" aria-label="已選擇（依列分組）">
+        <!--
+          排序播報 live region（常駐、sr-only）：上／下移或拖曳後，main.ts
+          填入「<段名> 移至第 N 列第 M 位（共 K）」（row-groups.ts
+          formatMoveAnnouncement，N＝渲染列序）。與 #global-live-status
+          分開，避免移位頻繁播報淹沒 mode 切換等重要提醒。
+        -->
+        <div role="status" aria-live="polite" id="segment-move-status" class="sr-only"></div>
+
+        <!--
+          T5.15（magi/07-statusline-multirow-layout/PLAN.md，2026-07-12
+          使用者回饋：「有能使用方向鍵來排序(上下換列)的建議要寫文件到網頁
+          上告知，減少資訊不對稱」）：排序操作說明——純靜態 <p>，沿用左欄
+          四類分區既有的 .segment-section__desc class 與語氣（見上方
+          #segments-always-heading 等區塊），無 tabindex／無互動屬性、不動
+          任何互動邏輯（main.ts 未變）。
+        -->
+        <p class="segment-section__desc">
+          排序方式：滑鼠可按住段卡（⠿ 把手或頂部）拖曳到任意位置或其他列；鍵盤可用每段的 ↑/↓
+          鈕在同列相鄰交換，或在「顯示於第 N 列」下拉直接按方向鍵切換所在列。
+        </p>
+
+        <!--
+          T5.9／T5.14（PLAN §D3-R4「新增一列」／Rev 11「暫存列位置制」）：
+          中欄頂部單一按鈕，取代 T5.4 每段獨立「新增一列」按鈕（S7 鍵盤
+          誤觸裁決維持有效——不進 select option）。按下→main.ts 於 rowSlots
+          末端追加一個 pending slot（appendPendingSlot），於 #segment-row-groups
+          內生成一個 UI 暫存空列 <div>（見 renderPendingRowContainers）＋
+          刷新所有啟用段的「顯示於第 N 列」select（枚舉併入該暫存列）。
+        -->
+        <button type="button" id="add-pending-row" class="button-like button-like--secondary add-pending-row-button" aria-label="新增一列">
+          ＋ 新增一列
+        </button>
+
+        <!--
+          T5.3（magi/07-statusline-multirow-layout/PLAN.md §排序與列指派
+          UX「清單結構重構」）：啟用段依渲染列分組呈現（雙區清單之「啟用
+          區」）。初始為空（無啟用段時零列群組）；main.ts 依 config 現有
+          row 分組（`normalizeRows` 正規化後恆連續 0..N-1）動態生成／銷毀
+          #segment-row-group-template 實例，每列一個與左欄四類分區等價的
+          地標／標題結構（<section aria-labelledby>＋「第 N 列」標題）。
+          T5.9 起，啟停切換的入口改左欄目錄勾選控件（既有 <li> 於本容器
+          ↔ #segment-hidden-pool 間搬移，節點重用，不銷毀重建）。
+
+          T5.14（PLAN Rev 11「列耗盡保留＋暫存列位置制」）：UI 暫存空列
+          （#segment-pending-row-template 實例）由 main.ts 依 rowSlots
+          位置制**直接插進本容器內、正確位置**（可落在真實列 <section>
+          之間，見 renderPendingRowContainers），不再另立
+          #segment-pending-rows 獨立容器（已移除）——空列恆不持有任何
+          <li>，整批重插不違節點重用鐵律；真實列 <section> 彼此相對順序
+          永不變（grow 只在尾端 append），故 rowIndexOfOl 不受影響。
+        -->
+        <div class="segment-row-groups" id="segment-row-groups"></div>
+      </div>
+      <!-- /.builder-columns__selected（T5.8／T5.9） -->
+
+      <!--
+        T5.9（magi/07-statusline-multirow-layout/PLAN.md §D3-R4「隱藏池」，
+        依賴 T5.8）：停用段完整控件列（buildSegmentRow 產出的 <li>，含
+        排序鈕／配色／前綴／閾值／列指派等）之隱藏池——`hidden` 屬性
+        （經 src/style.css reset 規則等同 display:none）＋
+        aria-hidden="true" 雙重確保退出版面與 a11y tree；main.ts **不銷毀**
+        搬入的 <li>（節點重用鐵律：監聽器不重綁、閾值編輯器展開態等純
+        DOM 態不重置），重啟用時原節點搬回列群組容器（clamp 落點語意見
+        row-select.ts clampReenableRow）。初始建構時（buildSegmentRows）
+        全部段先進此池，再由 layoutSegmentContainers 依 enabled 狀態搬出
+        啟用段。DOM 位置刻意置於 main 內、三欄 wrapper 之外（隱藏元素不
+        參與 grid 版面，位置對視覺無影響；獨立掛點降低與三欄 grid-area
+        命名的耦合）。
+      -->
+      <ul class="segment-hidden-pool" id="segment-hidden-pool" hidden aria-hidden="true"></ul>
+
+      <!--
+        T5.8（magi/07-statusline-multirow-layout/PLAN.md §D3-R4，沿用 D3
+        契約，取代 T5.2 的 .builder-columns__aside 雙欄右欄定位）：三欄
+        滿版版面「預覽＋產出」右欄 wrapper。DOM 順序不動——只包裹既有
+        相鄰節點；style.css 的 main grid（≥1100px 兩欄或 ≥1400px 三欄）
+        皆落在最右欄，並套用 `position: sticky; top:0; align-self:start;
+        max-height:100dvh; overflow-y:auto`（<1100px 退單欄時無
+        sticky／無捲動限制，純為無樣式容器）。role="region"＋aria-label
+        常駐（generic <div> 的 aria-label 多數 AT 不朗讀，必須有 role）；
+        tabindex="0" 使其成為 WCAG 2.1.1 可鍵盤捲動的第一個新增停點
+        （第二個為下方 #preview-terminal，本身已 overflow-x:auto）——
+        「兩個捲動停點」a11y 契約不變。
+      -->
+      <div class="builder-columns__aside" role="region" tabindex="0" aria-label="預覽與產出">
       <!-- ============ 即時預覽 ============ -->
       <section
         class="tool-section preview-section"
@@ -310,17 +448,22 @@
         </div>
 
         <!--
-          終端模擬框（PLAN §預覽契約）：role="img"＋aria-label（＝StyledRun
-          的 ariaText 串接，PUA glyph 不進 label）。初始 aria-label 為佔位，
-          T2.2 的 aria-label 純函式 + render-preview.ts（T3.2）於每次 resolve
-          後同步更新 aria-label 與內部 span（span 為裝飾、aria-hidden）。
-          深/淺底以 --dark／--light modifier 切換（此處預設 --dark）。
+          終端模擬框（PLAN §多列預覽 a11y，M4）：外層固定 role="group"＋
+          aria-label="狀態列預覽"（不隨內容重算）；render-preview.ts 於每次
+          resolve 後在內部建逐列 role="img" 子容器（aria-label＝「第 N
+          列：〈該列 toAriaLabel 結果〉」，N＝渲染列序），span 為裝飾、
+          aria-hidden。全隱藏 `[[]]` 時內部渲染單一子容器承載
+          EMPTY_PREVIEW_LABEL。深/淺底以 --dark／--light modifier 切換
+          （此處預設 --dark）。role／aria-label 為 T4.1 成果，T5.2 不動；
+          T5.2 新增 tabindex="0"（style.css 已有 overflow-x:auto，第二個
+          鍵盤捲動停點——第一個為外層 .builder-columns__aside）。
         -->
         <div
           class="preview-terminal preview-terminal--dark"
           id="preview-terminal"
-          role="img"
-          aria-label="狀態列預覽（尚未產生，請啟用 segment）"
+          role="group"
+          aria-label="狀態列預覽"
+          tabindex="0"
         ></div>
       </section>
 
@@ -377,6 +520,8 @@
           <pre class="output-block__code" id="output-settings" tabindex="0"><code></code></pre>
         </div>
       </section>
+      </div>
+      <!-- /.builder-columns__aside（T5.8） -->
     </main>
 
     <footer>
@@ -398,12 +543,46 @@
     -->
 
     <!--
-      segment 列範本（PLAN §Builder UI a11y 契約 segment 清單條）。
+      T5.9（magi/07-statusline-multirow-layout/PLAN.md §D3-R4
+      「transfer-list 互動（灰化留位）」）：左欄輕量常駐目錄項範本。
       main.ts 生成契約：
-      1. 每 descriptor clone 一次，插入 data-category 對應的 <ol>。
+      1. 每 descriptor（依 SEGMENT_DESCRIPTORS 目錄定義序，不依
+         config.segments 陣列序——見 catalog.ts 文件）clone 一次，插入
+         data-category 對應的 <ol>（與 segment-row-group-template 共用
+         同一批四類 <ol>，僅內容物由完整控件列改為本輕量項）；一次性
+         建置、永不重排、無拖曳。
+      2. 設 <li data-segment-id>、把所有 __CID__ 換成 segment id。
+      3. .catalog-item__name 文字＝descriptor.label；checkbox
+         accessible name 由外層 <label for> 承接同一文字（識別該項）。
+      4. checkbox.checked＝seg.enabled；勾選＝啟用、取消＝停用——**啟停
+         唯一入口**（原 segment-row-template 內的 enable checkbox 已
+         移除，見下）。change 時 main.ts 呼叫 setSegmentEnabled：更新
+         config、原位切換 .catalog-item--enabled class＋
+         .catalog-item__badge 顯隱（不移動、不重建本 <li>），並把中欄
+         對應完整控件列於 #segment-row-groups ↔ #segment-hidden-pool
+         間搬移（節點重用）。事件處理後顯式再聚焦本 checkbox（連續勾選
+         N 段時焦點不跳失）。
+    -->
+    <template id="catalog-item-template">
+      <li class="catalog-item" data-segment-id="">
+        <label class="catalog-item__label" for="__CID__-catalog">
+          <input type="checkbox" class="catalog-item__checkbox" id="__CID__-catalog" />
+          <span class="catalog-item__name"></span>
+        </label>
+        <span class="catalog-item__badge" aria-hidden="true" hidden>已加入</span>
+      </li>
+    </template>
+
+    <!--
+      segment 列範本（PLAN §Builder UI a11y 契約 segment 清單條；T5.9 起
+      移住中欄，不再落在左欄四類分區）。main.ts 生成契約：
+      1. 每 descriptor clone 一次，初始一律先掛入 #segment-hidden-pool
+         （見其自身註解），再由 layoutSegmentContainers 依 enabled 狀態
+         搬至 #segment-row-groups 或留在池中。
       2. 設 <li data-segment-id>、把所有 __ID__ 換成 segment id。
-      3. .segment-row__name 文字＝descriptor.label（enable checkbox 的
-         accessible name＝段名，識別該列，比照 gif-editor「保留幀 N」）。
+      3. .segment-row__name 文字＝descriptor.label（T5.9 起純視覺標籤，
+         非任何控件的 accessible name 來源——啟停已移出本列，改左欄目錄
+         checkbox 承擔）。
       4. 各控件 accessible name＝「段名 — 角色」：以 label 內 sr-only 的
          .control-name-context 承載「<段名> — 」前綴（視覺只見角色字），
          移位鈕／色選群組等無可見文字者由 main.ts 設 aria-label 全名。
@@ -415,19 +594,49 @@
       7. 閾值：category==='percentage' → clone #threshold-editor-template
          進 .segment-row__threshold-mount。
       8. variant：有 variants → 以 descriptor.variants 填 <select> options。
-      9. 啟用態：checkbox 勾選時於 <li> 加 .segment-row--enabled（CSS 據此
-         展開 .segment-row__controls；停用列僅留 checkbox＋名稱於 tab 序）。
-      10. 移位：上/下移鈕點擊或拖曳後，經 #segment-move-status 播報位置。
+      9. 啟用態：main.ts 依 seg.enabled 於 <li> 加/移除 .segment-row--enabled
+         （CSS 據此展開 .segment-row__controls）——T5.9 起由左欄目錄
+         checkbox 的 change handler 觸發，非本列自身控件。
+      10. T5.5（PLAN §排序與列指派 UX「上／下移鈕位置」）：上/下移鈕位於
+          .segment-row__enable-field 尾端（CSS margin-left:auto 靠右）；
+          不在 .segment-row__controls 塊內，故其顯隱不隨該塊自動收合——
+          main.ts 依 seg.enabled 顯式切換 .segment-row__move 的 hidden
+          屬性（僅啟用列顯示）。點擊或拖曳（限同列）後經
+          #segment-move-status 播報「〈段名〉移至第 N 列第 M 位（共
+          K）」；段為其列子序列首/末時對應鈕 disabled（維持可見）。
+          T5.11（PLAN Rev 6「拖曳統一插入制」）：拖曳（同列／跨列皆同）
+          改為插入語意（插目標段之前／之後，dragover 期間顯示 gap
+          placeholder），僅上/下移**按鈕**維持相鄰交換。
+      11. T5.4／T5.9：.segment-row__row-select（「顯示於第 N 列」）僅於
+          啟用段可見（隨 .segment-row__controls 一併收合，停用段其 row
+          值凍結不需顯示 select）；select 的 <option> 集合由 main.ts 於
+          分組或暫存列數實際變動時以 row-select.ts 之
+          computeRowSelectOptionOps 原地更新（枚舉含暫存列，見 T5.9
+          頂部「新增一列」按鈕），不重建 select 節點。T5.4 每段獨立
+          「新增一列」按鈕（.segment-row__add-row）已於 T5.9 移除。
+      12. T5.11（PLAN §排序與列指派 UX Rev 6「中欄每段『移除』鈕」）：
+          .segment-row__remove——與左欄目錄取消走同一路徑
+          （main.ts setSegmentEnabled(id, false)）；顯隱同上/下移鈕（僅
+          啟用列顯示，main.ts 顯式切換 hidden）；aria-label＝main.ts 設
+          「<段名> — 從清單移除」；click 後焦點顯式移至左欄對應
+          checkbox（setSegmentEnabled 既有行為）＋
+          #segment-move-status 播報「<段名> 已從清單移除」。
+      13. T5.13（2026-07-11 使用者裁決 Rev 8）：.segment-row__enable-field
+          首位加 .segment-row__grip（⠿，aria-hidden 純裝飾，天然不進
+          tab 序）——僅視覺提示「此處可拖」，拖曳判定不變（li.draggable
+          ＋wireDragAndDrop 的 dragstart guard，見 main.ts）；同時
+          .segment-row__enable-field 整體 CSS user-select:none 消除段名
+          文字選取干擾（.segment-row__controls 內控件不受影響，前綴輸入
+          框等仍可選字）。
     -->
     <template id="segment-row-template">
       <li class="segment-row" data-segment-id="">
         <div class="segment-row__enable-field">
-          <input type="checkbox" class="segment-row__enable" id="__ID__-enable" />
-          <label for="__ID__-enable" class="segment-row__name"></label>
-        </div>
+          <span class="segment-row__grip" aria-hidden="true">⠿</span>
+          <span class="segment-row__name"></span>
 
-        <!-- 停用時 CSS 收合整塊（display:none＝退出 tab 序＋a11y tree，此處刻意，非 live region） -->
-        <div class="segment-row__controls">
+          <!-- T5.5：上/下移鈕移至此（enable-field 尾端，CSS margin-left:auto）；
+               僅啟用列顯示（main.ts 顯式切換 hidden，見上方 10.）。 -->
           <div class="segment-row__field segment-row__move">
             <button type="button" class="icon-button segment-row__move-up" aria-label="">
               <span aria-hidden="true">↑</span>
@@ -437,10 +646,32 @@
             </button>
           </div>
 
+          <!-- T5.11：移除鈕（見上方 12.）；僅啟用列顯示（main.ts 顯式切換 hidden）。 -->
+          <button type="button" class="icon-button segment-row__remove" aria-label="">
+            <span aria-hidden="true">✕</span>
+          </button>
+        </div>
+
+        <!-- 停用時 CSS 收合整塊（display:none＝退出 tab 序＋a11y tree，此處刻意，非 live region） -->
+        <div class="segment-row__controls">
+          <!--
+            T5.4（magi/07-statusline-multirow-layout/PLAN.md §D2「列選擇
+            UI」；S7 spike 裁決見 sp7/RESULTS.md）：「顯示於第 N 列」select
+            （枚舉來源＝渲染列 ∪ 暫存列，main.ts 以 row-select.ts 純函式
+            計算的操作序列原地更新既有 <option>，不重建 select 節點——防
+            鍵盤焦點跳失）。T5.9：每段旁的獨立「新增一列」按鈕已移除
+            （改中欄頂部單一按鈕＋UI 暫存空列，S7「不進 select option」
+            裁決維持有效）。
+          -->
+          <div class="segment-row__field segment-row__row-field">
+            <label for="__ID__-row"><span class="control-name-context sr-only"></span>顯示於第 N 列</label>
+            <select class="segment-row__row-select" id="__ID__-row"></select>
+          </div>
+
           <div class="segment-row__field">
             <label class="inline-choice">
               <input type="checkbox" class="segment-row__icon" id="__ID__-icon" />
-              <span class="control-name-context sr-only"></span>顯示圖示
+              <span class="control-name-context sr-only"></span>顯示文字
             </label>
           </div>
 
@@ -472,6 +703,83 @@
           <div class="segment-row__threshold-mount" data-threshold-mount></div>
         </div>
       </li>
+    </template>
+
+    <!--
+      T5.3（magi/07-statusline-multirow-layout/PLAN.md §排序與列指派 UX
+      「列群容器生命週期」）：列群組容器範本——啟用段依渲染列分組呈現，
+      每列一個與四類分區等價的地標／標題結構（<section aria-labelledby>
+      ＋「第 N 列」標題），保住 SPEC「大量項目 skip 機制」不變量：SR 可
+      逐列跳達。main.ts 生成契約：
+      1. 每一渲染列（0-index，正規化後恆連續 0..N-1）clone 一次，__RID__
+         換成該列穩定 key（main.ts 以列索引產生，如 row-0／row-1……），
+         插入 #segment-row-groups。
+      2. .segment-section__heading 文字＝main.ts 設「第 N 列」（N＝渲染
+         列序，1 起算）。
+      3. <ol> 承載該列啟用段既有 <li>（appendChild 搬入，非新建；列內
+         順序＝config.segments 陣列序＝視覺順序）。
+      4. 容器數量隨渲染列數增減動態調整（main.ts 建立／銷毀流程）；銷毀
+         前若容器內仍有 <li>（理論上不會，見 main.ts 防禦註解）先搬離
+         再移除 <section>，絕不連 <li> 一併丟棄。
+      5. T5.11（PLAN §排序與列指派 UX Rev 6「整列刪除」）：標題旁
+         .segment-row-group__delete-trigger——語意＝該列全部段停用（li
+         收隱藏池、左欄目錄項恢復可勾）；click → 兩段式 inline 確認（見
+         main.ts wireRowDeleteButton 文件：trigger 隱、
+         .segment-row-group__delete-confirm 顯，焦點落於「取消」鈕──
+         安全預設，避免連按 Enter 誤刪）；confirm 鈕 click → 批次停用＋
+         單次 commitConfig（避免 N 次 relayout）＋播報「第 N 列已刪除，
+         M 個段已回到目錄」＋焦點移至 #add-pending-row（不落 body）；
+         cancel 鈕 click → 收合confirm、trigger 復顯＋回焦 trigger。
+         僅剩最後一個真實列時 trigger disabled（維持可見，防清空，見
+         main.ts refreshRowDeleteButtons）。
+    -->
+    <template id="segment-row-group-template">
+      <section class="segment-section segment-row-group" aria-labelledby="__RID__-heading">
+        <div class="segment-row-group__heading-row">
+          <h2 id="__RID__-heading" class="segment-section__heading"></h2>
+          <div class="segment-row-group__delete-field">
+            <button type="button" class="button-like button-like--secondary segment-row-group__delete-trigger"></button>
+            <div class="segment-row-group__delete-confirm" hidden>
+              <button type="button" class="button-like button-like--secondary segment-row-group__delete-confirm-btn">確認刪除</button>
+              <button type="button" class="button-like button-like--secondary segment-row-group__delete-cancel-btn">取消</button>
+            </div>
+          </div>
+        </div>
+        <ol class="segment-list" id="__RID__-list" data-row-group="__RID__"></ol>
+      </section>
+    </template>
+
+    <!--
+      T5.9（magi/07-statusline-multirow-layout/PLAN.md §D3-R4「新增一列
+      （第三修）」）：UI 暫存空列容器範本——純視覺標籤＋提示文字，恆不
+      持有任何 <li>（段一旦被指派入此列即成為真實渲染列，改由
+      segment-row-group-template 承載），故不需 aria-labelledby 地標
+      結構（無可跳達內容，避免 SR 標題導覽時徒增空區）。
+
+      T5.14（PLAN Rev 11「暫存列位置制」）：main.ts 依 rowSlots 位置制把
+      本範本實例**插進 #segment-row-groups 內、正確位置**（可落在真實列
+      <section> 之間，見 renderPendingRowContainers）——每次 slots 變動即
+      移除既有全部 .segment-pending-row 節點後重繪（本容器不持有任何段
+      <li>／監聽器，整批重繪不違節點重用鐵律）；.segment-section__heading
+      文字＝main.ts 設「第 N 列」（N＝該 pending slot 位置＋1，即顯示編號）。
+
+      T5.11／T5.14（PLAN §排序與列指派 UX Rev 6「整列刪除」／Rev 11「點哪
+      刪哪」）：標題旁 .segment-pending-row__delete——純 placeholder 移除、
+      **免確認**（該列本無任何段，刪除即 removeSlotAt 於**被點擊者的 slot
+      位置**移除，非「移除最高編號」）；click → main.ts removePendingRow：
+      重繪暫存列容器＋刷新 select 枚舉／顯示編號＋播報「空列已移除」＋
+      焦點移至 #add-pending-row（不落 body）。
+    -->
+    <template id="segment-pending-row-template">
+      <div class="segment-section segment-pending-row">
+        <div class="segment-pending-row__heading-row">
+          <h2 class="segment-section__heading"></h2>
+          <button type="button" class="button-like button-like--secondary segment-pending-row__delete"></button>
+        </div>
+        <p class="segment-section__desc segment-pending-row__hint">
+          空列——用各段「顯示於第 N 列」選單放入段。
+        </p>
+      </div>
     </template>
 
     <!--

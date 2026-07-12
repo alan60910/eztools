@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S7 spike：&lt;select&gt; 原地更新的焦點／選取保存 — 最小 repro</title>
+<style>
+  :root {
+    color-scheme: light;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: -apple-system, "Segoe UI", "Noto Sans TC", system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+    color: #1a1a1a;
+  }
+  .filler {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+    font-size: 1.1rem;
+    letter-spacing: 0.05em;
+    background: repeating-linear-gradient(
+      45deg,
+      #f5f5f5,
+      #f5f5f5 20px,
+      #ececec 20px,
+      #ececec 40px
+    );
+  }
+  #top-filler {
+    border-bottom: 4px dashed #bbb;
+  }
+  #bottom-filler {
+    border-top: 4px dashed #bbb;
+  }
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 24px 20px 48px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    margin-bottom: 4px;
+  }
+  .intro {
+    background: #fff8e1;
+    border: 1px solid #e0c46a;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 0.92rem;
+  }
+  .intro code {
+    background: #00000010;
+    padding: 0 4px;
+    border-radius: 3px;
+  }
+  section.controls {
+    margin-top: 20px;
+    padding: 16px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: #fafafa;
+  }
+  .controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 10px;
+  }
+  button {
+    font-size: 0.95rem;
+    padding: 8px 14px;
+    border-radius: 5px;
+    border: 1px solid #888;
+    background: #fff;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #f0f0f0;
+  }
+  button#btn-reset {
+    color: #a33;
+    border-color: #a33;
+  }
+  label.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  #status-line {
+    font-family: "Consolas", "SFMono-Regular", monospace;
+    font-size: 0.85rem;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 8px 10px;
+    display: block;
+  }
+  #status-line span.label {
+    color: #666;
+  }
+  #status-line span.value {
+    font-weight: bold;
+    color: #0a5;
+  }
+  #event-log {
+    margin-top: 10px;
+    font-family: "Consolas", "SFMono-Regular", monospace;
+    font-size: 0.78rem;
+    background: #10141c;
+    color: #b7e7b7;
+    border-radius: 4px;
+    padding: 8px 10px;
+    /* 固定高度（非 max-height）：插入新 log 行不得改變版面高度——
+       否則 blur/focus 連續插行會把下方 select 容器往下推，原生下拉
+       在開啟瞬間遇到版面位移會自動關閉（觀察者效應，2026-07-11 修）。 */
+    height: 140px;
+    overflow-y: auto;
+  }
+  #event-log div {
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  #select-container {
+    margin-top: 20px;
+    border: 2px solid #557;
+    border-radius: 6px;
+    padding: 4px 16px;
+    /* 380px＋列間距縮小＝三個 select 初始全部完整可見（消除 first-focus
+       scrollIntoView 噪音）；容器仍可捲動（底部有惰性墊高），保留
+       「容器 scrollTop 跳動」觀察維度。 */
+    max-height: 380px;
+    overflow-y: auto;
+    background: #eef1fa;
+  }
+  .select-row {
+    padding: 12px 4px;
+    border-bottom: 1px dashed #99a;
+  }
+  .container-spacer {
+    height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #99a;
+    font-size: 0.8rem;
+  }
+  .select-row:last-child {
+    border-bottom: none;
+  }
+  .select-row label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+  .select-row select {
+    font-size: 1rem;
+    padding: 4px 8px;
+    min-width: 160px;
+  }
+  .select-row select.is-focused {
+    outline: 3px solid #ff9800;
+    outline-offset: 2px;
+  }
+  .select-status {
+    margin-top: 6px;
+    font-family: "Consolas", "SFMono-Regular", monospace;
+    font-size: 0.82rem;
+    color: #333;
+  }
+  .select-status .foc-yes {
+    color: #c60;
+    font-weight: bold;
+  }
+  .select-status .foc-no {
+    color: #888;
+  }
+  footer.note {
+    margin-top: 24px;
+    font-size: 0.82rem;
+    color: #777;
+  }
+</style>
+</head>
+<body>
+
+<div id="top-filler" class="filler">↓ 往下捲動至操作區（本區塊只是用來製造可捲動空間，非操作區） ↓</div>
+
+<main>
+  <h1>S7 spike：&lt;select&gt; 原地更新的焦點／選取保存 — 最小 repro</h1>
+  <p class="intro">
+    這頁面模擬 statusline-builder 中「顯示於第 N 列」下拉選單在使用者持續
+    新增列時的即時刷新路徑。<strong>三種觸發方式</strong>：(1) 控制區的
+    <strong>「新增一列」按鈕</strong>；(2) 開啟<strong>「自動連續更新」</strong>
+    （每 800ms）；(3) <strong>在任一 select 下拉中直接選「新增一列」選項</strong>
+    （比照真實 UI 語意：建新列＋該段改指到新列）。無論哪種觸發，下方全部
+    <code>&lt;select&gt;</code> 都被<strong>原地更新</strong>（更新既有
+    <code>&lt;option&gt;</code> 文字＋在「新增一列」選項之前插入一個新
+    option），<strong>絕不</strong>重建 select 或整批替換 option。請先聚焦（點擊或 Tab）任一 select、展開下拉、
+    用方向鍵移動反白但先別按 Enter，再觸發更新，觀察：
+    (1) 未聚焦的其他 select 是否被搬走焦點／頁面是否跳捲動；
+    (2) 被更新的那個 select（含你正聚焦的那個）更新後顯示值是否仍對應你
+    原本選的項目。詳細操作腳本見同目錄 <code>TESTING.md</code>；結果請記錄到
+    <code>RESULTS.md</code>。
+  </p>
+
+  <section class="controls">
+    <div class="controls-row">
+      <button id="btn-add-row" type="button">新增一列（觸發一次全體 select 原地更新）</button>
+      <label class="toggle">
+        <input type="checkbox" id="toggle-auto">
+        自動連續更新（每 800ms 觸發一次，模擬持續編輯情境）
+      </label>
+      <button id="btn-reset" type="button">重置頁面（回到初始 3 列狀態）</button>
+    </div>
+    <code id="status-line"></code>
+    <div id="event-log" aria-live="off"></div>
+  </section>
+
+  <section id="select-container" aria-label="模擬啟用段的『顯示於第 N 列』select 群組">
+    <div class="select-row">
+      <label for="select-a">段 A（顯示於第 N 列）</label>
+      <select id="select-a" class="row-select" data-name="A">
+        <option data-kind="row" value="1">第 1 列</option>
+        <option data-kind="row" value="2">第 2 列</option>
+        <option data-kind="row" value="3">第 3 列</option>
+        <option data-kind="add" value="__add__">新增一列</option>
+      </select>
+      <div class="select-status" id="status-a"></div>
+    </div>
+    <div class="select-row">
+      <label for="select-b">段 B（顯示於第 N 列）</label>
+      <select id="select-b" class="row-select" data-name="B">
+        <option data-kind="row" value="1">第 1 列</option>
+        <option data-kind="row" value="2" selected>第 2 列</option>
+        <option data-kind="row" value="3">第 3 列</option>
+        <option data-kind="add" value="__add__">新增一列</option>
+      </select>
+      <div class="select-status" id="status-b"></div>
+    </div>
+    <div class="select-row">
+      <label for="select-c">段 C（顯示於第 N 列）</label>
+      <select id="select-c" class="row-select" data-name="C">
+        <option data-kind="row" value="1">第 1 列</option>
+        <option data-kind="row" value="2">第 2 列</option>
+        <option data-kind="row" value="3" selected>第 3 列</option>
+        <option data-kind="add" value="__add__">新增一列</option>
+      </select>
+      <div class="select-status" id="status-c"></div>
+    </div>
+    <div class="container-spacer">（本區塊僅供容器捲動觀察，無互動元素）</div>
+  </section>
+
+  <footer class="note">
+    <p>
+      三個 select 初始選取值刻意不同（A=第1列／B=第2列／C=第3列），方便肉眼
+      核對「更新後 selectedIndex／value 是否仍對應原選取」。「事件記錄」
+      面板記錄 focus／blur／change 與每次更新觸發的時間戳，供交叉核對操作
+      與畫面反應的先後順序。
+    </p>
+  </footer>
+</main>
+
+<div id="bottom-filler" class="filler">↑ 操作區在上方，本區塊只是用來製造可捲動空間 ↑</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Number of "row" options already present in each select at page load.
+  var rowCount = 3;
+
+  var selects = Array.prototype.slice.call(document.querySelectorAll("select.row-select"));
+  var addRowBtn = document.getElementById("btn-add-row");
+  var resetBtn = document.getElementById("btn-reset");
+  var autoToggle = document.getElementById("toggle-auto");
+  var statusLine = document.getElementById("status-line");
+  var eventLog = document.getElementById("event-log");
+  var selectContainer = document.getElementById("select-container");
+
+  var autoTimer = null;
+  var updateCount = 0;
+  var MAX_LOG_LINES = 12;
+
+  function pad(n, width) {
+    var s = String(n);
+    while (s.length < width) s = "0" + s;
+    return s;
+  }
+
+  function timestamp() {
+    var d = new Date();
+    return pad(d.getHours(), 2) + ":" + pad(d.getMinutes(), 2) + ":" +
+      pad(d.getSeconds(), 2) + "." + pad(d.getMilliseconds(), 3);
+  }
+
+  function logEvent(msg) {
+    var line = document.createElement("div");
+    line.textContent = "[" + timestamp() + "] " + msg;
+    eventLog.insertBefore(line, eventLog.firstChild);
+    while (eventLog.childNodes.length > MAX_LOG_LINES) {
+      eventLog.removeChild(eventLog.lastChild);
+    }
+  }
+
+  // Core update path under test: mutate existing <option> nodes in place
+  // (never replaceChildren / never rebuild the <select>), then insert one
+  // new <option> right before the fixed "新增一列" option.
+  function addRow() {
+    rowCount += 1;
+    updateCount += 1;
+    selects.forEach(function (select) {
+      // Update text of every existing "row" option in place (no-op content
+      // in this repro, but touches the live node the same way the real UI
+      // refresh path does).
+      var rowOptions = select.querySelectorAll('option[data-kind="row"]');
+      rowOptions.forEach(function (opt, idx) {
+        opt.textContent = "第 " + (idx + 1) + " 列";
+      });
+
+      // Insert the newly created row option immediately before the fixed
+      // "新增一列" option — never touches unrelated option nodes' identity.
+      var addOption = select.querySelector('option[data-kind="add"]');
+      var newOption = document.createElement("option");
+      newOption.value = String(rowCount);
+      newOption.textContent = "第 " + rowCount + " 列";
+      newOption.setAttribute("data-kind", "row");
+      select.insertBefore(newOption, addOption);
+    });
+    logEvent("update #" + updateCount + " — rowCount=" + rowCount + " (all selects patched in place)");
+    updateAllStatuses();
+    updateGlobalStatus();
+  }
+
+  function describeFocus(select) {
+    return document.activeElement === select;
+  }
+
+  function updateSelectStatus(select) {
+    var name = select.getAttribute("data-name");
+    var statusEl = document.getElementById("status-" + name.toLowerCase());
+    if (!statusEl) return;
+    var focused = describeFocus(select);
+    select.classList.toggle("is-focused", focused);
+    statusEl.innerHTML =
+      "selectedIndex: <b>" + select.selectedIndex + "</b>" +
+      " ｜ value: <b>" + select.value + "</b>" +
+      " ｜ text: <b>" + (select.options[select.selectedIndex] ? select.options[select.selectedIndex].textContent : "(none)") + "</b>" +
+      " ｜ focused(document.activeElement): " +
+      (focused ? '<span class="foc-yes">是</span>' : '<span class="foc-no">否</span>');
+  }
+
+  function updateAllStatuses() {
+    selects.forEach(updateSelectStatus);
+  }
+
+  function updateGlobalStatus() {
+    statusLine.innerHTML =
+      '<span class="label">目前列數：</span><span class="value">' + rowCount + "</span>" +
+      ' ｜ <span class="label">自動更新：</span><span class="value">' + (autoTimer ? "開啟" : "關閉") + "</span>" +
+      ' ｜ <span class="label">觸發次數：</span><span class="value">' + updateCount + "</span>" +
+      ' ｜ <span class="label">window.scrollY：</span><span class="value">' + Math.round(window.scrollY) + "</span>" +
+      ' ｜ <span class="label">容器 scrollTop：</span><span class="value">' + Math.round(selectContainer.scrollTop) + "</span>";
+  }
+
+  // Wire controls.
+  addRowBtn.addEventListener("click", function () {
+    addRow();
+  });
+
+  resetBtn.addEventListener("click", function () {
+    window.location.reload();
+  });
+
+  autoToggle.addEventListener("change", function () {
+    if (autoToggle.checked) {
+      logEvent("auto-update ON (interval 800ms)");
+      autoTimer = window.setInterval(addRow, 800);
+    } else {
+      logEvent("auto-update OFF");
+      window.clearInterval(autoTimer);
+      autoTimer = null;
+    }
+    updateGlobalStatus();
+  });
+
+  // Track focus/blur/change per select for the event log (manual
+  // cross-reference of interaction order vs. refresh order).
+  selects.forEach(function (select) {
+    var name = select.getAttribute("data-name");
+    select.addEventListener("focus", function () {
+      logEvent("select-" + name + ": focus");
+      updateAllStatuses();
+    });
+    select.addEventListener("blur", function () {
+      logEvent("select-" + name + ": blur");
+      updateAllStatuses();
+    });
+    select.addEventListener("change", function () {
+      // 選中「新增一列」選項＝比照真實 UI 語意：觸發全體 select 原地更新
+      // （新列 option 插入），並把「本段」指派到新列——這是「使用者選取
+      // 提交的同一刻全體 select 被原地更新」的最高風險路徑，本身就是
+      // S7 要觀察的情境之一。
+      if (select.value === "__add__") {
+        logEvent("select-" + name + ': 選「新增一列」→ 觸發全體原地更新＋本段改指新列');
+        addRow();
+        select.value = String(rowCount);
+        logEvent("select-" + name + ": 已指派至第 " + rowCount + " 列");
+        updateAllStatuses();
+        return;
+      }
+      logEvent("select-" + name + ": change -> value=" + select.value);
+      updateAllStatuses();
+    });
+    // 'input' fires during arrow-key navigation on some browsers before
+    // the selection is committed; wire it too so any such intermediate
+    // state is reflected without relying on a specific browser's support.
+    select.addEventListener("input", function () {
+      updateAllStatuses();
+    });
+  });
+
+  // Track scroll on both window and the select container so a jump caused
+  // by the in-place option update is visible in the status line.
+  window.addEventListener("scroll", updateGlobalStatus, { passive: true });
+  selectContainer.addEventListener("scroll", updateGlobalStatus, { passive: true });
+
+  // Periodic refresh as a fallback: keeps the displayed selectedIndex /
+  // value / focus state accurate even for browsers where arrow-key
+  // navigation inside an open dropdown does not dispatch any DOM event
+  // until the selection is committed.
+  window.setInterval(function () {
+    updateAllStatuses();
+    updateGlobalStatus();
+  }, 150);
+
+  // Initial paint.
+  updateAllStatuses();
+  updateGlobalStatus();
+  logEvent("page ready — rowCount=" + rowCount);
+})();
+</script>
+
+</body>
+</html>

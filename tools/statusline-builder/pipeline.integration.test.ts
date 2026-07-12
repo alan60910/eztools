@@ -5,7 +5,7 @@
  * 真跑 bash＋jq／Windows PowerShell 5.1／（可選）pwsh 7，斷言與 TS 參考
  * （formatValue 經 resolve→toAnsi oracle）字面／byte-exact 相等。
  *
- * ── 四塊 ──
+ * ── 五塊 ──
  * 1. **比對函式正負自測**：hexEqual（byte-exact 比對輔助，本 sprint 無共用
  *    比對函式故建最小形）——正向（一致對→真）＋負向（不一致對→假）。
  * 2. **SP-7 格式化對等**：對抗值集（cost 補尾零／0.0029 float 下緣 Decimal
@@ -18,6 +18,13 @@
  * 4. **skipIf meta**：蒐集各 real-exec leg 的 enable 狀態，斷言「至少一後端
  *    未 skip」＋「平台載重後端（win32→ps1 5.1、posix→bash+jq）present 卻
  *    skip＝skipIf 條件 bug」——某後端全 leg skip 即紅。
+ * 5. **多列真執行場景（T3.3；magi/07-statusline-multirow-layout/PLAN.md
+ *    §Verification 1）**：三列 config、其中一條**非末列**的段在
+ *    `conditional-absent` 情境（mock-data.ts；條件欄鍵缺席）runtime 全滅
+ *    ——emitBash／emitPs1 真跑 stdout 對 `toAnsi(resolve(...))` hex 比對，
+ *    另補「無空行、LF 數＝存活列−1」結構斷言（plain／powerline＋arrow
+ *    gating true 各一）；含全列全滅退化為單一 SGR reset 一案（對齊
+ *    `resolve()` 的 `[[]]` 退化與 `toAnsi([[]])==='\x1b[0m'` 不變量）。
  *
  * ── 環境（.t23 §9／.t24／.t26）──
  * Git Bash scoop 路徑候選探測＋`SP5_BASH` 覆寫；jq＝sp5/tools 便攜版（win32
@@ -544,7 +551,110 @@ describe.skipIf(!(BASH.ok && PS1.ok))(
   },
 )
 
-// ── 4. skipIf meta（CI 設定不變量；PLAN §CI 拓撲） ──
+// ── 5. 多列真執行場景（T3.3；magi/07-statusline-multirow-layout/PLAN.md
+//    §Verification 1／§shell 端執行期展開語意）──
+// 三列 config、其中一條**非末列**的段在 `conditional-absent` 情境（mock-data.ts；
+// session-name／effort／agent-name 等條件欄鍵缺席、hide 政策全數剔段——見
+// segments.ts isValueDead／nullPolicy 文件）runtime 全滅：emit 期（groupByRow／
+// groupSegmentsByRow）依**已啟用**段分組恆得三列、觸發四步執行期展開；執行期
+// 該列全部段死亡 → 該列被剔除（步驟 2），不吐空行，存活列以單一 LF 相接
+// （步驟 3，LF 數＝存活列−1）。emitBash／emitPs1 真跑 stdout 對
+// `toAnsi(resolve(...))` hex 比對；另含三列全數 hide 段皆死→退化單一 SGR
+// reset 一案（步驟 4，對齊 `resolve()` 的 `[[]]` 與 `toAnsi([[]])==='\x1b[0m'`
+// 不變量）。
+
+const CONDITIONAL_ABSENT = MOCK_SCENARIOS_BY_ID['conditional-absent']
+
+/** stdout 內 LF（0x0A）計數（bash／ps1 兩後端本檔其他區塊已驗證輸出無 CR）。 */
+function countLf(buf: Buffer): number {
+  let n = 0
+  for (const byte of buf) if (byte === 0x0a) n++
+  return n
+}
+
+/** 多列 stdout 結構斷言：LF 數＝expectedRows−1（步驟 3）＋逐列非空（步驟 2 不吐空行）。 */
+function assertRowLayout(stdout: Buffer, expectedRows: number, label: string): void {
+  expect(countLf(stdout), `${label} LF 數`).toBe(expectedRows - 1)
+  const lines = stdout.toString('utf8').split('\n')
+  expect(lines.length, `${label} 列數`).toBe(expectedRows)
+  for (const [i, line] of lines.entries()) {
+    expect(line, `${label} 第 ${i} 列不得為空行`).not.toBe('')
+  }
+}
+
+describe.skipIf(!(BASH.ok && PS1.ok))(
+  '多列真執行場景（T3.3；三列 config 非末列 row runtime 全滅／全列全滅退單一 reset）',
+  () => {
+    const input = { data: CONDITIONAL_ABSENT.data, shell: CONDITIONAL_ABSENT.shell, env: CONDITIONAL_ABSENT.env }
+    const stdin = JSON.stringify(CONDITIONAL_ABSENT.data)
+
+    it('plain 三列：row 1（非末列，session-name＋effort）runtime 全滅 → 存活 2 列（row 0／row 2），LF 數正確、無空行', () => {
+      const config = cfgT('plain', [
+        segT('model', { color: A(75), row: 0 }),
+        segT('session-name', { color: A(99), row: 1 }),
+        segT('effort', { color: A(214), row: 1 }),
+        segT('cost', { color: A(220), row: 2 }),
+      ])
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+      // 前置自檢：conditional-absent 缺 session_name／effort（mock-data.ts）
+      // → row 1（中間、非末列）全滅剔除，oracle 恰兩列。
+      assertRowLayout(o, 2, 'oracle 前置自檢')
+
+      const b = runBash(emitBash(config, CATALOG), stdin)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      assertRowLayout(b.stdout, 2, 'bash')
+      assertRowLayout(p.stdout, 2, 'ps1')
+    })
+
+    it('powerline 三列（arrow gating true）：row 1（非末列，session-name＋effort）runtime 全滅 → 存活 2 列、箭頭與 cap 皆列內獨立', () => {
+      const config = cfgT('powerline', [
+        segT('model', { color: A(75), row: 0 }),
+        segT('session-name', { color: A(99), row: 1 }),
+        segT('effort', { color: A(214), row: 1 }),
+        segT('cost', { color: A(220), row: 2 }),
+      ]) // powerlineArrow 預設 mode==='powerline' → true（arrow gating true）
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+      assertRowLayout(o, 2, 'oracle 前置自檢')
+
+      const b = runBash(emitBash(config, CATALOG), stdin)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      assertRowLayout(b.stdout, 2, 'bash')
+      assertRowLayout(p.stdout, 2, 'ps1')
+    })
+
+    it('三列全滅（session-name／effort／agent-name 皆 hide 政策、conditional-absent 全缺席）→ 退化單一 SGR reset（非空字串）', () => {
+      const config = cfgT('plain', [
+        segT('session-name', { color: A(99), row: 0 }),
+        segT('effort', { color: A(214), row: 1 }),
+        segT('agent-name', { color: A(46), row: 2 }),
+      ])
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+      // 前置自檢：resolve() 全滅退化 [[]] → toAnsi 恆為單一 reset（非空字串）。
+      expect(o.toString('utf8'), 'oracle 前置自檢：單一 reset').toBe('\x1b[0m')
+
+      const b = runBash(emitBash(config, CATALOG), stdin)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      assertRowLayout(b.stdout, 1, 'bash')
+      assertRowLayout(p.stdout, 1, 'ps1')
+      expect(b.stdout.toString('utf8'), 'bash 單一 reset 字面').toBe('\x1b[0m')
+      expect(p.stdout.toString('utf8'), 'ps1 單一 reset 字面').toBe('\x1b[0m')
+    })
+  },
+)
+
+// ── 6. skipIf meta（CI 設定不變量；PLAN §CI 拓撲） ──
 
 describe('skipIf meta（每後端至少一 leg 未 skip；present 卻 skip＝bug）', () => {
   it('環境自述（各後端 enable／reason）', () => {

@@ -16,10 +16,12 @@ import {
   defaultConfig,
   defaultSegmentConfig,
   deserializeConfig,
+  normalizeRows,
   SEPARATOR_PRESETS,
   serializeConfig,
   type BuilderConfig,
   type SegmentCatalog,
+  type SegmentConfig,
 } from './config.js'
 
 const ansi = (index: number): ColorSpec => ({ kind: 'ansi256', index })
@@ -75,10 +77,10 @@ describe('defaultConfig 工廠', () => {
       lastArrowCap: true,
       powerlineArrow: false,
       segments: [
-        { id: 'model', enabled: false, icon: false, color: { kind: 'default' } },
-        { id: 'cwd', enabled: false, icon: false, color: { kind: 'default' } },
-        { id: 'context-used', enabled: false, icon: false, color: { kind: 'default' } },
-        { id: 'git-branch', enabled: false, icon: false, color: { kind: 'default' } },
+        { id: 'model', enabled: false, icon: true, color: { kind: 'default' } },
+        { id: 'cwd', enabled: false, icon: true, color: { kind: 'default' } },
+        { id: 'context-used', enabled: false, icon: true, color: { kind: 'default' } },
+        { id: 'git-branch', enabled: false, icon: true, color: { kind: 'default' } },
       ],
     })
   })
@@ -558,5 +560,123 @@ describe('其餘欄位清洗', () => {
     expect('futureTopLevel' in result).toBe(false)
     expect('futureField' in result.segments[0]!).toBe(false)
     expect('autoFg' in result.segments[0]!).toBe(false)
+  })
+})
+
+describe('row 清洗（多列佈局 T2.1；deserialize 路徑）', () => {
+  // 25 段假目錄（鏡射真 segments.ts 現役 25 段），用於驗證 clamp 上界確為
+  // 24——與 PLAN／brief 明列的具體數字對齊（現役 25 段 → clamp 24）。
+  const ROW_CATALOG: SegmentCatalog = {
+    ids: Array.from({ length: 25 }, (_, i) => `seg-${i}`),
+    variantsById: {},
+  }
+  const withRow = (row: unknown, catalog: SegmentCatalog = ROW_CATALOG): string =>
+    JSON.stringify({ version: 1, segments: [{ id: catalog.ids[0], enabled: true, row }] })
+
+  it('缺欄（row 鍵不存在）→ row 鍵維持缺席（非補 0）——與 defaultSegmentConfig 不帶 row 天然一致', () => {
+    const json = JSON.stringify({ version: 1, segments: [{ id: 'seg-0', enabled: true }] })
+    const seg = deserializeConfig(json, ROW_CATALOG).segments[0]!
+    expect('row' in seg).toBe(false)
+  })
+
+  it('float（非整數）→ 0（不四捨五入）', () => {
+    for (const row of [2.5, 0.1, -3.9]) {
+      const seg = deserializeConfig(withRow(row), ROW_CATALOG).segments[0]!
+      expect(seg.row, String(row)).toBe(0)
+    }
+  })
+
+  it('負整數 → 0', () => {
+    const seg = deserializeConfig(withRow(-5), ROW_CATALOG).segments[0]!
+    expect(seg.row).toBe(0)
+  })
+
+  it('非數字型別（字串／null／布林）→ 0（「存在但非法」，非「缺欄」）', () => {
+    for (const row of ['3', null, true]) {
+      const seg = deserializeConfig(withRow(row), ROW_CATALOG).segments[0]!
+      expect(seg.row, JSON.stringify(row)).toBe(0)
+    }
+  })
+
+  it('合法整數（0..24）原樣保留', () => {
+    for (const row of [0, 5, 24]) {
+      const seg = deserializeConfig(withRow(row), ROW_CATALOG).segments[0]!
+      expect(seg.row).toBe(row)
+    }
+  })
+
+  it('row:999999999 → clamp 至 24（25 段目錄，段數−1；防手改存檔凍死列選單）', () => {
+    const seg = deserializeConfig(withRow(999999999), ROW_CATALOG).segments[0]!
+    expect(seg.row).toBe(24)
+  })
+
+  it('clamp 上界以現役目錄段數計，不寫死 25（4 段假目錄 → clamp 3）', () => {
+    const seg = deserializeConfig(withRow(999999999, CATALOG), CATALOG).segments[0]!
+    expect(seg.row).toBe(3)
+  })
+
+  it('清洗冪等：row 越界值清洗一次後，再 serialize→deserialize 不再變形', () => {
+    const once = deserializeConfig(withRow(999999999), ROW_CATALOG)
+    const twice = deserializeConfig(serializeConfig(once), ROW_CATALOG)
+    expect(twice).toEqual(once)
+  })
+})
+
+describe('normalizeRows（純函式；正規化啟用段 row 為 0..N−1，停用段凍結）', () => {
+  const seg = (id: string, enabled: boolean, row?: number): SegmentConfig => {
+    const base: SegmentConfig = { id, enabled, icon: false, color: { kind: 'default' } }
+    return row === undefined ? base : { ...base, row }
+  }
+
+  it('亂序輸入（row 值 5,2,9）→ 依升冪壓縮為 0,1,2', () => {
+    const input = [seg('a', true, 5), seg('b', true, 2), seg('c', true, 9)]
+    const out = normalizeRows(input)
+    expect(out.map((s) => s.row)).toEqual([1, 0, 2]) // 2→0, 5→1, 9→2（升冪排名）
+  })
+
+  it('同 row 之啟用段相對順序不變（陣列本身不重排，僅重寫 row 標籤）', () => {
+    const input = [seg('a', true, 3), seg('b', true, 1), seg('c', true, 3)]
+    const out = normalizeRows(input)
+    expect(out.map((s) => s.id)).toEqual(['a', 'b', 'c']) // 陣列順序不變
+    expect(out.map((s) => s.row)).toEqual([1, 0, 1]) // 1→0、3→1（去重壓縮）
+  })
+
+  it('缺 row（undefined）之啟用段視同 row 0（分組鍵 seg.row ?? 0）', () => {
+    const input = [seg('a', true, 5), seg('b', true)] // b 無 row 欄
+    const out = normalizeRows(input)
+    expect(out.find((s) => s.id === 'b')!.row).toBe(0)
+    expect(out.find((s) => s.id === 'a')!.row).toBe(1)
+  })
+
+  it('停用段 row 原值凍結（含 undefined 維持 undefined，不參與分組計算）', () => {
+    const input = [seg('a', true, 2), seg('b', false, 999), seg('c', false)]
+    const out = normalizeRows(input)
+    expect(out.find((s) => s.id === 'a')!.row).toBe(0) // 唯一啟用段 → row 2 壓縮為 0
+    expect(out.find((s) => s.id === 'b')!.row).toBe(999) // 停用段原值凍結（不 clamp、不重寫）
+    expect('row' in out.find((s) => s.id === 'c')!).toBe(false) // undefined 維持缺席
+  })
+
+  it('冪等：normalizeRows(normalizeRows(x)) 等於 normalizeRows(x)', () => {
+    const input = [seg('a', true, 5), seg('b', true, 2), seg('c', true, 2), seg('d', false, 7)]
+    const once = normalizeRows(input)
+    const twice = normalizeRows(once)
+    expect(twice).toEqual(once)
+  })
+
+  it('純函式：不 mutate 輸入陣列或其元素', () => {
+    const input = [seg('a', true, 5), seg('b', false, 3)]
+    const snapshot = JSON.parse(JSON.stringify(input))
+    normalizeRows(input)
+    expect(input).toEqual(snapshot)
+  })
+
+  it('全部停用 → 全部原值凍結（含缺 row）、輸出與輸入結構相等', () => {
+    const input = [seg('a', false, 5), seg('b', false)]
+    const out = normalizeRows(input)
+    expect(out).toEqual(input)
+  })
+
+  it('空陣列 → 空陣列', () => {
+    expect(normalizeRows([])).toEqual([])
   })
 })

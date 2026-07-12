@@ -18,44 +18,58 @@ const A = (index: number): ColorSpec => ({ kind: 'ansi256', index })
 const TC = (hex: string): ColorSpec => ({ kind: 'truecolor', hex })
 
 describe('emission 規則', () => {
-  it('空 runs → 單一行尾 reset（規則 3）', () => {
-    expect(toAnsi([])).toBe('\x1b[0m')
+  it('空 runs → 單一行尾 reset（規則 3；單列包裹 [[]]——T2.2 簽章升維）', () => {
+    expect(toAnsi([[]])).toBe('\x1b[0m')
   })
 
   it('單 run fg：reset 前綴＋38;5;n＋text＋行尾 reset', () => {
-    expect(toAnsi([{ text: 'x', fg: A(196) }])).toBe('\x1b[0m\x1b[38;5;196mx\x1b[0m')
+    expect(toAnsi([[{ text: 'x', fg: A(196) }]])).toBe('\x1b[0m\x1b[38;5;196mx\x1b[0m')
   })
 
   it('fg 先於 bg（規則 2，順序鎖死）', () => {
-    expect(toAnsi([{ text: 't', fg: A(16), bg: A(196) }])).toBe(
+    expect(toAnsi([[{ text: 't', fg: A(16), bg: A(196) }]])).toBe(
       '\x1b[0m\x1b[38;5;16m\x1b[48;5;196mt\x1b[0m',
     )
   })
 
   it('逐 run 無條件 reset 前綴：無色 run 不繼承前段色（規則 1，stateless）', () => {
-    expect(toAnsi([{ text: 'a', fg: A(196) }, { text: 'b' }])).toBe(
+    expect(toAnsi([[{ text: 'a', fg: A(196) }, { text: 'b' }]])).toBe(
       '\x1b[0m\x1b[38;5;196ma\x1b[0mb\x1b[0m',
     )
   })
 
   it('default 色不 emit（規則 4；resolve 正規形外的防禦面）', () => {
-    expect(toAnsi([{ text: 'x', fg: { kind: 'default' }, bg: { kind: 'default' } }])).toBe(
+    expect(toAnsi([[{ text: 'x', fg: { kind: 'default' }, bg: { kind: 'default' } }]])).toBe(
       '\x1b[0mx\x1b[0m',
     )
   })
 
   it('truecolor bg → 48;2;r;g;b', () => {
-    expect(toAnsi([{ text: 'x', bg: TC('#0a141e') }])).toBe('\x1b[0m\x1b[48;2;10;20;30mx\x1b[0m')
+    expect(toAnsi([[{ text: 'x', bg: TC('#0a141e') }]])).toBe('\x1b[0m\x1b[48;2;10;20;30mx\x1b[0m')
   })
 
   it('ansi256 越界經 color.ts clamp（38;5;255）', () => {
-    expect(toAnsi([{ text: 'x', fg: A(300) }])).toBe('\x1b[0m\x1b[38;5;255mx\x1b[0m')
+    expect(toAnsi([[{ text: 'x', fg: A(300) }]])).toBe('\x1b[0m\x1b[38;5;255mx\x1b[0m')
+  })
+})
+
+describe('多列 join（T2.3；resolve() 分組後的 rows 消費面）', () => {
+  it('兩列以單一 LF 相接、無尾隨換行；每列行尾 reset 在 LF 之前', () => {
+    expect(toAnsi([[{ text: 'a' }], [{ text: 'b', fg: A(1) }]])).toBe(
+      `\x1b[0ma\x1b[0m\n\x1b[0m\x1b[38;5;1mb\x1b[0m`,
+    )
+  })
+
+  it('三列（含中間空列）：join 不特別過濾——toAnsi 對每個陣列元素各自 joinRow（空列仍出行尾 reset）', () => {
+    expect(toAnsi([[{ text: 'a' }], [], [{ text: 'c' }]])).toBe(
+      `\x1b[0ma\x1b[0m\n\x1b[0m\n\x1b[0mc\x1b[0m`,
+    )
   })
 })
 
 describe('color.ts 建構規則一致性（SP-5 byte-exact 前提）', () => {
   it('sgrSequence spot-check：toAnsi 輸出可由共用規則重組', () => {
-    expect(toAnsi([{ text: 'x', fg: A(196) }])).toBe(
+    expect(toAnsi([[{ text: 'x', fg: A(196) }]])).toBe(
       `${resetSequence()}${sgrSequence('38;5;196')}x${resetSequence()}`,
     )
   })
@@ -73,6 +87,6 @@ describe('color.ts 建構規則一致性（SP-5 byte-exact 前提）', () => {
       (bg !== undefined ? colorSequence(bg, 'bg') : '') +
       't' +
       resetSequence()
-    expect(toAnsi([run])).toBe(expected)
+    expect(toAnsi([[run]])).toBe(expected)
   })
 })

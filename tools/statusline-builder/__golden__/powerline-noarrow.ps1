@@ -16,7 +16,7 @@ $BgT = @()
 # model — always/empty
 $v = $d.model.display_name
 if ($null -ne $v -and $v -ne '') {
-  $disp = [char]::ConvertFromUtf32(0x1F916) + ' ' + $v + ' '
+  $disp = [char]0x6D + [char]0x6F + [char]0x64 + [char]0x65 + [char]0x6C + [char]0x3A + ' ' + $v + ' '
   $Segs += "$e[0m$e[38;5;16m$e[48;5;226m" + $disp
   $BgT += '5;226'
 }
@@ -24,7 +24,7 @@ if ($null -ne $v -and $v -ne '') {
 # session-name — conditional/hide
 $v = $d.session_name
 if ($null -ne $v -and $v -ne '') {
-  $disp = '[s]' + [char]::ConvertFromUtf32(0x1F4AC) + ' ' + $v + ' '
+  $disp = '[s]' + [char]0x73 + [char]0x65 + [char]0x73 + [char]0x73 + [char]0x3A + ' ' + $v + ' '
   $Segs += "$e[0m$e[38;5;16m$e[48;5;99m" + $disp
   $BgT += '5;99'
 }
@@ -66,7 +66,7 @@ $BgT += '5;99'
 $so = ''
 try { $so = [string](& git branch --show-current 2>$null | Select-Object -First 1) } catch { }
 if ($null -ne $so -and $so -ne '') {
-  $disp = [char]::ConvertFromUtf32(0x1F33F) + ' ' + $so + ' '
+  $disp = [char]0x67 + [char]0x69 + [char]0x74 + [char]0x3A + ' ' + $so + ' '
   $Segs += "$e[0m$e[38;5;16m$e[48;5;46m" + $disp
   $BgT += '5;46'
 }

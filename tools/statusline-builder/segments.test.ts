@@ -10,6 +10,11 @@
  * icon.glyph 由 Nerd Font PUA 碼位改 emoji 字面（06a 核可對照表）；原
  * 「凍結 PUA 碼位」不變量測試改為目錄級結構斷言＋非 PUA 斷言＋對照表
  * 逐段比對，見下方 icon describe 區塊。
+ *
+ * ── T1.5.2（magi/07-statusline-multirow-layout/prefix-table.md）追補 ──
+ * 真機實測：Claude Code statusline 不接受 emoji，25 段 icon.glyph 改為
+ * 英文短 token＋冒號前綴（如 'cwd:'）；推翻 06a emoji 對照表定案。下方
+ * icon describe 區塊的對照表斷言隨之改為前綴字面（非 PUA 斷言不受影響）。
  */
 import { describe, expect, it } from 'vitest'
 import { defaultConfig, deserializeConfig, serializeConfig } from './config.js'
@@ -136,9 +141,11 @@ describe('segment 目錄結構', () => {
   })
 })
 
-describe('icon（06a emoji 化；magi/06-statusline-ui-refresh/PLAN.md §D1／T1.2 結論）', () => {
+describe('icon（T1.5.2 ASCII 前綴化；magi/07-statusline-multirow-layout/prefix-table.md）', () => {
   // T2.2：icon.glyph 由 Nerd Font PUA 碼位改為 emoji 字面（06a 核可對照表）；
-  // 舊「凍結 PUA 碼位」不變量測試已隨之廢除，改為下列三項斷言。
+  // T1.5.2：emoji 字面推翻改為 ASCII 前綴字面（真機實測 statusline 不接受
+  // emoji，見 prefix-table.md）。舊「凍結 PUA 碼位」不變量測試已隨之廢除，
+  // 改為下列三項斷言。
 
   it('目錄級結構斷言：icon.glyph 非空 ⇒ icon.ariaText 非空（D1 Round 2 aria enforcement 補位——' +
     '真正要防的是 descriptor 作者漏填，非 PUA_RE 擴充）', () => {
@@ -153,33 +160,33 @@ describe('icon（06a emoji 化；magi/06-statusline-ui-refresh/PLAN.md §D1／T1
     }
   })
 
-  it('25 段逐一對應 06a 核可對照表 emoji（T1.2 結論：無需字寬／可辨識性調整，字面照抄）', () => {
+  it('25 段逐一對應 T1.5.2 核可前綴對照表（prefix-table.md，字面照抄）', () => {
     const expected: Record<SegmentId, string> = {
-      model: '🤖',
-      cwd: '📁',
-      'project-dir': '📂',
-      'output-style': '🎨',
-      version: '🔖',
-      cost: '💰',
-      duration: '⌛',
-      'lines-changed': '📝',
-      'context-size': '🧠',
-      thinking: '💭',
-      'context-used': '📊',
-      'context-remaining': '🔋',
-      'rate-5h': '⏳',
-      'rate-7d': '📅',
-      'session-name': '💬',
-      effort: '⚡',
-      'vim-mode': '⌨️',
-      'agent-name': '🎭',
-      pr: '🔀',
-      repo: '📦',
-      worktree: '🌳',
-      'worktree-branch': '🌱',
-      'git-branch': '🌿',
-      'git-dirty': '🚧',
-      clock: '🕐',
+      model: 'model:',
+      cwd: 'cwd:',
+      'project-dir': 'proj:',
+      'output-style': 'style:',
+      version: 'ver:',
+      cost: 'cost:',
+      duration: 'dur:',
+      'lines-changed': 'diff:',
+      'context-size': 'ctx:',
+      thinking: 'think:',
+      'context-used': 'used:',
+      'context-remaining': 'left:',
+      'rate-5h': '5h:',
+      'rate-7d': '7d:',
+      'session-name': 'sess:',
+      effort: 'eff:',
+      'vim-mode': 'vim:',
+      'agent-name': 'agent:',
+      pr: 'pr:',
+      repo: 'repo:',
+      worktree: 'wt:',
+      'worktree-branch': 'wtbr:',
+      'git-branch': 'git:',
+      'git-dirty': 'dirty:',
+      clock: 'time:',
     }
     const actual = Object.fromEntries(SEGMENT_DESCRIPTORS.map((d) => [d.id, d.icon.glyph]))
     expect(actual).toEqual(expected)

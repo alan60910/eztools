@@ -1,6 +1,6 @@
 /**
  * S5-T2.2（magi/05-statusline-builder/PLAN.md §D1 一致性斷言鏈／
- * §Verification 3）：StyledRun[] → ANSI 字串 oracle（item-3 比對基準）。
+ * §Verification 3）：StyledRun[][] → ANSI 字串 oracle（item-3 比對基準）。
  * T2.3（SP-5）與 T2.7 以兩 shell 真執行 stdout 對本函式輸出做 byte
  * 比對。**獨立於 emitter 的碼產生**——不 import emit-bash/emit-ps1，
  * 只共用 color.ts 的 SGR 建構規則（sgrSequence 家族＝byte-exact 的
@@ -14,18 +14,26 @@
  *    run 色彩自足（powerline 箭頭 fg/bg 皆顯式），前置 reset 不影響
  *    視覺，且保證無色 run（plain 分隔符、default 色段）不繼承前段色。
  * 2. **fg 先於 bg**（順序鎖死）。
- * 3. **行尾無條件 reset**：含空 runs——`toAnsi([]) === '\x1b[0m'`
- *    （全段隱藏時腳本輸出恆為單一 reset，非空字串）。
+ * 3. **行尾無條件 reset**：含空 runs——`toAnsi([[]]) === '\x1b[0m'`
+ *    （全段隱藏時腳本輸出恆為單一 reset，非空字串；resolve 全隱藏回傳
+ *    `[[]]`——單列、列內容為空陣列）。
  * 4. **default／缺席色不 emit**（colorSequence 對 default 回 ''；
  *    resolve 正規形本就不落 default 於 run 屬性）。
+ *
+ * ── T2.2 原子翻轉（簽章升維，join 語意暫不變）──
+ * `rows: StyledRun[][]` → `rows.map(joinRow).join('\n')`：每列各自跑上述
+ * emission 規則（含列尾 reset）、列間以 `\n` 相接、整體無尾隨換行。本任務
+ * 呼叫端恆傳單列（`resolve()` 尾端 `[runs]` 包裹），故 `join('\n')` 對單
+ * 元素陣列不產生分隔符、bytes 與翻轉前逐字相同；多列的行尾 SGR reset 在
+ * LF 之前語意屬未來列渲染任務，本任務不新增可觀察行為。
  *
  * 純函式、零 DOM import，node 可測。
  */
 import { colorSequence, resetSequence } from './color.js'
 import type { StyledRun } from './resolve.js'
 
-/** StyledRun[] → 帶真 ESC 的 ANSI 字串（emission 規則見檔頭，SP-5 鎖死）。 */
-export function toAnsi(runs: readonly StyledRun[]): string {
+/** 單列 StyledRun[] → 帶真 ESC 的 ANSI 字串（emission 規則見檔頭，SP-5 鎖死）。 */
+function joinRow(runs: readonly StyledRun[]): string {
   let out = ''
   for (const run of runs) {
     out += resetSequence()
@@ -34,4 +42,9 @@ export function toAnsi(runs: readonly StyledRun[]): string {
     out += run.text
   }
   return out + resetSequence()
+}
+
+/** StyledRun[][] → 帶真 ESC 的 ANSI 字串：逐列 joinRow，列間以 LF 相接、無尾隨換行。 */
+export function toAnsi(rows: readonly (readonly StyledRun[])[]): string {
+  return rows.map(joinRow).join('\n')
 }

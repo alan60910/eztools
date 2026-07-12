@@ -237,12 +237,38 @@ function joinPowerline(
 }
 
 /**
- * config＋情境三通道 → StyledRun[]。全隱藏 → []（toAnsi 仍出行尾
- * reset）。未知 segment id＝programmer error（config 應先經
- * deserializeConfig 對真 catalog 清洗）→ TypeError。
+ * config＋情境三通道 → rows: StyledRun[][]（T2.3 多列語意落地，PLAN
+ * §D2／§多列輸出的引擎契約）。
+ *
+ * ── 分組與渲染列序 ──
+ * 第一趟存活段求值不變（逐段 resolveSegment）；存活段依**分組鍵
+ * `seg.row ?? 0`** 歸桶（`defaultSegmentConfig` 不帶 `row` 與清洗後
+ * 顯式 `row:0` 併同一桶，確保無存檔預設 config 與清洗後 config 列
+ * 分佈一致）、桶內維持 `config.segments` 陣列既有序（列內順序＝陣列
+ * 序，契約）。分組鍵**升冪排序**後即渲染列序（邏輯列 1..N）——亂序
+ * `row` 輸入（如 5,2,9）依升冪 2,5,9 壓縮為列 1,2,3。某桶在本次
+ * resolve 內全部段死亡（hide/empty）者，其鍵**不進 Map**、自然不佔
+ * 渲染列序（空列剔除，無需額外過濾步驟）。
+ *
+ * ── 逐列 join（第二趟，桶內獨立管線） ──
+ * 每個渲染列各自呼叫 joinPlain／joinPowerline——分隔符、箭頭、
+ * `lastArrowCap` 收尾**皆不跨列**；`lastArrowCap` 因而天然逐列套用
+ * （每列各自收尾箭頭，僅 `powerlineArrow===true` 生效，gating 見
+ * joinPowerline）。`powerlineArrow===false` 的每段右 padding 語意
+ * 不受多列影響（padding 已在 resolveSegment 併入段 run，與分組無關）
+ * ——多列下即「每列末段亦帶尾隨空格」。
+ *
+ * ── 全段隱藏退化（實作層防衛） ──
+ * 零存活列時（Map 為空）回傳 **`[[]]`**（一列空列）而非 `[]`——保住
+ * `toAnsi`「全隱藏輸出恆為單一 reset、非空字串」的既有鎖死不變量；
+ * `rows.length > 0 ? rows : [[]]` 結構性保證 `resolve()` 回傳長度
+ * 恆 ≥1（永不 `[]`），測試層另補等價斷言。
+ *
+ * 未知 segment id＝programmer error（config 應先經 deserializeConfig
+ * 對真 catalog 清洗）→ TypeError。
  */
-export function resolve(config: BuilderConfig, input: ResolveInput): StyledRun[] {
-  const alive: ResolvedSegment[] = []
+export function resolve(config: BuilderConfig, input: ResolveInput): StyledRun[][] {
+  const groups = new Map<number, ResolvedSegment[]>()
   for (const seg of config.segments) {
     if (!seg.enabled) continue
     const descriptor = DESCRIPTORS_BY_ID[seg.id as SegmentId] as SegmentDescriptor | undefined
@@ -250,11 +276,20 @@ export function resolve(config: BuilderConfig, input: ResolveInput): StyledRun[]
       throw new TypeError(`未知 segment id：${seg.id}（config 應先經 deserializeConfig 清洗）`)
     }
     const segment = resolveSegment(seg, descriptor, input, config.mode, config.powerlineArrow)
-    if (segment !== null) alive.push(segment)
+    if (segment === null) continue
+    const row = seg.row ?? 0
+    const bucket = groups.get(row)
+    if (bucket === undefined) groups.set(row, [segment])
+    else bucket.push(segment)
   }
-  return config.mode === 'powerline'
-    ? joinPowerline(alive, config.lastArrowCap, config.powerlineArrow)
-    : joinPlain(alive, config.separator.value)
+  const renderRowOrder = [...groups.keys()].sort((a, b) => a - b)
+  const rows: StyledRun[][] = renderRowOrder.map((row) => {
+    const bucket = groups.get(row)!
+    return config.mode === 'powerline'
+      ? joinPowerline(bucket, config.lastArrowCap, config.powerlineArrow)
+      : joinPlain(bucket, config.separator.value)
+  })
+  return rows.length > 0 ? rows : [[]]
 }
 
 // ── aria-label 組裝純函式（§預覽契約；render-preview 只呼叫） ──

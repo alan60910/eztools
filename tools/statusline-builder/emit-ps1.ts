@@ -169,6 +169,13 @@ interface EmitState {
   thresholdDecls: string[]
   /** 下一個閾值段的陣列名索引。 */
   thresholdCount: number
+  /**
+   * T3.2 多列：目前正在 emit 的列所用累加器變數名（不含 `$`）。單列
+   * config（emit 期分組結果只有一列）恆為 `{ segs: 'Segs', bgt: 'BgT' }`
+   * ——與改動前硬寫變數名逐位元組相同（M3 acceptance）；多列 config
+   * 逐列切換為 `Segs<k>`／`BgT<k>`（呼叫端於各列段 emit 前寫入）。
+   */
+  rowVars: { segs: string; bgt: string }
 }
 
 /** D1 padding：powerline 模式且 `powerlineArrow=false` → 每段 value 尾綴一格空白字面；否則 ''（concatExpr 濾除）。 */
@@ -364,8 +371,8 @@ function pushLines(
   bgTailExpr: string,
   indent: string,
 ): string[] {
-  const out = [`${indent}$Segs += ${segExpr}`]
-  if (state.mode === 'powerline') out.push(`${indent}$BgT += ${bgTailExpr}`)
+  const out = [`${indent}$${state.rowVars.segs} += ${segExpr}`]
+  if (state.mode === 'powerline') out.push(`${indent}$${state.rowVars.bgt} += ${bgTailExpr}`)
   return out
 }
 
@@ -382,8 +389,7 @@ function emitShellOut(state: EmitState, seg: SegmentConfig, descriptor: SegmentD
     // 恆存活（empty 政策、值恆非空）。
     lines.push("$ck = (Get-Date -Format 'HH:mm')")
     lines.push(`$disp = ${concatExpr([head, '$ck', pad])}`)
-    lines.push(`$Segs += ${prefix} + $disp`)
-    if (state.mode === 'powerline') lines.push(`$BgT += ${tail}`)
+    lines.push(...pushLines(state, `${prefix} + $disp`, tail, ''))
     return lines
   }
 
@@ -399,8 +405,7 @@ function emitShellOut(state: EmitState, seg: SegmentConfig, descriptor: SegmentD
   // 與 emit-bash `[ -n "$v" ]`／oracle isValueDead('') 對齊（T2.7 真執行實證）。
   lines.push("if ($null -ne $so -and $so -ne '') {")
   lines.push(`  $disp = ${concatExpr([head, valueExpr, pad])}`)
-  lines.push(`  $Segs += ${prefix} + $disp`)
-  if (state.mode === 'powerline') lines.push(`  $BgT += ${tail}`)
+  lines.push(...pushLines(state, `${prefix} + $disp`, tail, '  '))
   lines.push('}')
   return lines
 }
@@ -458,8 +463,7 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
   const dashPrefix = styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg))
   lines.push('if ($null -eq $v) {')
   lines.push(`  $disp = ${concatExpr([head, "'--'", sfxRef, pad])}`)
-  lines.push(`  $Segs += ${dashPrefix} + $disp`)
-  if (state.mode === 'powerline') lines.push(`  $BgT += ${tail}`)
+  lines.push(...pushLines(state, `${dashPrefix} + $disp`, tail, '  '))
   lines.push('} else {')
   lines.push('  $p = [double]$v')
   lines.push("  $vt = ([string][long][math]::Floor($p)) + '%'")
@@ -474,8 +478,7 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
     lines.push("  if ($fg -ne '') { $s += \"$e[\" + $fg + 'm' }")
     lines.push("  if ($bg -ne '') { $s += \"$e[48;\" + $bg + 'm' }")
     lines.push(`  $s += ${concatExpr([head, '$vt', sfxRef, pad])}`)
-    lines.push('  $Segs += $s')
-    lines.push('  $BgT += $bg')
+    lines.push(...pushLines(state, '$s', '$bg', '  '))
   } else {
     // plain 閾值：head 非空 → 兩 run（head 隨段主色 + reset、value 隨桶色）；
     // head 空 → 單 run（僅 value run 的前置 reset），與 oracle（resolve.ts
@@ -492,7 +495,7 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
     }
     lines.push("  if ($fg -ne '') { $s += \"$e[\" + $fg + 'm' }")
     lines.push(`  $s += ${concatExpr(['$vt', sfxRef])}`)
-    lines.push('  $Segs += $s')
+    lines.push(...pushLines(state, '$s', '', '  '))
   }
   lines.push('}')
   return lines
@@ -509,31 +512,42 @@ function emitSegment(state: EmitState, seg: SegmentConfig, descriptor: SegmentDe
 /**
  * D1 gating：`powerlineArrow=false` → 不 emit 段間箭頭迴圈區塊、
  * `lastArrowCap` 全面無效（收尾箭頭區塊恆不 emit）；段本身的 padding
- * 已在各 emit* 函式併入 `$Segs` 元素，本函式無需另處理。
+ * 已在各 emit* 函式併入累加器元素，本函式無需另處理。
+ *
+ * T3.2 多列：`segsVar`／`bgtVar`／`outVar`（不含 `$`）由呼叫端決定——單列
+ * config 呼叫端固定傳 `('Segs', 'BgT', 'out')`，逐行輸出與改動前硬寫變數名
+ * 逐位元組相同（M3 acceptance）；多列 config 逐列傳入 `Segs<k>`／`BgT<k>`／
+ * `RowOut<k>`，本函式邏輯不變（純變數名參數化，join 演算法同構）。
  */
-function joinPowerline(lastArrowCap: boolean, powerlineArrow: boolean): string[] {
-  const lines = ["$out = ''", '$n = $Segs.Count', 'for ($i = 0; $i -lt $n; $i++) {']
+function joinPowerline(
+  lastArrowCap: boolean,
+  powerlineArrow: boolean,
+  segsVar: string,
+  bgtVar: string,
+  outVar: string,
+): string[] {
+  const lines = [`$${outVar} = ''`, `$n = $${segsVar}.Count`, 'for ($i = 0; $i -lt $n; $i++) {']
   if (powerlineArrow) {
     lines.push(
       '  if ($i -gt 0) {',
-      '    $out += "$e[0m"',
-      "    if ($BgT[$i - 1] -ne '') { $out += \"$e[38;\" + $BgT[$i - 1] + 'm' }",
-      "    if ($BgT[$i] -ne '') { $out += \"$e[48;\" + $BgT[$i] + 'm' }",
-      '    $out += $ARROW',
+      `    $${outVar} += "$e[0m"`,
+      `    if ($${bgtVar}[$i - 1] -ne '') { $${outVar} += "$e[38;" + $${bgtVar}[$i - 1] + 'm' }`,
+      `    if ($${bgtVar}[$i] -ne '') { $${outVar} += "$e[48;" + $${bgtVar}[$i] + 'm' }`,
+      `    $${outVar} += $ARROW`,
       '  }',
     )
   }
-  lines.push('  $out += $Segs[$i]', '}')
+  lines.push(`  $${outVar} += $${segsVar}[$i]`, '}')
   if (powerlineArrow && lastArrowCap) {
     lines.push(
       'if ($n -gt 0) {',
-      '  $out += "$e[0m"',
-      "  if ($BgT[$n - 1] -ne '') { $out += \"$e[38;\" + $BgT[$n - 1] + 'm' }",
-      '  $out += $ARROW',
+      `  $${outVar} += "$e[0m"`,
+      `  if ($${bgtVar}[$n - 1] -ne '') { $${outVar} += "$e[38;" + $${bgtVar}[$n - 1] + 'm' }`,
+      `  $${outVar} += $ARROW`,
       '}',
     )
   }
-  lines.push('$out += "$e[0m"')
+  lines.push(`$${outVar} += "$e[0m"`)
   return lines
 }
 
@@ -572,13 +586,45 @@ function separatorExpr(s: string): string {
   return concatExpr(parts)
 }
 
-function joinPlain(separator: string): string[] {
-  const lines = ["$out = ''", '$n = $Segs.Count', 'for ($i = 0; $i -lt $n; $i++) {']
+/**
+ * T3.2 多列：`segsVar`／`outVar`（不含 `$`）由呼叫端決定——參數化理由同
+ * `joinPowerline`（plain 無 bg 交接，無需 `bgtVar`）。
+ */
+function joinPlain(separator: string, segsVar: string, outVar: string): string[] {
+  const lines = [`$${outVar} = ''`, `$n = $${segsVar}.Count`, 'for ($i = 0; $i -lt $n; $i++) {']
   if (separator !== '') {
-    lines.push(`  if ($i -gt 0) { $out += "$e[0m" + ${separatorExpr(separator)} }`)
+    lines.push(`  if ($i -gt 0) { $${outVar} += "$e[0m" + ${separatorExpr(separator)} }`)
   }
-  lines.push('  $out += $Segs[$i]', '}', '$out += "$e[0m"')
+  lines.push(`  $${outVar} += $${segsVar}[$i]`, '}', `$${outVar} += "$e[0m"`)
   return lines
+}
+
+// ── 多列分組（emit 期；T3.2，PLAN §多列輸出／resolve.ts 分組鍵同構） ──
+
+/** 單一渲染列的 emit 期分組結果：`key`＝原始 `seg.row ?? 0`（供除錯註解用）。 */
+interface RowGroup {
+  key: number
+  segments: SegmentConfig[]
+}
+
+/**
+ * 依 `seg.row ?? 0` 分組（emit 期寫死；與 resolve.ts `resolve()` 同一分組
+ * 鍵、同一升冪排序、同一列內順序＝`config.segments` 陣列既有序）。僅收
+ * **啟用**段（`seg.enabled`）；只作為 emit 期靜態分組——執行期某列全部
+ * 段死亡（hide/empty null）時的「空列剔除」屬執行期第 2 步，不在此函式
+ * 處理（見 `emitPs1` 多列分支的 `$Rows` 過濾）。
+ */
+function groupSegmentsByRow(config: BuilderConfig): RowGroup[] {
+  const groups = new Map<number, SegmentConfig[]>()
+  for (const seg of config.segments) {
+    if (!seg.enabled) continue
+    const row = seg.row ?? 0
+    const bucket = groups.get(row)
+    if (bucket === undefined) groups.set(row, [seg])
+    else bucket.push(seg)
+  }
+  const sortedKeys = [...groups.keys()].sort((a, b) => a - b)
+  return sortedKeys.map((key) => ({ key, segments: groups.get(key)! }))
 }
 
 // ── 主入口 ──
@@ -588,6 +634,20 @@ function joinPlain(separator: string): string[] {
  * 下載／簽入層職責，契約 8；本函式回傳純腳本內容，LF 換行）。未知
  * segment id＝programmer error（config 應先經 deserializeConfig 對真
  * catalog 清洗）→ TypeError（對齊 resolve）。
+ *
+ * ── T3.2 多列（PLAN §多列輸出；resolve.ts 分組語意的 shell 端執行期展開）──
+ * emit 期分組結果只有一列（含零啟用段）時走**既有扁平結構**（`$Segs`／
+ * `$BgT`／單次 join → `$out`）——與改動前逐位元組相同（M3 acceptance：
+ * 全部既有 golden config 皆單列，golden 比對即單列 bytes 未變的證明）。
+ * 分組結果 >1 列時走四步展開（與 emit-bash 同構）：
+ * 1. 逐列緩衝——各列獨立累加器 `$Segs<k>`／`$BgT<k>`（`k`＝渲染列序
+ *    0..N-1，非原始 `row` 值；分隔符／箭頭／cap 皆列內獨立求值 `$RowOut<k>`）；
+ * 2. 執行期空列過濾——`$Segs<k>.Count -gt 0` 時才收進 `$Rows`（全死列
+ *    不吐空行）；
+ * 3. 存活列以 LF（`` `n ``，非 CRLF）串接——`[string]::Join("`n", $Rows)`，
+ *    LF 只夾在存活列之間，每列尾端 SGR reset 已在各列 join 內、於 LF 之前；
+ * 4. 零存活列退化——`$Rows` 為空 → 單一 `"$e[0m"`（與 oracle
+ *    `toAnsi([[]])` 對齊）。
  */
 export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog): string {
   const state: EmitState = {
@@ -596,18 +656,19 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
     helpers: new Set(),
     thresholdDecls: [],
     thresholdCount: 0,
+    rowVars: { segs: 'Segs', bgt: 'BgT' },
   }
 
-  // 第一趟段 emit 先跑（收斂 helpers／閾值陣列宣告），再組檔頭。
-  const segmentBlocks: string[] = []
-  for (const seg of config.segments) {
-    if (!seg.enabled) continue
+  const resolveDescriptor = (seg: SegmentConfig): SegmentDescriptor => {
     const descriptor = catalog[seg.id]
     if (descriptor === undefined) {
       throw new TypeError(`未知 segment id：${seg.id}（config 應先經 deserializeConfig 清洗）`)
     }
-    segmentBlocks.push(emitSegment(state, seg, descriptor).join('\n'))
+    return descriptor
   }
+
+  const rowGroups = groupSegmentsByRow(config)
+  const multiRow = rowGroups.length > 1
 
   const out: string[] = []
   out.push('# Claude Code statusline — 由 EZTools statusline-builder 產生')
@@ -619,33 +680,101 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
   // 無段間箭頭、也無收尾 cap，變數本身無用武之地）。
   if (state.mode === 'powerline' && state.powerlineArrow) out.push('$ARROW = [string][char]0xE0B0')
 
-  // 閾值段常數陣列（emit 期預算、執行期只索引）。
-  for (const decl of state.thresholdDecls) out.push(decl)
+  if (!multiRow) {
+    // 單列（既有扁平結構；分組結果 0 列＝零啟用段，同走此分支、行為不變）。
+    const segs = rowGroups.length === 1 ? rowGroups[0].segments : []
+    const segmentBlocks: string[] = []
+    for (const seg of segs) {
+      segmentBlocks.push(emitSegment(state, seg, resolveDescriptor(seg)).join('\n'))
+    }
 
-  // helper 函式（只印用到的；印序固定＝HELPER_BODIES 宣告序）。
-  for (const name of Object.keys(HELPER_BODIES)) {
-    if (state.helpers.has(name)) out.push('', HELPER_BODIES[name])
-  }
+    // 閾值段常數陣列（emit 期預算、執行期只索引）。
+    for (const decl of state.thresholdDecls) out.push(decl)
 
-  out.push('')
-  out.push('$raw = [Console]::In.ReadToEnd()')
-  out.push('$d = $null')
-  out.push('try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }')
-  out.push('')
-  out.push('$Segs = @()')
-  if (state.mode === 'powerline') out.push('$BgT = @()')
+    // helper 函式（只印用到的；印序固定＝HELPER_BODIES 宣告序）。
+    for (const name of Object.keys(HELPER_BODIES)) {
+      if (state.helpers.has(name)) out.push('', HELPER_BODIES[name])
+    }
 
-  for (const block of segmentBlocks) {
     out.push('')
-    out.push(block)
-  }
+    out.push('$raw = [Console]::In.ReadToEnd()')
+    out.push('$d = $null')
+    out.push('try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }')
+    out.push('')
+    out.push('$Segs = @()')
+    if (state.mode === 'powerline') out.push('$BgT = @()')
 
-  out.push('')
-  const join =
-    state.mode === 'powerline'
-      ? joinPowerline(config.lastArrowCap, config.powerlineArrow)
-      : joinPlain(config.separator.value)
-  out.push(...join)
+    for (const block of segmentBlocks) {
+      out.push('')
+      out.push(block)
+    }
+
+    out.push('')
+    const join =
+      state.mode === 'powerline'
+        ? joinPowerline(config.lastArrowCap, config.powerlineArrow, 'Segs', 'BgT', 'out')
+        : joinPlain(config.separator.value, 'Segs', 'out')
+    out.push(...join)
+  } else {
+    // 多列（四步展開；與 emit-bash 同構，見上方函式頭註解）。
+    const segmentBlocksByRow: string[][] = rowGroups.map((group, k) => {
+      state.rowVars = { segs: `Segs${k}`, bgt: `BgT${k}` }
+      return group.segments.map((seg) => emitSegment(state, seg, resolveDescriptor(seg)).join('\n'))
+    })
+
+    // 閾值段常數陣列（emit 期預算、跨列共用同一組宣告；執行期只索引）。
+    for (const decl of state.thresholdDecls) out.push(decl)
+
+    // helper 函式（只印用到的；印序固定＝HELPER_BODIES 宣告序）。
+    for (const name of Object.keys(HELPER_BODIES)) {
+      if (state.helpers.has(name)) out.push('', HELPER_BODIES[name])
+    }
+
+    out.push('')
+    out.push('$raw = [Console]::In.ReadToEnd()')
+    out.push('$d = $null')
+    out.push('try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }')
+
+    // 步驟 1：逐列緩衝（宣告＋段 emit；列內累加器獨立）。
+    for (let k = 0; k < rowGroups.length; k++) {
+      out.push('')
+      out.push(`# ── row ${k}（row=${rowGroups[k].key}） ──`)
+      out.push(`$Segs${k} = @()`)
+      if (state.mode === 'powerline') out.push(`$BgT${k} = @()`)
+      for (const block of segmentBlocksByRow[k]) {
+        out.push('')
+        out.push(block)
+      }
+    }
+
+    // 步驟 1（續）：逐列 join——分隔符／箭頭／cap 僅作用該列緩衝，各列
+    // 尾端皆含 SGR reset（joinPowerline／joinPlain 恆尾綴 `"$e[0m"`）。
+    for (let k = 0; k < rowGroups.length; k++) {
+      out.push('')
+      out.push(`# ── row ${k} join ──`)
+      const rowJoin =
+        state.mode === 'powerline'
+          ? joinPowerline(config.lastArrowCap, config.powerlineArrow, `Segs${k}`, `BgT${k}`, `RowOut${k}`)
+          : joinPlain(config.separator.value, `Segs${k}`, `RowOut${k}`)
+      out.push(...rowJoin)
+    }
+
+    // 步驟 2：執行期空列過濾（該列累加器空＝全部段執行期死亡 → 剔除，不
+    // 吐空行）。步驟 3：存活列以 LF（`` `n ``，非 CRLF）串接，reset 在 LF
+    // 之前（各列 join 尾端已含）。步驟 4：零存活列退化為單一 reset（與
+    // oracle `toAnsi([[]])` 對齊）。
+    out.push('')
+    out.push('# ── 存活列過濾＋LF 串接（步驟 2–4） ──')
+    out.push('$Rows = @()')
+    for (let k = 0; k < rowGroups.length; k++) {
+      out.push(`if ($Segs${k}.Count -gt 0) { $Rows += $RowOut${k} }`)
+    }
+    out.push('if ($Rows.Count -gt 0) {')
+    out.push('  $out = [string]::Join("`n", $Rows)')
+    out.push('} else {')
+    out.push('  $out = "$e[0m"')
+    out.push('}')
+  }
 
   out.push('')
   out.push('[Console]::Out.Write($out)')

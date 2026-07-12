@@ -26,7 +26,7 @@ fi
 # session-name
 v=$(jq -r '.session_name // empty' <<<"$input")
 if [ -n "$v" ]; then
-  texts+=('[s]💬 '"$v"); fgs+=('38;5;99'); segstart+=(1)
+  texts+=('[s]sess: '"$v"); fgs+=('38;5;99'); segstart+=(1)
 fi
 # cost
 v=$(jq -r '.cost.total_cost_usd // empty | (. * 10000 | floor) | (if . < 0 then 0 else . end) | ("$" + (. / 10000 | floor | tostring) + "." + ((. % 10000 + 10000) | tostring | .[1:]))' <<<"$input")

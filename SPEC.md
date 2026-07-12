@@ -42,9 +42,15 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   零 runtime 依賴；圖示改為通用 emoji（不再簽入任何字型資產，預覽以系統
   monospace＋原生 emoji 渲染）；powerline 段間箭頭（``）由 config schema
   `powerlineArrow` 欄位條件化，新建 config 預設關閉（色塊直接相接＋每段
-  右側 padding），既有 v1 存檔依原 `mode` 自動遷移續用箭頭觀感；config
-  schema 現為 CONFIG_VERSION 2（含 v1→v2 遷移）；位於
-  `tools/statusline-builder/`
+  右側 padding），既有 v1 存檔依原 `mode` 自動遷移續用箭頭觀感；**多列
+  輸出**：`SegmentConfig.row?: number`（選填、缺欄視同 0，CONFIG_VERSION
+  維持 2 不 bump）驅動 `resolve()` 回傳 `rows: StyledRun[][]`（按渲染列序
+  分組、空列壓縮，全隱藏退化為單一空列 `[[]]`），三後端與預覽逐列同步
+  輸出，行尾契約＝列間單一 LF join、無尾隨換行；**三欄滿版版面**（左＝
+  segment 目錄 transfer-list，勾選原位灰化留位、不重排；中＝已選擇，依
+  渲染列分組，各列群組容器自帶地標／標題可跳達；右＝即時預覽＋產出腳本
+  sticky），斷點 3→2→1 欄退化；config schema 現為 CONFIG_VERSION 2（含
+  v1→v2 遷移，`row` 為 v2 內選填欄）；位於 `tools/statusline-builder/`
 
 ## Public surface
 - 靜態網頁（GitHub Pages 託管的 HTML/CSS/JS）
@@ -122,5 +128,18 @@ verify-dist 的字型把關斷言皆已移除，改為「字型資產不得回�
 CONFIG_VERSION 2（v1→v2 自動遷移，既有 v1 powerline 存檔續用原箭頭
 觀感）；全站（入口頁＋四個工具頁）新增深／淺主題切換（跟隨系統／手動
 切換／localStorage 記憶，含換頁白閃防護）與統一 footer（作者／GitHub／
-授權連結）。06a 範圍之外的多列輸出、雙欄版面、目錄擴充（25→30 段）、
-bar／auto 配色等能力留待 06b／06c 各自交付時再更新本段。
+授權連結）。
+
+sprint 06b（statusline-builder 多列輸出＋三欄版面＋排序語意）已交付：
+`SegmentConfig.row` 選填欄驅動多列輸出（`resolve()` 回傳
+`rows: StyledRun[][]`，按渲染列序分組、空列壓縮、全隱藏退化 `[[]]`；
+三後端與預覽同步逐列輸出，行尾契約＝列間單一 LF join、無尾隨換行）；
+版面由單欄改三欄滿版（左＝segment 目錄 transfer-list、中＝已選擇依
+渲染列分組（列群組容器自帶地標／標題）、右＝即時預覽＋產出腳本
+sticky），斷點 3→2→1 欄退化；排序語意重構為「依渲染列分組」清單，
+上／下移＝同列內交換、跨列移動走「顯示於第 N 列」select 與拖曳插入；
+列可暫存為 UI 空列（位置制、可居中間；純顯示態、不入存檔——config
+恆無空列，跨列移動搬空來源列時原地保留為空列）；
+CONFIG_VERSION 維持 2（`row` 為既有版本內選填欄，不 bump）。06c（目錄
+擴充 25→30 段、bar 正交欄、重置倒數、tokens 三段、auto 配色等）待其
+交付時再更新本段。

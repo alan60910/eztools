@@ -45,6 +45,25 @@
  * 純函式、零 DOM import，node 可測。與 emit-ps1（T2.5）為平行後端、互不
  * 依賴；兩者共用 color.ts 的 SGR 建構規則與 resolve/segments/threshold
  * 的取值語意單一來源。
+ *
+ * ── 多列（T3.1，magi/07-statusline-multirow-layout/PLAN.md §shell 端
+ * 執行期展開語意）──
+ * emit 期依 `seg.row ?? 0` 對全部已啟用段分組（升冪壓縮，與 resolve()
+ * 對存活段分組後的渲染列序同構——見 groupByRow）。分組結果只有一列
+ * （含 0 段空鏈）時，走與改動前逐位元組相同的扁平結構（陣列變數
+ * `texts`/`fgs`/`bgs`/`segstart`、單一 `out`；suffix=''）——此為 M3
+ * milestone 硬性驗收：既有單列 golden bytes 不變。分組結果 ≥2 列時，
+ * 走四步執行期展開：
+ *   1 逐列緩衝——各列獨立累加陣列（`texts_N`/`fgs_N`/`bgs_N` 或
+ *     `segstart_N`，N＝壓縮後列序 0-index），列內箭頭／分隔符／cap 只
+ *     作用於該列緩衝（joinPowerline/joinPlain 以 suffix 隔離變數名）；
+ *   2 runtime 空列過濾——某列存活計數 `n_N` 為 0（該列的段在本次執行
+ *     全數死亡）即不併入 `outs`，不吐空行；
+ *   3 存活列以 LF 串接——`outs` 逐元素相接，LF 只夾在存活列之間（各列
+ *     `out_N` 本身已含尾端無條件 SGR reset，故 reset 恆在 LF 之前）；
+ *   4 零存活列退化——`outs` 為空 → `out` 直接賦值單一 SGR reset
+ *     （`${ESC}[0m`，對齊 oracle `toAnsi([[]])`）。
+ * 兩路徑皆維持 `printf '%s' "$out"`（契約 6/9 不受列數影響）。
  */
 import { autoFg, colorSgrParams, type ColorSpec } from './color.js'
 import type { BuilderConfig, SegmentConfig } from './config.js'
@@ -186,16 +205,21 @@ function valuePad(em: Emitter): string {
   return em.mode === 'powerline' && !em.powerlineArrow ? ' ' : ''
 }
 
-/** 存活 push 一列（依 mode 決定平行陣列）。dynamic：value 在 `$v`；靜態則直接給 textExpr。 */
+/**
+ * 存活 push 一列（依 mode 決定平行陣列）。dynamic：value 在 `$v`；靜態則
+ * 直接給 textExpr。`suffix`＝多列陣列變數隔離（T3.1；單列 `''` 與改動前
+ * 變數名逐位元組相同，多列 `_N` 對應 groupByRow 壓縮後的列序）。
+ */
 function pushLine(
   em: Emitter,
   textExpr: string,
   fg: string,
   bgOrSegstart: string,
+  rowSuffix: string,
 ): string {
   return em.mode === 'powerline'
-    ? `texts+=(${textExpr}); fgs+=(${fg}); bgs+=(${bgOrSegstart})`
-    : `texts+=(${textExpr}); fgs+=(${fg}); segstart+=(${bgOrSegstart})`
+    ? `texts${rowSuffix}+=(${textExpr}); fgs${rowSuffix}+=(${fg}); bgs${rowSuffix}+=(${bgOrSegstart})`
+    : `texts${rowSuffix}+=(${textExpr}); fgs${rowSuffix}+=(${fg}); segstart${rowSuffix}+=(${bgOrSegstart})`
 }
 
 /**
@@ -206,10 +230,16 @@ function textDynamic(headLit: string, valueRef: string): string {
   return headLit === '' ? valueRef : `${headLit}${valueRef}`
 }
 
+/**
+ * `rowSuffix`＝多列陣列變數隔離（T3.1；見 pushLine）。命名避開既有區域
+ * 變數 `suffix`（jqFormatSuffix 之 jq 尾段，見下方 always／conditional
+ * 分支）——兩者語意無關，同名會遮蔽（shadow）本參數。
+ */
 function emitSegment(
   seg: SegmentConfig,
   descriptor: SegmentDescriptor,
   em: Emitter,
+  rowSuffix: string,
 ): string[] {
   const lines: string[] = []
   const head = segmentHead(seg, descriptor)
@@ -235,7 +265,7 @@ function emitSegment(
       descriptor.format === 'dirty'
         ? bashSingleQuote(head + '*' + pad)
         : textDynamic(headLit, `"$v${pad}"`)
-    lines.push(`  ${pushLine(em, textExpr, sgrLit(mainFg), mainTail)}`)
+    lines.push(`  ${pushLine(em, textExpr, sgrLit(mainFg), mainTail, rowSuffix)}`)
     lines.push(`fi`)
     return lines
   }
@@ -261,7 +291,7 @@ function emitSegment(
 
     if (seg.threshold === undefined) {
       // 無閾值：單 run 主色（dash 與數值同色）。
-      lines.push(pushLine(em, textDynamic(headLit, valueRef), sgrLit(mainFg), mainTail))
+      lines.push(pushLine(em, textDynamic(headLit, valueRef), sgrLit(mainFg), mainTail, rowSuffix))
       return lines
     }
 
@@ -274,9 +304,11 @@ function emitSegment(
       lines.push(bashArray('tb', bg))
       lines.push(bashArray('tf', fg))
       lines.push(`if [ "$idx" = "-1" ]; then`)
-      lines.push(`  ${pushLine(em, textDynamic(headLit, valueRef), sgrLit(mainFg), sgrLit(mainBg))}`)
+      lines.push(`  ${pushLine(em, textDynamic(headLit, valueRef), sgrLit(mainFg), sgrLit(mainBg), rowSuffix)}`)
       lines.push(`else`)
-      lines.push(`  ${pushLine(em, textDynamic(headLit, valueRef), '"${tf[$idx]}"', '"${tb[$idx]}"')}`)
+      lines.push(
+        `  ${pushLine(em, textDynamic(headLit, valueRef), '"${tf[$idx]}"', '"${tb[$idx]}"', rowSuffix)}`,
+      )
       lines.push(`fi`)
       return lines
     }
@@ -285,17 +317,17 @@ function emitSegment(
     lines.push(bashArray('tf', plainBucketFg(seg.threshold)))
     if (head !== '') {
       lines.push(`if [ "$idx" = "-1" ]; then`)
-      lines.push(`  ${pushLine(em, textDynamic(headLit, valueRef), sgrLit(mainFg), '1')}`)
+      lines.push(`  ${pushLine(em, textDynamic(headLit, valueRef), sgrLit(mainFg), '1', rowSuffix)}`)
       lines.push(`else`)
-      lines.push(`  ${pushLine(em, headLit, sgrLit(mainFg), '1')}`)
-      lines.push(`  ${pushLine(em, valueRef, '"${tf[$idx]}"', '0')}`)
+      lines.push(`  ${pushLine(em, headLit, sgrLit(mainFg), '1', rowSuffix)}`)
+      lines.push(`  ${pushLine(em, valueRef, '"${tf[$idx]}"', '0', rowSuffix)}`)
       lines.push(`fi`)
       return lines
     }
     lines.push(`if [ "$idx" = "-1" ]; then`)
-    lines.push(`  ${pushLine(em, valueRef, sgrLit(mainFg), '1')}`)
+    lines.push(`  ${pushLine(em, valueRef, sgrLit(mainFg), '1', rowSuffix)}`)
     lines.push(`else`)
-    lines.push(`  ${pushLine(em, valueRef, '"${tf[$idx]}"', '1')}`)
+    lines.push(`  ${pushLine(em, valueRef, '"${tf[$idx]}"', '1', rowSuffix)}`)
     lines.push(`fi`)
     return lines
   }
@@ -308,7 +340,7 @@ function emitSegment(
   const argHome = needsHome ? '--arg home "$HOME" ' : ''
   lines.push(`v=$(jq -r ${argHome}${bashSingleQuote(prog)} <<<"$input")`)
   lines.push(`if [ -n "$v" ]; then`)
-  lines.push(`  ${pushLine(em, textDynamic(headLit, `"$v${pad}"`), sgrLit(mainFg), mainTail)}`)
+  lines.push(`  ${pushLine(em, textDynamic(headLit, `"$v${pad}"`), sgrLit(mainFg), mainTail, rowSuffix)}`)
   lines.push(`fi`)
   return lines
 }
@@ -319,55 +351,101 @@ function emitSegment(
  * D1 gating：`powerlineArrow=false` → 不 emit 段間箭頭迴圈區塊、
  * `lastArrowCap` 全面無效（cap 區塊恆不 emit，與其值無關）；段本身的
  * padding 已在 emitSegment 併入 texts 陣列元素，本函式無需另處理。
+ *
+ * `rowSuffix`＝多列陣列變數隔離（T3.1）：所有讀寫的陣列／計數／輸出變數
+ * （`texts`/`fgs`/`bgs`/`n`/`out`）皆綴上 `rowSuffix`；迴圈索引 `i` 維持
+ * 不綴（純迴圈暫存，各列區塊各自循序執行、互不重疊，無需隔離）。
+ * `rowSuffix=''` 產出逐位元組等同改動前寫法（M3 硬性驗收：單列 golden
+ * bytes 不變）。
  */
-function joinPowerline(lastArrowCap: boolean, powerlineArrow: boolean): string[] {
-  const lines = ['out=""', 'n=${#texts[@]}', 'for ((i = 0; i < n; i++)); do']
+function joinPowerline(lastArrowCap: boolean, powerlineArrow: boolean, rowSuffix: string): string[] {
+  const textsVar = `texts${rowSuffix}`
+  const fgsVar = `fgs${rowSuffix}`
+  const bgsVar = `bgs${rowSuffix}`
+  const outVar = `out${rowSuffix}`
+  const nVar = `n${rowSuffix}`
+  const lines = [`${outVar}=""`, `${nVar}=\${#${textsVar}[@]}`, `for ((i = 0; i < ${nVar}; i++)); do`]
   if (powerlineArrow) {
     lines.push(
       '  if [ "$i" -gt 0 ]; then',
-      '    out+="${ESC}[0m"',
-      '    if [ -n "${bgs[$((i - 1))]}" ]; then out+="${ESC}[38;${bgs[$((i - 1))]}m"; fi',
-      '    if [ -n "${bgs[$i]}" ]; then out+="${ESC}[48;${bgs[$i]}m"; fi',
-      '    out+="$ARROW"',
+      `    ${outVar}+="\${ESC}[0m"`,
+      `    if [ -n "\${${bgsVar}[$((i - 1))]}" ]; then ${outVar}+="\${ESC}[38;\${${bgsVar}[$((i - 1))]}m"; fi`,
+      `    if [ -n "\${${bgsVar}[$i]}" ]; then ${outVar}+="\${ESC}[48;\${${bgsVar}[$i]}m"; fi`,
+      `    ${outVar}+="$ARROW"`,
       '  fi',
     )
   }
   lines.push(
-    '  out+="${ESC}[0m"',
-    '  if [ -n "${fgs[$i]}" ]; then out+="${ESC}[${fgs[$i]}m"; fi',
-    '  if [ -n "${bgs[$i]}" ]; then out+="${ESC}[48;${bgs[$i]}m"; fi',
-    '  out+="${texts[$i]}"',
+    `  ${outVar}+="\${ESC}[0m"`,
+    `  if [ -n "\${${fgsVar}[$i]}" ]; then ${outVar}+="\${ESC}[\${${fgsVar}[$i]}m"; fi`,
+    `  if [ -n "\${${bgsVar}[$i]}" ]; then ${outVar}+="\${ESC}[48;\${${bgsVar}[$i]}m"; fi`,
+    `  ${outVar}+="\${${textsVar}[$i]}"`,
     'done',
   )
   if (powerlineArrow && lastArrowCap) {
     // 收尾箭頭：fg=末段bg、bg 缺席＝對終端底色（Q1）。
     lines.push(
-      'if [ "$n" -gt 0 ]; then',
-      '  out+="${ESC}[0m"',
-      '  if [ -n "${bgs[$((n - 1))]}" ]; then out+="${ESC}[38;${bgs[$((n - 1))]}m"; fi',
-      '  out+="$ARROW"',
+      `if [ "$${nVar}" -gt 0 ]; then`,
+      `  ${outVar}+="\${ESC}[0m"`,
+      `  if [ -n "\${${bgsVar}[$((${nVar} - 1))]}" ]; then ${outVar}+="\${ESC}[38;\${${bgsVar}[$((${nVar} - 1))]}m"; fi`,
+      `  ${outVar}+="$ARROW"`,
       'fi',
     )
   }
-  lines.push('out+="${ESC}[0m"')
+  lines.push(`${outVar}+="\${ESC}[0m"`)
   return lines
 }
 
-function joinPlain(): string[] {
+/** `rowSuffix`＝多列陣列變數隔離（T3.1；語意同 joinPowerline 之文件）。 */
+function joinPlain(rowSuffix: string): string[] {
+  const textsVar = `texts${rowSuffix}`
+  const fgsVar = `fgs${rowSuffix}`
+  const segstartVar = `segstart${rowSuffix}`
+  const outVar = `out${rowSuffix}`
+  const nVar = `n${rowSuffix}`
   // 分隔符插於段首 run（segstart==1）之前、i>0、SEP 非空（無 leading/trailing/雙分隔）。
   return [
-    'out=""',
-    'n=${#texts[@]}',
-    'for ((i = 0; i < n; i++)); do',
-    '  if [ "$i" -gt 0 ] && [ "${segstart[$i]}" = "1" ] && [ -n "$SEP" ]; then',
-    '    out+="${ESC}[0m${SEP}"',
+    `${outVar}=""`,
+    `${nVar}=\${#${textsVar}[@]}`,
+    `for ((i = 0; i < ${nVar}; i++)); do`,
+    `  if [ "$i" -gt 0 ] && [ "\${${segstartVar}[$i]}" = "1" ] && [ -n "$SEP" ]; then`,
+    `    ${outVar}+="\${ESC}[0m\${SEP}"`,
     '  fi',
-    '  out+="${ESC}[0m"',
-    '  if [ -n "${fgs[$i]}" ]; then out+="${ESC}[${fgs[$i]}m"; fi',
-    '  out+="${texts[$i]}"',
+    `  ${outVar}+="\${ESC}[0m"`,
+    `  if [ -n "\${${fgsVar}[$i]}" ]; then ${outVar}+="\${ESC}[\${${fgsVar}[$i]}m"; fi`,
+    `  ${outVar}+="\${${textsVar}[$i]}"`,
     'done',
-    'out+="${ESC}[0m"',
+    `${outVar}+="\${ESC}[0m"`,
   ]
+}
+
+// ── 多列分組（T3.1；emit 期，與 resolve() 對存活段分組後的渲染列序同構） ──
+
+interface ResolvedSeg {
+  seg: SegmentConfig
+  descriptor: SegmentDescriptor
+}
+
+/**
+ * 依分組鍵 `seg.row ?? 0` 對**全部已啟用段**分組（不論 runtime 存活與
+ * 否——存活判定屬 runtime，emit 期只依 config 決定「有幾列、每列含哪些
+ * 段」；runtime 空列過濾見 emitBash 多列分支）。分組鍵升冪排序後即列序
+ * （與 resolve() 對存活段分組、`[...groups.keys()].sort()` 取渲染列序
+ * 同一演算法，僅分組對象由「存活段」換成「emit 期已啟用段」）。列內維持
+ * `resolved`（即 `config.segments` 篩已啟用）陣列既有序。回傳陣列長度
+ * 0（無啟用段）或 1（全段同列，含未設 row 之預設 0）時，emitBash 走與
+ * 改動前完全同構的扁平單列路徑。
+ */
+function groupByRow(resolved: readonly ResolvedSeg[]): ResolvedSeg[][] {
+  const groups = new Map<number, ResolvedSeg[]>()
+  for (const item of resolved) {
+    const row = item.seg.row ?? 0
+    const bucket = groups.get(row)
+    if (bucket === undefined) groups.set(row, [item])
+    else bucket.push(item)
+  }
+  const order = [...groups.keys()].sort((a, b) => a - b)
+  return order.map((row) => groups.get(row)!)
 }
 
 // ── 產生器主體 ──
@@ -376,10 +454,14 @@ function joinPlain(): string[] {
  * BuilderConfig＋descriptor catalog → 自足 bash 腳本字串（UTF-8、LF、
  * 尾隨換行）。未知 segment id＝programmer error（config 應先經
  * deserializeConfig 對真 catalog 清洗）→ TypeError（對齊 resolve）。
+ *
+ * 多列（T3.1）：分組結果（groupByRow）≤1 列 → 扁平單列路徑（與改動前
+ * 逐位元組相同）；≥2 列 → 四步執行期展開（逐列緩衝→runtime 空列過濾→
+ * 存活列 LF 串接→零存活退單一 SGR reset，見檔頭文件）。
  */
 export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalog): string {
   const enabled = config.segments.filter((seg) => seg.enabled)
-  const resolved = enabled.map((seg) => {
+  const resolved: ResolvedSeg[] = enabled.map((seg) => {
     const descriptor = catalog[seg.id]
     if (descriptor === undefined) {
       throw new TypeError(`未知 segment id：${seg.id}（config 應先經 deserializeConfig 清洗）`)
@@ -388,6 +470,7 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
   })
   const needsJq = resolved.some(({ descriptor }) => descriptor.category !== 'shell-out')
   const em: Emitter = { mode: config.mode, powerlineArrow: config.powerlineArrow }
+  const rowGroups = groupByRow(resolved)
 
   const out: string[] = []
   out.push('#!/usr/bin/env bash')
@@ -415,23 +498,70 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
   }
   if (config.mode === 'plain') out.push(`SEP=${bashSingleQuote(config.separator.value)}`)
   out.push('')
-  // 平行陣列（第一趟累加器）。
-  out.push('texts=()')
-  out.push('fgs=()')
-  if (config.mode === 'powerline') out.push('bgs=()')
-  if (config.mode === 'plain') out.push('segstart=()')
-  out.push('')
-  out.push('# ── 段求值（第一趟：存活段 push） ──')
-  for (const { seg, descriptor } of resolved) {
-    out.push(...emitSegment(seg, descriptor, em))
+
+  if (rowGroups.length <= 1) {
+    // 單列（含 0 段空鏈）：與改動前完全同構的扁平結構（suffix=''）——M3
+    // 硬性驗收：既有單列 golden bytes 不變，此分支逐字沿用改動前寫法。
+    out.push('texts=()')
+    out.push('fgs=()')
+    if (config.mode === 'powerline') out.push('bgs=()')
+    if (config.mode === 'plain') out.push('segstart=()')
+    out.push('')
+    out.push('# ── 段求值（第一趟：存活段 push） ──')
+    for (const { seg, descriptor } of resolved) {
+      out.push(...emitSegment(seg, descriptor, em, ''))
+    }
+    out.push('')
+    out.push('# ── join（第二趟：逐 run 拼接） ──')
+    out.push(
+      ...(config.mode === 'powerline'
+        ? joinPowerline(config.lastArrowCap, config.powerlineArrow, '')
+        : joinPlain('')),
+    )
+  } else {
+    // 多列：四步執行期展開。
+    out.push('# ── 段求值（第一趟：逐列緩衝，emit 期依 row 分組） ──')
+    for (let r = 0; r < rowGroups.length; r++) {
+      const rowSuffix = `_${r}`
+      out.push(`# -- row ${r} 緩衝 --`)
+      out.push(`texts${rowSuffix}=()`)
+      out.push(`fgs${rowSuffix}=()`)
+      if (config.mode === 'powerline') out.push(`bgs${rowSuffix}=()`)
+      if (config.mode === 'plain') out.push(`segstart${rowSuffix}=()`)
+      for (const { seg, descriptor } of rowGroups[r]) {
+        out.push(...emitSegment(seg, descriptor, em, rowSuffix))
+      }
+      out.push('')
+    }
+    out.push('# ── join（第二趟：逐列獨立 join，reset 恆在列尾） ──')
+    for (let r = 0; r < rowGroups.length; r++) {
+      const rowSuffix = `_${r}`
+      out.push(`# -- row ${r} join --`)
+      out.push(
+        ...(config.mode === 'powerline'
+          ? joinPowerline(config.lastArrowCap, config.powerlineArrow, rowSuffix)
+          : joinPlain(rowSuffix)),
+      )
+      out.push('')
+    }
+    out.push('# ── runtime 空列過濾＋存活列 LF 串接（零存活退單一 SGR reset） ──')
+    out.push('outs=()')
+    for (let r = 0; r < rowGroups.length; r++) {
+      const rowSuffix = `_${r}`
+      out.push(`if [ "$n${rowSuffix}" -gt 0 ]; then outs+=("$out${rowSuffix}"); fi`)
+    }
+    out.push('out=""')
+    out.push('if [ "${#outs[@]}" -eq 0 ]; then')
+    out.push('  out="${ESC}[0m"')
+    out.push('else')
+    out.push('  rn=${#outs[@]}')
+    out.push('  for ((i = 0; i < rn; i++)); do')
+    out.push(`    if [ "$i" -gt 0 ]; then out+=$'\\n'; fi`)
+    out.push('    out+="${outs[$i]}"')
+    out.push('  done')
+    out.push('fi')
   }
-  out.push('')
-  out.push('# ── join（第二趟：逐 run 拼接） ──')
-  out.push(
-    ...(config.mode === 'powerline'
-      ? joinPowerline(config.lastArrowCap, config.powerlineArrow)
-      : joinPlain()),
-  )
+
   out.push('')
   // 契約 6：使用者文字不進格式位——$out 在引數位。契約 9：結尾顯式 exit 0。
   out.push(`printf '%s' "$out"`)

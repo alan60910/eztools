@@ -53,6 +53,16 @@ export interface SegmentConfig {
   fgOverride?: ColorSpec // powerline 覆寫 auto-fg
   threshold?: ThresholdRule
   variant?: string // 須 ∈ catalog.variantsById[id]，否則清洗退預設
+  /**
+   * 多列佈局（T2.1，PLAN §D2 06b）：所屬渲染列（0-index）。**缺欄**＝
+   * 語意上等同 0（分組鍵 `seg.row ?? 0`，供 resolve（T2.2）沿用），鍵維持
+   * 缺席以與 defaultSegmentConfig（不帶 row）天然一致；**存在但非法**
+   * （非整數／負值／NaN）清洗為 0；**存在且越界**（> catalog 現役段數−1）
+   * clamp 至該上限——防手改存檔 `row:999999999` 讓列選單枚舉凍死頁面。
+   * `normalizeRows` 於每次 config 寫回時將啟用段 row 重寫為 0..N−1，使
+   * 存檔口徑與渲染列序永久合一（M5／T5.3 於 main.ts commitConfig 接線）。
+   */
+  row?: number
 }
 
 export interface BuilderConfig {
@@ -70,9 +80,17 @@ function defaultSeparator(): SeparatorConfig {
   return { kind: 'preset', value: '|' }
 }
 
-/** 單一 segment 的預設列（未啟用、無 icon、終端預設色、選填欄全缺）。 */
+/**
+ * 單一 segment 的預設列（未啟用、終端預設色、選填欄全缺）。icon（顯示
+ * 文字前綴）預設 true——T5.12（Rev 7，2026-07-11 使用者裁決）：M1.5 已將
+ * 25 段 icon.glyph 全數由 emoji 換成 ASCII 文字前綴（如 `cwd:`），「顯示
+ * 圖示」措辭與預設關閉已過時，改名「顯示文字」並預設開啟。此翻轉不影響
+ * `sanitizeSegment` 對既有存檔的解讀——該函式以 `raw.icon === true` 直接
+ * 判斷（缺欄／非 true 皆退 false），不讀本函式的預設值；僅影響全新
+ * config（`defaultConfig`）與存檔缺席、需補列的全新 segment。
+ */
 export function defaultSegmentConfig(id: string): SegmentConfig {
-  return { id, enabled: false, icon: false, color: { kind: 'default' } }
+  return { id, enabled: false, icon: true, color: { kind: 'default' } }
 }
 
 /** 預設 config：目錄順序全列、全停用（初始啟用集屬 M3 UI 決策）。 */
@@ -134,6 +152,20 @@ function sanitizeThreshold(raw: unknown): ThresholdRule | undefined {
   return { buckets: buckets as unknown as ThresholdRule['buckets'] }
 }
 
+/**
+ * row 清洗（見 SegmentConfig.row 文件）：`undefined`（鍵缺席）→
+ * `undefined`（維持缺席，與 defaultSegmentConfig 一致）；其餘「存在」值
+ * 一律清洗為合法 number——非數字型別／NaN／非整數（含 float，不四捨
+ * 五入）／負值 → 0；整數超出 `[0, catalog.ids.length−1]` 上界 → clamp
+ * 至上界（現役目錄段數計，不寫死 25）；合法整數原樣保留。
+ */
+function sanitizeRow(raw: unknown, catalog: SegmentCatalog): number | undefined {
+  if (raw === undefined) return undefined
+  const max = Math.max(0, catalog.ids.length - 1)
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) return 0
+  return Math.min(raw, max)
+}
+
 function sanitizeSeparator(raw: unknown): SeparatorConfig {
   if (!isRecord(raw) || typeof raw.value !== 'string') return defaultSeparator()
   if (raw.kind === 'preset') {
@@ -172,6 +204,8 @@ function sanitizeSegment(raw: unknown, catalog: SegmentCatalog): SegmentConfig |
   if (typeof raw.variant === 'string' && variants !== undefined && variants.includes(raw.variant)) {
     seg.variant = raw.variant
   }
+  const row = sanitizeRow(raw.row, catalog)
+  if (row !== undefined) seg.row = row
   return seg
 }
 
@@ -244,4 +278,37 @@ export function deserializeConfig(json: string, catalog: SegmentCatalog): Builde
   if (!isRecord(raw)) return defaultConfig(catalog)
   if (raw.version !== CONFIG_VERSION) return migrateConfig(raw, catalog)
   return sanitizeConfig(raw, catalog)
+}
+
+// ── normalizeRows（多列佈局，T2.1；純函式，M5／T5.3 於 main.ts commitConfig 接線） ──
+
+/**
+ * 多列渲染列序正規化：僅重寫**啟用段**的 `row`——依現值升冪排序、去重
+ * 壓縮為連續 0..N−1（N＝啟用段中相異 row 值個數，即使用中渲染列數）；
+ * 未指定 row（`undefined`）視同 0（與分組鍵 `seg.row ?? 0` 同義）。停用
+ * 段 `row` 原值凍結（含 `undefined` 維持 `undefined`）——不正規化、不
+ * 讀取、不寫回。
+ *
+ * 純函式：不 mutate 輸入陣列或其元素；停用段沿用原物件參照（未變更、
+ * 非拷貝亦不違反純度），啟用段回傳淺拷貝＋新 `row`。**不重排陣列本身
+ * ──列內順序＝`config.segments` 陣列既有順序（PLAN 契約），此函式只
+ * 重寫 row 標籤、不搬動元素位置**，故同 row 段的相對順序自然穩定。
+ *
+ * 冪等：正規化後的 row 值集恆為 `[0, N)` 且已排序，故重複套用等價於
+ * 套用一次（`normalizeRows(normalizeRows(xs))` deepEqual
+ * `normalizeRows(xs)`）。
+ *
+ * 簽章選型：對 `SegmentConfig[]`（而非整個 `BuilderConfig`）操作——本
+ * 任務不改動 `version`／其餘欄位，行為與呼叫端無關，segments 陣列即
+ * 最小必要輸入面；main.ts 於 M5 接線時可直接
+ * `{ ...config, segments: normalizeRows(config.segments) }`。
+ */
+export function normalizeRows(segments: readonly SegmentConfig[]): SegmentConfig[] {
+  const enabledRows = segments.filter((seg) => seg.enabled).map((seg) => seg.row ?? 0)
+  const sortedUniqueRows = [...new Set(enabledRows)].sort((a, b) => a - b)
+  const rewritten = new Map(sortedUniqueRows.map((row, index) => [row, index]))
+  return segments.map((seg) => {
+    if (!seg.enabled) return seg
+    return { ...seg, row: rewritten.get(seg.row ?? 0)! }
+  })
 }

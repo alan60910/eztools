@@ -21,7 +21,7 @@ bgs=()
 # model
 v=$(jq -r '.model.display_name // empty' <<<"$input")
 if [ -n "$v" ]; then
-  texts+=('🤖 '"$v"); fgs+=('38;5;16'); bgs+=('5;226')
+  texts+=('model: '"$v"); fgs+=('38;5;16'); bgs+=('5;226')
 fi
 # cwd
 v=$(jq -r '.cwd // empty | . as $p | ($p | split("[/\\\\]+"; "")) | map(select(. != "")) | if length > 0 then .[-1] else $p end' <<<"$input")
