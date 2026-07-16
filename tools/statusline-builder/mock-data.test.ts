@@ -9,6 +9,9 @@
  * - 情境角色釘死：滿血全段存活／early-null dash 段全 null／
  *   conditional-absent 條件段全剔＋非 git／worktree fallback 兩路徑
  *   皆有情境覆蓋。
+ * - T4.5（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3）：cache-hit
+ *   情境點（full 存活／四欄全 0 除零／partial-null 矩陣 test-only 資料）
+ *   ＋情境固定 `now` 欄不變量（resets_at 一律 now 相對式且絕對值保持）。
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -19,9 +22,11 @@ import {
   type MockShellChannel,
 } from './mock-data.js'
 import {
+  DESCRIPTORS_BY_ID,
   isValueDead,
   SEGMENT_DESCRIPTORS,
   type SegmentDescriptor,
+  type StatusData,
 } from './segments.js'
 
 /** descriptor 的來源值（shell-out 走 shell 通道，其餘走 tsPath）。 */
@@ -36,9 +41,10 @@ function sourceValues(descriptor: SegmentDescriptor): unknown[] {
 const encode = (v: unknown): string => (v === undefined ? '<undefined>' : JSON.stringify(v))
 
 const scenarioCases = MOCK_SCENARIOS.map((s) => [s.id, s] as [string, MockScenario])
-const descriptorCases = SEGMENT_DESCRIPTORS.map(
-  (d) => [d.id, d] as [string, SegmentDescriptor],
-)
+// T4.5（08-PLAN Rev 4 §3）：mock-data.ts 補齊 cache 兩欄後，cache-hit 於
+// full（45）／conditional-absent（0）有存活值——T3.2 時期的 D1 排除已移除，
+// 全目錄一體適用。
+const descriptorCases = SEGMENT_DESCRIPTORS.map((d) => [d.id, d] as [string, SegmentDescriptor])
 
 // ── 情境集形狀 ──
 
@@ -116,7 +122,7 @@ describe('欄位多樣性不變量（D1）', () => {
 // ── 情境角色釘死 ──
 
 describe('情境角色', () => {
-  it('full：全 25 段來源值存活（resolve 滿血預覽的前提）', () => {
+  it('full：全 30 段來源值存活（resolve 滿血預覽的前提；T4.5 補 cache 兩欄後含 cache-hit）', () => {
     const full = MOCK_SCENARIOS_BY_ID['full']
     for (const d of SEGMENT_DESCRIPTORS) {
       const v =
@@ -127,7 +133,7 @@ describe('情境角色', () => {
     }
   })
 
-  it('early-null：dash 四段來源值全 nullish（"--" 顯示情境）', () => {
+  it('early-null：dash 七段來源值全 nullish（"--" 顯示情境）', () => {
     const early = MOCK_SCENARIOS_BY_ID['early-null']
     for (const d of SEGMENT_DESCRIPTORS.filter((x) => x.nullPolicy === 'dash')) {
       expect(d.tsPath(early.data) == null, d.id).toBe(true)
@@ -171,5 +177,99 @@ describe('情境角色', () => {
     expect(win.data.exceeds_200k_tokens).toBe(true)
     // seven_day.resets_at null＝「視窗在、resets_at null」的後綴剔除情境
     expect(win.data.rate_limits?.seven_day?.resets_at).toBeNull()
+  })
+})
+
+// ── cache-hit 情境點＋partial-null 矩陣（T4.5，08-PLAN Rev 4 §3） ──
+
+describe('cache-hit 情境點（T4.5）', () => {
+  const cacheHit = DESCRIPTORS_BY_ID['cache-hit']
+
+  it('full：四欄齊備 → 45（floor(45000*100/100000)，存活值）', () => {
+    expect(cacheHit.tsPath(MOCK_SCENARIOS_BY_ID['full'].data)).toBe(45)
+  })
+
+  it('conditional-absent：四欄全 0 → 0（除零守門，非 null）', () => {
+    const cond = MOCK_SCENARIOS_BY_ID['conditional-absent']
+    expect(cond.data.context_window.current_usage).toEqual({
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    })
+    expect(cacheHit.tsPath(cond.data)).toBe(0)
+  })
+
+  it('windows-cjk：cache_read null（partial-null 代表點）→ null', () => {
+    const win = MOCK_SCENARIOS_BY_ID['windows-cjk']
+    expect(win.data.context_window.current_usage?.cache_read_input_tokens).toBeNull()
+    expect(cacheHit.tsPath(win.data)).toBeNull()
+  })
+
+  it('early-null：current_usage 整包 null → null', () => {
+    expect(cacheHit.tsPath(MOCK_SCENARIOS_BY_ID['early-null'].data)).toBeNull()
+  })
+
+  // partial-null 矩陣（test-only 資料——08-PLAN Rev 4 §3「欄位組合而非新
+  // scenario id」）：以 full 為基底，公式三輸入欄各自 null → 恆 null；
+  // 選填 cache 兩欄另驗「鍵缺席」形（CurrentUsage 收窄後合法缺席態）。
+  const cloneFull = (): StatusData =>
+    JSON.parse(JSON.stringify(MOCK_SCENARIOS_BY_ID['full'].data)) as StatusData
+
+  it.each([
+    ['input_tokens'],
+    ['cache_creation_input_tokens'],
+    ['cache_read_input_tokens'],
+  ] as const)('partial-null 矩陣：%s=null → null', (field) => {
+    const data = cloneFull()
+    data.context_window.current_usage![field] = null
+    expect(cacheHit.tsPath(data)).toBeNull()
+  })
+
+  it.each([['cache_creation_input_tokens'], ['cache_read_input_tokens']] as const)(
+    'partial-null 矩陣：%s 鍵缺席 → null',
+    (field) => {
+      const data = cloneFull()
+      delete data.context_window.current_usage![field]
+      expect(cacheHit.tsPath(data)).toBeNull()
+    },
+  )
+
+  it('矩陣對照：output_tokens=null 不參與公式 → 仍 45', () => {
+    const data = cloneFull()
+    data.context_window.current_usage!.output_tokens = null
+    expect(cacheHit.tsPath(data)).toBe(45)
+  })
+})
+
+// ── 情境固定 now（T4.5，08-PLAN Rev 4 §3） ──
+
+describe('情境固定 now（T4.5）', () => {
+  it.each(scenarioCases)('%s：now 為正整數 epoch 秒', (_id, s) => {
+    expect(Number.isInteger(s.now)).toBe(true)
+    expect(s.now).toBeGreaterThan(0)
+  })
+
+  it('now 值四情境互異（決定論 mock 時鐘多樣性）', () => {
+    expect(new Set(MOCK_SCENARIOS.map((s) => s.now)).size).toBe(MOCK_SCENARIOS.length)
+  })
+
+  it.each(scenarioCases)('%s：非 null resets_at 恆 > now（now 相對式 → 倒數永不過期）', (_id, s) => {
+    const windows = [s.data.rate_limits?.five_hour, s.data.rate_limits?.seven_day]
+    for (const w of windows) {
+      if (w?.resets_at != null) expect(w.resets_at).toBeGreaterThan(s.now)
+    }
+  })
+
+  it('resets_at 絕對值維持既有字面（消費端註解／WORKS 紀錄引用不失效）', () => {
+    const full = MOCK_SCENARIOS_BY_ID['full']
+    const win = MOCK_SCENARIOS_BY_ID['windows-cjk']
+    // full：five_hour＝now+2h、seven_day＝now+4d18h（原 1783497600／1783900800）。
+    expect(full.data.rate_limits?.five_hour?.resets_at).toBe(1783497600)
+    expect(full.data.rate_limits?.five_hour?.resets_at).toBe(full.now + 2 * 3600)
+    expect(full.data.rate_limits?.seven_day?.resets_at).toBe(1783900800)
+    // windows-cjk：five_hour＝now+2h（原 1783501200）。
+    expect(win.data.rate_limits?.five_hour?.resets_at).toBe(1783501200)
+    expect(win.data.rate_limits?.five_hour?.resets_at).toBe(win.now + 2 * 3600)
   })
 })

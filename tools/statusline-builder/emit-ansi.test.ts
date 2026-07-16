@@ -22,6 +22,15 @@ describe('emission 規則', () => {
     expect(toAnsi([[]])).toBe('\x1b[0m')
   })
 
+  it('toAnsi([]) 零列（resolve 契約外輸入）→ 空字串；非空不變量歸屬 resolve 恆 [[]]，非 toAnsi 自身保證（magi/08 PLAN §前置加固）', () => {
+    // 「全隱藏輸出恆為單一 reset、非空字串」的不變量由 resolve()（全隱藏
+    // 時恆回傳 [[]]，≥1 列）維繫，toAnsi 本身對零列輸入無防禦：
+    // [].map(joinRow).join('\n') === ''。resolve 不會產出 []（其退化案
+    // 恆為 [[]]），故此案屬 resolve 契約外輸入，此測試僅記錄 oracle 對
+    // 越界輸入的實際行為，不代表 toAnsi 承諾非空。
+    expect(toAnsi([])).toBe('')
+  })
+
   it('單 run fg：reset 前綴＋38;5;n＋text＋行尾 reset', () => {
     expect(toAnsi([[{ text: 'x', fg: A(196) }]])).toBe('\x1b[0m\x1b[38;5;196mx\x1b[0m')
   })

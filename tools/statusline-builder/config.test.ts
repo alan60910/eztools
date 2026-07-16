@@ -26,9 +26,16 @@ import {
 
 const ansi = (index: number): ColorSpec => ({ kind: 'ansi256', index })
 
+// barEligibleIds／autoEligibleIds（T3.3，magi/08-statusline-catalog-
+// expansion/PLAN.md Rev 4 §3）：假目錄比照真目錄語意——'context-used' 為
+// 百分比段（bar 適用）、'model' 掛 autoColor（auto 適用）。兩集合的實際
+// 清洗消費（sanitizeSegmentColor allowAuto／bar 欄）為 T3.4，見下方
+// 「SegmentColor 清洗」「bar 清洗」兩個 describe 區塊。
 const CATALOG: SegmentCatalog = {
   ids: ['model', 'cwd', 'context-used', 'git-branch'],
   variantsById: { cwd: ['full', 'basename', 'tilde'] },
+  barEligibleIds: new Set(['context-used']),
+  autoEligibleIds: new Set(['model']),
 }
 
 /** 有效且含全部選填欄的滿配 config（覆蓋 catalog 全 id、非目錄序）。 */
@@ -47,6 +54,8 @@ function fullConfig(): BuilderConfig {
         prefix: 'CTX ',
         color: ansi(137),
         fgOverride: { kind: 'truecolor', hex: '#000000' },
+        // bar（T3.4）：'context-used' ∈ CATALOG.barEligibleIds（percentage 段）。
+        bar: true,
         threshold: {
           buckets: [
             ansi(46), ansi(82), ansi(118), ansi(154), ansi(190),
@@ -63,7 +72,9 @@ function fullConfig(): BuilderConfig {
         variant: 'basename',
       },
       { id: 'git-branch', enabled: true, icon: true, color: ansi(2) },
-      { id: 'model', enabled: false, icon: false, color: { kind: 'default' } },
+      // color:{kind:'auto'}（T3.4）：'model' ∈ CATALOG.autoEligibleIds，全滿配
+      // roundtrip 一併覆蓋 auto 態往返。
+      { id: 'model', enabled: false, icon: false, color: { kind: 'auto' } },
     ],
   }
 }
@@ -420,6 +431,107 @@ describe('色值清洗（color.ts 同源）', () => {
   })
 })
 
+describe('SegmentColor 清洗（.color 走 sanitizeSegmentColor(raw, allowAuto)；T3.4，' +
+  'magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3）', () => {
+  // 擴充目錄：'effort' 亦掛為 auto 合格段（鏡射真 segments.ts model／
+  // effort 皆有 autoColor 欄，見 PLAN §3 auto 色票節）；'cwd' 維持非 auto
+  // 合格，供段別限定案使用。僅本 describe 區塊內使用，不影響其餘測試
+  // 依賴的全域 CATALOG 序與 id 集。
+  const AUTO_CATALOG: SegmentCatalog = {
+    ...CATALOG,
+    ids: [...CATALOG.ids, 'effort'],
+    autoEligibleIds: new Set(['model', 'effort']),
+  }
+  const segWithColor = (id: string, color: unknown): string =>
+    JSON.stringify({ version: 1, segments: [{ id, color }] })
+  const findSeg = (config: BuilderConfig, id: string): SegmentConfig =>
+    config.segments.find((s) => s.id === id)!
+
+  it('auto 放行：id ∈ autoEligibleIds（model／effort）→ 保留 {kind:"auto"}', () => {
+    for (const id of ['model', 'effort']) {
+      const seg = findSeg(deserializeConfig(segWithColor(id, { kind: 'auto' }), AUTO_CATALOG), id)
+      expect(seg.color, id).toEqual({ kind: 'auto' })
+    }
+  })
+
+  it('auto 段別限定：id ∉ autoEligibleIds（cwd）→ 退 {kind:"default"}', () => {
+    const seg = findSeg(deserializeConfig(segWithColor('cwd', { kind: 'auto' }), AUTO_CATALOG), 'cwd')
+    expect(seg.color).toEqual({ kind: 'default' })
+  })
+
+  it('清洗順序釘死：先判 auto 不受非 auto 分支（default case）截胡——同一 raw.kind="auto" 值依段別各自定案', () => {
+    const allowed = findSeg(deserializeConfig(segWithColor('model', { kind: 'auto' }), AUTO_CATALOG), 'model')
+    const denied = findSeg(deserializeConfig(segWithColor('cwd', { kind: 'auto' }), AUTO_CATALOG), 'cwd')
+    expect(allowed.color).toEqual({ kind: 'auto' })
+    expect(denied.color).toEqual({ kind: 'default' })
+  })
+
+  it('非 auto 色值委派既有 sanitizeColorSpec（越界 clamp 不回歸，auto 合格段亦然）', () => {
+    const seg = findSeg(
+      deserializeConfig(segWithColor('model', { kind: 'ansi256', index: 300 }), AUTO_CATALOG),
+      'model',
+    )
+    expect(seg.color).toEqual(ansi(255))
+  })
+
+  it('fgOverride 防注入：{kind:"auto"} 一律不收（維持三態封閉 sanitizeColorSpec）——整欄丟，非退 default 值', () => {
+    const json = JSON.stringify({
+      version: 1,
+      segments: [{ id: 'model', fgOverride: { kind: 'auto' } }],
+    })
+    const seg = findSeg(deserializeConfig(json, AUTO_CATALOG), 'model')
+    expect('fgOverride' in seg).toBe(false)
+  })
+
+  it('清洗冪等：auto 色值清洗一次後，再 serialize→deserialize 不再變形', () => {
+    const once = deserializeConfig(segWithColor('model', { kind: 'auto' }), AUTO_CATALOG)
+    const twice = deserializeConfig(serializeConfig(once), AUTO_CATALOG)
+    expect(twice).toEqual(once)
+  })
+})
+
+describe('bar 清洗（SegmentConfig.bar?: boolean，限 barEligibleIds；T3.4，' +
+  'magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3）', () => {
+  const segWithBar = (id: string, bar: unknown): string =>
+    JSON.stringify({ version: 1, segments: [{ id, enabled: true, bar }] })
+  const findSeg = (config: BuilderConfig, id: string): SegmentConfig =>
+    config.segments.find((s) => s.id === id)!
+
+  it('百分比段（context-used ∈ barEligibleIds）＋ raw true → true', () => {
+    const seg = findSeg(deserializeConfig(segWithBar('context-used', true), CATALOG), 'context-used')
+    expect(seg.bar).toBe(true)
+  })
+
+  it('非百分比段（cwd ∉ barEligibleIds）＋ raw true → 欄位缺席（不搬運、不清 false）', () => {
+    const seg = findSeg(deserializeConfig(segWithBar('cwd', true), CATALOG), 'cwd')
+    expect('bar' in seg).toBe(false)
+  })
+
+  it('raw false → 欄位缺席（比照既有選填欄「不搬運非法/預設值」慣例，非寫入 false）', () => {
+    const seg = findSeg(deserializeConfig(segWithBar('context-used', false), CATALOG), 'context-used')
+    expect('bar' in seg).toBe(false)
+  })
+
+  it('非 boolean（字串／數字／null／物件）→ 欄位缺席', () => {
+    for (const bar of ['yes', 1, null, {}]) {
+      const seg = findSeg(deserializeConfig(segWithBar('context-used', bar), CATALOG), 'context-used')
+      expect('bar' in seg, JSON.stringify(bar)).toBe(false)
+    }
+  })
+
+  it('缺席（鍵不存在）→ 欄位缺省（非補 false）', () => {
+    const json = JSON.stringify({ version: 1, segments: [{ id: 'context-used', enabled: true }] })
+    const seg = findSeg(deserializeConfig(json, CATALOG), 'context-used')
+    expect('bar' in seg).toBe(false)
+  })
+
+  it('清洗冪等：bar:true 清洗一次後，再 serialize→deserialize 不再變形', () => {
+    const once = deserializeConfig(segWithBar('context-used', true), CATALOG)
+    const twice = deserializeConfig(serializeConfig(once), CATALOG)
+    expect(twice).toEqual(once)
+  })
+})
+
 describe('separator／prefix（validate.ts 驗證失敗即退預設）', () => {
   const withSeparator = (separator: unknown): string =>
     JSON.stringify({ version: 1, separator, segments: [] })
@@ -564,11 +676,14 @@ describe('其餘欄位清洗', () => {
 })
 
 describe('row 清洗（多列佈局 T2.1；deserialize 路徑）', () => {
-  // 25 段假目錄（鏡射真 segments.ts 現役 25 段），用於驗證 clamp 上界確為
-  // 24——與 PLAN／brief 明列的具體數字對齊（現役 25 段 → clamp 24）。
+  // 30 段假目錄（鏡射真 segments.ts 現役 30 段——T3.2 已 +5 段擴至 30），
+  // 用於驗證 clamp 上界確為 29——與 PLAN／brief 明列的具體數字對齊
+  // （現役 30 段 → clamp 29）。
   const ROW_CATALOG: SegmentCatalog = {
-    ids: Array.from({ length: 25 }, (_, i) => `seg-${i}`),
+    ids: Array.from({ length: 30 }, (_, i) => `seg-${i}`),
     variantsById: {},
+    barEligibleIds: new Set(),
+    autoEligibleIds: new Set(),
   }
   const withRow = (row: unknown, catalog: SegmentCatalog = ROW_CATALOG): string =>
     JSON.stringify({ version: 1, segments: [{ id: catalog.ids[0], enabled: true, row }] })
@@ -598,16 +713,16 @@ describe('row 清洗（多列佈局 T2.1；deserialize 路徑）', () => {
     }
   })
 
-  it('合法整數（0..24）原樣保留', () => {
-    for (const row of [0, 5, 24]) {
+  it('合法整數（0..29）原樣保留', () => {
+    for (const row of [0, 5, 24, 29]) {
       const seg = deserializeConfig(withRow(row), ROW_CATALOG).segments[0]!
       expect(seg.row).toBe(row)
     }
   })
 
-  it('row:999999999 → clamp 至 24（25 段目錄，段數−1；防手改存檔凍死列選單）', () => {
+  it('row:999999999 → clamp 至 29（30 段目錄，段數−1；防手改存檔凍死列選單）', () => {
     const seg = deserializeConfig(withRow(999999999), ROW_CATALOG).segments[0]!
-    expect(seg.row).toBe(24)
+    expect(seg.row).toBe(29)
   })
 
   it('clamp 上界以現役目錄段數計，不寫死 25（4 段假目錄 → clamp 3）', () => {

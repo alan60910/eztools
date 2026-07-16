@@ -1,3 +1,9 @@
 node_modules/
 dist/
 public/vendor/
+
+# 便攜工具二進位（spike 用；面板裁定不入 repo，真執行 gate 走本機 PATH jq）
+magi/**/tools/*.exe
+
+# xreview／review-code 暫存提示檔（每輪重建，慣例不簽入）
+**/.xreview-prompt.md

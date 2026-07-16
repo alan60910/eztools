@@ -11,7 +11,8 @@ EZTools — 純靜態網頁工具合集入口頁面（APNG→GIF 轉換、GIF �
 npm run dev      # 本地開發伺服器
 npm run build    # 建置 dist/（GitHub Pages 部署用）
 npm run preview  # 預覽建置結果
-npm test         # vitest run --passWithNoTests
+npm test         # vitest run
+npm run test:e2e # CDP 整合案（本機限定，需 Edge/Chromium，不進 CI）
 ```
 
 ## Conventions

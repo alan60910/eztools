@@ -34,6 +34,9 @@ npm test
 
 # 驗證 build 產物（入口頁零框架 JS（主題 inline script 白名單）、工具頁骨架等不變量；需先 npm run build）
 npm run verify:dist
+
+# CDP 整合案（本機限定，需 Edge/Chromium，不進 CI）
+npm run test:e2e
 ```
 
 ## statusline-builder 注意事項
@@ -70,7 +73,8 @@ wasm 二進位（版本 0.12.10，未經修改），其授權為 **GPL-2.0-or-la
 [ffmpeg.wasm 專案](https://github.com/ffmpegwasm/ffmpeg.wasm)與
 [FFmpeg 官方](https://ffmpeg.org/legal.html)。
 
-statusline-builder 工具的模型／effort 自動配色屬**後續 sprint（06c）規劃**，
-尚未出貨（目前程式碼中無 `{kind: 'auto'}`）。落地時預計僅取用
+statusline-builder 工具的模型／effort 自動配色已於 06c 交付（`main.ts` 判定
+`mode === 'auto'` 回傳 `{ kind: 'auto' }`，`resolve.ts` 消費
+`color.kind === 'auto'`）。落地時僅取用
 [howar31/claude-statusline](https://github.com/howar31/claude-statusline)
 的配色構想（色票重新編碼為 256 色索引），不會複製其程式碼。

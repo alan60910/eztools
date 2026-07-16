@@ -41,15 +41,43 @@ function Format-Repo($node) {
   return [string]$node.owner + '/' + [string]$node.name
 }
 
-function Format-ResetsAt($epoch) {
-  if ($null -eq $epoch) { return '' }
+function Format-Reset5h($epoch, $now) {
+  $diff = [double]$epoch - [double]$now
   $t = [DateTimeOffset]::FromUnixTimeSeconds([long]$epoch).ToLocalTime()
-  return ' (' + $t.ToString('HH:mm') + ')'
+  $clock = $t.ToString('HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
+  if ($diff -ge 3600) {
+    return [char]0x21BA + ' ' + ([string][long][math]::Floor($diff / 3600)) + 'h (' + $clock + ')'
+  }
+  return [char]0x21BA + ' ' + ([string][long][math]::Floor($diff / 60)) + 'm (' + $clock + ')'
+}
+
+function Format-Reset7d($epoch, $now) {
+  $diff = [double]$epoch - [double]$now
+  $t = [DateTimeOffset]::FromUnixTimeSeconds([long]$epoch).ToLocalTime()
+  $stamp = $t.ToString('MM/dd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
+  if ($diff -ge 86400) {
+    return [char]0x21BA + ' ' + ([string][long][math]::Floor($diff / 86400)) + 'd (' + $stamp + ')'
+  }
+  $h = [long][math]::Floor($diff / 3600)
+  $m = [long][math]::Floor(($diff % 3600) / 60)
+  return [char]0x21BA + ' ' + ([string]$h) + 'h' + ([string]$m) + 'm (' + $stamp + ')'
 }
 
 $raw = [Console]::In.ReadToEnd()
 $d = $null
 try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }
+
+$__nowEnv = $env:STATUSLINE_NOW_EPOCH
+if ([string]::IsNullOrEmpty($__nowEnv)) {
+  $Now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+} else {
+  $__nowParsed = 0L
+  if ([long]::TryParse($__nowEnv, [ref]$__nowParsed)) {
+    $Now = $__nowParsed
+  } else {
+    $Now = [DateTimeOffset]::Now.ToUnixTimeSeconds()
+  }
+}
 
 $Segs = @()
 
@@ -132,7 +160,7 @@ if ($v -eq $true) {
 # context-used — percentage/dash＋threshold
 $v = $d.context_window.used_percentage
 if ($null -eq $v) {
-  $disp = 'it''s ' + [char]0x75 + [char]0x73 + [char]0x65 + [char]0x64 + [char]0x3A + ' ' + '--'
+  $disp = 'it''s ' + [char]0x75 + [char]0x73 + [char]0x65 + [char]0x64 + [char]0x3A + ' ' + '(n/a)'
   $Segs += "$e[0m" + $disp
 } else {
   $p = [double]$v
@@ -151,7 +179,7 @@ if ($null -eq $v) {
 # context-remaining — percentage/dash
 $v = $d.context_window.remaining_percentage
 if ($null -eq $v) {
-  $vt = '--'
+  $vt = '(n/a)'
 } else {
   $vt = ([string][long][math]::Floor([double]$v)) + '%'
 }
@@ -160,9 +188,13 @@ $Segs += "$e[0m" + $disp
 
 # rate-5h — percentage/dash
 $v = $d.rate_limits.five_hour.used_percentage
-$sfx = (Format-ResetsAt $d.rate_limits.five_hour.resets_at)
+$rst = $d.rate_limits.five_hour.resets_at
+$sfx = ''
+if ($null -ne $rst -and $Now -lt $rst) {
+  $sfx = ' ' + (Format-Reset5h $rst $Now)
+}
 if ($null -eq $v) {
-  $vt = '--'
+  $vt = '(n/a)'
 } else {
   $vt = ([string][long][math]::Floor([double]$v)) + '%'
 }
@@ -171,9 +203,13 @@ $Segs += "$e[0m" + $disp
 
 # rate-7d — percentage/dash
 $v = $d.rate_limits.seven_day.used_percentage
-$sfx = (Format-ResetsAt $d.rate_limits.seven_day.resets_at)
+$rst = $d.rate_limits.seven_day.resets_at
+$sfx = ''
+if ($null -ne $rst -and $Now -lt $rst) {
+  $sfx = ' ' + (Format-Reset7d $rst $Now)
+}
 if ($null -eq $v) {
-  $vt = '--'
+  $vt = '(n/a)'
 } else {
   $vt = ([string][long][math]::Floor([double]$v)) + '%'
 }

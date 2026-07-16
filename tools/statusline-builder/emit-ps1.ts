@@ -63,7 +63,12 @@
  * 純函式、零 DOM import，node 可測。
  */
 import { autoFg, colorSgrParams, type ColorSpec } from './color.js'
-import type { BuilderConfig, SegmentConfig } from './config.js'
+import { segmentColorPlaceholder, type BuilderConfig, type SegmentConfig } from './config.js'
+// M6 C1（2026-07-14 拍板；magi/08-statusline-catalog-expansion/TASKS.md
+// T6.3）：NA_TEXT 單一事實來源沿 emit-bash.ts 既有「自 resolve.ts 匯入
+// oracle 常數」先例（該檔已匯入 BAR_CELL_COUNT／BAR_EMPTY_CHAR／
+// BAR_FILLED_CHAR／POWERLINE_ARROW），避免 emitter 端另掛一份 '(n/a)' 字面。
+import { NA_TEXT } from './resolve.js'
 import type { FormatKind, SegmentDescriptor } from './segments.js'
 import { autoFgBuckets, type ThresholdRule } from './threshold.js'
 
@@ -146,15 +151,22 @@ function headExpr(seg: SegmentConfig, descriptor: SegmentDescriptor): string {
   return concatExpr([prefixLit, iconLit])
 }
 
-/** powerline 段主色（bg）；plain 不設 bg。 */
+/**
+ * powerline 段主色（bg）；plain 不設 bg。**呼叫端保證非 auto**：`emitOther`
+ * 經 `colorExprFor` 分流（auto 段走執行期查表，見該函式），本函式僅由
+ * `emitShellOut`／`emitPercentage`（非 bar）直接呼叫——兩者對應段皆非
+ * `catalog.autoEligibleIds`（shell-out／percentage 類目前無 autoColor
+ * 描述子），`segmentColorPlaceholder` 對 auto 之 default 退化在此為
+ * 防禦性佔位（T4.4；不預期實際觸發）。
+ */
 function segBg(mode: BuilderConfig['mode'], seg: SegmentConfig): ColorSpec | null {
-  return mode === 'powerline' ? seg.color : null
+  return mode === 'powerline' ? segmentColorPlaceholder(seg.color) : null
 }
 
 /** powerline 非閾值段的 fg：fgOverride ?? autoFg(段主色)；plain fg＝段主色。 */
 function segFg(mode: BuilderConfig['mode'], seg: SegmentConfig): ColorSpec | null {
-  if (mode === 'powerline') return seg.fgOverride ?? autoFg(seg.color)
-  return seg.color
+  if (mode === 'powerline') return seg.fgOverride ?? autoFg(segmentColorPlaceholder(seg.color))
+  return segmentColorPlaceholder(seg.color)
 }
 
 // ── 產生器狀態 ──
@@ -169,6 +181,16 @@ interface EmitState {
   thresholdDecls: string[]
   /** 下一個閾值段的陣列名索引。 */
   thresholdCount: number
+  /**
+   * T4.4：本次 emit 是否用到 `$Now`（倒數段格式化／`expiresAtPath` 存活
+   * 判定；S2 idiom 注入，見 `nowInjectionLines`）——由 `valueEmit`／
+   * `emitOther` 於處理到 reset-countdown-*／`expiresAtPath` 段時置真；
+   * 主流程據此決定是否 emit `$Now` 計算區塊（零使用時不印，維持既有
+   * 無倒數段 config 的 golden bytes 不變）。
+   */
+  needsNow: boolean
+  /** T4.4：下一個 auto 配色段的變數名索引（`$Ac<k>...`，段內獨立、跨列共用計數器同 thresholdCount）。 */
+  autoCount: number
   /**
    * T3.2 多列：目前正在 emit 的列所用累加器變數名（不含 `$`）。單列
    * config（emit 期分組結果只有一列）恆為 `{ segs: 'Segs', bgt: 'BgT' }`
@@ -202,6 +224,103 @@ function declareThreshold(state: EmitState, rule: ThresholdRule, fgOverride: Col
   const fgParams = rule.buckets.map((b) => colorSgrParams(b, 'fg') ?? '')
   state.thresholdDecls.push(`${fgVar} = ${psArray(fgParams)}`)
   return { fgVar, bgVar: null }
+}
+
+/**
+ * bar 專用桶陣列（T4.4；PLAN §4／sp4/REPORT.md 案 10/11）：filled／value
+ * run 的 fg＝桶色本身（非 auto 轉換，與 threshold 一般路徑的 powerline
+ * 成對 auto-fg 不同）；plain／powerline 共用同一色列（bg 於 bar 全段
+ * 均一＝segColor，不逐桶變化，呼叫端另以常數提供）。
+ */
+function declareBarThreshold(state: EmitState, rule: ThresholdRule): { fgVar: string } {
+  const k = state.thresholdCount++
+  const fgVar = `$Th${k}Fg`
+  const fgParams = rule.buckets.map((b) => colorSgrParams(b, 'fg') ?? '')
+  state.thresholdDecls.push(`${fgVar} = ${psArray(fgParams)}`)
+  return { fgVar }
+}
+
+// ── auto 配色（T4.4；PLAN Rev 4 §3／§4；resolve.ts modelPaletteIndex／
+// effortPaletteIndex 之 ps1 鏡像）──
+//
+// model／effort 色票為**固定小型列舉**（4／6 分支），故不比照 threshold
+// 走「10-桶執行期索引陣列」；改為 emit 期展開一組 if/elseif 查表——每
+// 分支的 tail／fg（色本身）／autoFg（成對對比 fg）三值皆於 emit 期呼叫
+// production `autoFg`／`colorSgrParams` 預算為 ps1 字面常數，執行期只
+// 判斷字串比對擇一分支（`-clike`／`-ceq`，禁 `-match`——大小寫敏感）。
+
+/** model 色票（palette 查表；resolve.ts modelPaletteIndex 同值）。`pattern:null`＝收尾 else 分支。 */
+const MODEL_PALETTE: ReadonlyArray<{ pattern: string | null; index: number }> = [
+  { pattern: 'claude-fable-*', index: 214 },
+  { pattern: 'claude-opus-*', index: 135 },
+  { pattern: 'claude-haiku-*', index: 2 },
+  { pattern: null, index: 6 },
+]
+
+/** effort 色票（resolve.ts effortPaletteIndex 同值）；大小寫敏感精確比對（`-ceq`）。 */
+const EFFORT_PALETTE: ReadonlyArray<{ pattern: string | null; index: number }> = [
+  { pattern: 'low', index: 3 },
+  { pattern: 'medium', index: 2 },
+  { pattern: 'high', index: 4 },
+  { pattern: 'xhigh', index: 5 },
+  { pattern: 'max', index: 15 },
+  { pattern: null, index: 9 },
+]
+
+interface AutoBinding {
+  /** 段內唯一索引（`$Ac<index>...`，供呼叫端組合額外變數名如 `$Ac<index>Px`）。 */
+  index: number
+  /** 執行期 fg SGR 參數運算式（色本身；plain fg 用）。 */
+  fgVar: string
+  /** 執行期 bg tail 運算式（powerline bg／箭頭交接尾用）。 */
+  tailVar: string
+  /** 執行期 autoFg(色本身) SGR 參數運算式（powerline 無 fgOverride 時之 fg 用）。 */
+  autoFgVar: string
+  /** 段區塊最前需接的查表陳述式（讀 `$d`，故不可如 threshold 陣列般提前印於檔首）。 */
+  setupLines: string[]
+}
+
+/**
+ * `seg.color.kind==='auto'` 段的執行期查表區塊（T4.4）：比對來源＝
+ * `descriptor.autoColor.key`（缺省用主值 `descriptor.ps1Path` 本身，
+ * 沿 resolve.ts `expandSegmentColor` 同一 fallback 規則）。未帶
+ * `autoColor` 的 descriptor 呼叫本函式＝programmer error（config 應先
+ * 經 deserializeConfig 清洗），比照 resolve.ts 同語意拋 TypeError。
+ */
+function emitAutoBinding(state: EmitState, descriptor: SegmentDescriptor): AutoBinding {
+  const autoColor = descriptor.autoColor
+  if (autoColor === undefined) {
+    throw new TypeError(
+      `segment ${descriptor.id} 無 autoColor 通道卻收到 auto 色（config 應先經 deserializeConfig 清洗）`,
+    )
+  }
+  const k = state.autoCount++
+  const idVar = `$Ac${k}Id`
+  const fgVar = `$Ac${k}Fg`
+  const tailVar = `$Ac${k}Tail`
+  const autoFgVar = `$Ac${k}AutoFg`
+  const keyExpr = autoColor.key !== undefined ? autoColor.key.ps1Path : descriptor.ps1Path
+  const branches = autoColor.palette === 'model' ? MODEL_PALETTE : EFFORT_PALETTE
+  const cmp = autoColor.palette === 'model' ? '-clike' : '-ceq'
+
+  const lines: string[] = []
+  lines.push(`${idVar} = ${keyExpr}`)
+  lines.push(`if ($null -eq ${idVar}) { ${idVar} = '' }`)
+  branches.forEach((b, i) => {
+    const spec: ColorSpec = { kind: 'ansi256', index: b.index }
+    const tailLit = psSingleQuote(bgTail(spec))
+    const fgLit = psSingleQuote(colorSgrParams(spec, 'fg') ?? '')
+    const autoFgLit = psSingleQuote(colorSgrParams(autoFg(spec), 'fg') ?? '')
+    const assign = `${tailVar} = ${tailLit}; ${fgVar} = ${fgLit}; ${autoFgVar} = ${autoFgLit}`
+    if (b.pattern === null) {
+      lines.push(`else { ${assign} }`)
+    } else {
+      const kw = i === 0 ? 'if' : 'elseif'
+      lines.push(`${kw} (${idVar} ${cmp} ${psSingleQuote(b.pattern)}) { ${assign} }`)
+    }
+  })
+
+  return { index: k, fgVar, tailVar, autoFgVar, setupLines: lines }
 }
 
 // ── helper 函式庫（只印用到的；契約沉默處：與 segments.ts 格式器同語意） ──
@@ -256,12 +375,50 @@ const HELPER_BODIES: Readonly<Record<string, string>> = {
     "  return [string]$node.owner + '/' + [string]$node.name",
     '}',
   ].join('\n'),
-  // resets_at 後綴（契約 12：DateTimeOffset.FromUnixTimeSeconds→本地 HH:mm）。
-  'Format-ResetsAt': [
-    'function Format-ResetsAt($epoch) {',
-    "  if ($null -eq $epoch) { return '' }",
+  // tokens 縮寫（FormatKind 'tokens'；T4.4，鏡像 resolve.ts formatTokens）：
+  // n<1000 原整數字串；否則 floor(n/100) 插小數點取一位＋'k'（僅 k 檔）。
+  // [double] 轉型於 $null 判定之後（emitOther dash 分支已先行判過 null，
+  // 本函式只接存活值）。
+  'Format-Tokens': [
+    'function Format-Tokens($v) {',
+    '  $n = [double]$v',
+    '  if ($n -lt 1000) { return [string][long][math]::Floor($n) }',
+    '  $scaled = [long][math]::Floor($n / 100)',
+    '  $w = [long][math]::Floor($scaled / 10)',
+    '  $f = $scaled % 10',
+    "  return ([string]$w) + '.' + ([string]$f) + 'k'",
+    '}',
+  ].join('\n'),
+  // reset-5h 倒數（FormatKind 'reset-countdown-5h'；T4.4，鏡像 resolve.ts
+  // formatResetCountdown5h）：diff=epoch-now（秒）；≥3600→"↺ Xh (HH:mm)"、
+  // 否則"↺ Xm (HH:mm)"；HH:mm 為 epoch 本地時刻同機現算（同 Format-
+  // ResetsAt idiom，InvariantCulture）。`↺`＝[char]0x21BA（sp7 gate 已證
+  // 純 ASCII 跳脫形與 UTF-8 字面 byte-identical）。全 floor。
+  'Format-Reset5h': [
+    'function Format-Reset5h($epoch, $now) {',
+    '  $diff = [double]$epoch - [double]$now',
     '  $t = [DateTimeOffset]::FromUnixTimeSeconds([long]$epoch).ToLocalTime()',
-    "  return ' (' + $t.ToString('HH:mm') + ')'",
+    "  $clock = $t.ToString('HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)",
+    '  if ($diff -ge 3600) {',
+    "    return [char]0x21BA + ' ' + ([string][long][math]::Floor($diff / 3600)) + 'h (' + $clock + ')'",
+    '  }',
+    "  return [char]0x21BA + ' ' + ([string][long][math]::Floor($diff / 60)) + 'm (' + $clock + ')'",
+    '}',
+  ].join('\n'),
+  // reset-7d 倒數（FormatKind 'reset-countdown-7d'；T4.4，鏡像 resolve.ts
+  // formatResetCountdown7d）：diff≥86400→"↺ Xd (MM/dd HH:mm)"、否則
+  // "↺ XhYm (MM/dd HH:mm)"；MM/dd 零填、本地同機現算＋InvariantCulture。
+  'Format-Reset7d': [
+    'function Format-Reset7d($epoch, $now) {',
+    '  $diff = [double]$epoch - [double]$now',
+    '  $t = [DateTimeOffset]::FromUnixTimeSeconds([long]$epoch).ToLocalTime()',
+    "  $stamp = $t.ToString('MM/dd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)",
+    '  if ($diff -ge 86400) {',
+    "    return [char]0x21BA + ' ' + ([string][long][math]::Floor($diff / 86400)) + 'd (' + $stamp + ')'",
+    '  }',
+    '  $h = [long][math]::Floor($diff / 3600)',
+    '  $m = [long][math]::Floor(($diff % 3600) / 60)',
+    "  return [char]0x21BA + ' ' + ([string]$h) + 'h' + ([string]$m) + 'm (' + $stamp + ')'",
     '}',
   ].join('\n'),
 }
@@ -325,8 +482,20 @@ function valueEmit(state: EmitState, seg: SegmentConfig, descriptor: SegmentDesc
       return { pre: [], expr: "'on'" }
     case 'path':
       return pathEmit(seg)
+    case 'reset-countdown-5h':
+      // 需 $Now（S2 idiom 注入；T4.4）——expiresAtPath 存活守衛已於
+      // emitOther 一併置 needsNow 真，此處只負責格式化運算式本身。
+      useHelper(state, 'Format-Reset5h')
+      state.needsNow = true
+      return { pre: [], expr: '(Format-Reset5h $v $Now)' }
+    case 'reset-countdown-7d':
+      useHelper(state, 'Format-Reset7d')
+      state.needsNow = true
+      return { pre: [], expr: '(Format-Reset7d $v $Now)' }
     default:
-      // clock/dirty/percentage 不走此路徑（各有專屬 emit）。
+      // clock/dirty/percentage 不走此路徑（各有專屬 emit）；tokens 走
+      // emitOther 的 dash 分派（nullPolicy 驅動，見該函式），不經
+      // valueEmit——本 case 純防禦，現行 catalog 不會觸發。
       throw new TypeError(`valueEmit 不支援 format：${descriptor.format}`)
   }
 }
@@ -380,7 +549,9 @@ function pushLines(
 function emitShellOut(state: EmitState, seg: SegmentConfig, descriptor: SegmentDescriptor): string[] {
   const head = headExpr(seg, descriptor)
   const prefix = styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg))
-  const tail = `'${bgTail(seg.color)}'`
+  // shell-out 段（git-branch／git-dirty／clock）非 catalog.autoEligibleIds
+  // 成員（無 autoColor 描述子）——恆走既有靜態色路徑，不需 colorExprFor。
+  const tail = `'${bgTail(segmentColorPlaceholder(seg.color))}'`
   const lines: string[] = [`# ${descriptor.id} — shell-out/${descriptor.nullPolicy}`]
 
   const pad = padLit(state)
@@ -410,46 +581,240 @@ function emitShellOut(state: EmitState, seg: SegmentConfig, descriptor: SegmentD
   return lines
 }
 
-/** 一般 hide/empty 段（text/path/cost/duration/context-size/lines/pr/repo/flag）。 */
+/**
+ * 段 prefix／tail 運算式（T4.4：`seg.color.kind==='auto'` 走執行期查表
+ * ＋動態組裝；否則沿既有 emit 期靜態字面，逐位元組不變）。回傳運算式
+ * 可直接用於 `${prefixExpr} + $disp` 串接／`pushLines` 之 tail 參數。
+ */
+function colorExprFor(
+  state: EmitState,
+  seg: SegmentConfig,
+  descriptor: SegmentDescriptor,
+): { prefixExpr: string; tailExpr: string; setupLines: string[] } {
+  if (seg.color.kind !== 'auto') {
+    return {
+      prefixExpr: styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg)),
+      tailExpr: `'${bgTail(segmentColorPlaceholder(seg.color))}'`,
+      setupLines: [],
+    }
+  }
+  const auto = emitAutoBinding(state, descriptor)
+  const bgExpr = state.mode === 'powerline' ? auto.tailVar : null
+  const fgExpr =
+    state.mode === 'powerline'
+      ? seg.fgOverride !== undefined
+        ? psSingleQuote(colorSgrParams(seg.fgOverride, 'fg') ?? '')
+        : auto.autoFgVar
+      : auto.fgVar
+  const pxVar = `$Ac${auto.index}Px`
+  const lines = [...auto.setupLines, `${pxVar} = "$e[0m"`, `if (${fgExpr} -ne '') { ${pxVar} += "$e[" + ${fgExpr} + 'm' }`]
+  if (bgExpr !== null) lines.push(`if (${bgExpr} -ne '') { ${pxVar} += "$e[48;" + ${bgExpr} + 'm' }`)
+  return { prefixExpr: pxVar, tailExpr: auto.tailVar, setupLines: lines }
+}
+
+/**
+ * 一般段（category `always`／`conditional`；text/path/cost/duration/
+ * context-size/lines/pr/repo/flag/tokens/reset-countdown-*）。
+ *
+ * T4.4 dash 分派（PLAN Rev 4 §4；零 id 特判）：`descriptor.nullPolicy`
+ * 驅動——`'dash'`（現行僅 token-in／token-out：非 percentage 段亦可拿
+ * `'--'`）獨立分支，null→'--'、否則走 Format-Tokens；`'hide'`／`'empty'`
+ * 沿既有 aliveGuard 路徑，並疊加 `expiresAtPath` 通用死值規則（存在時
+ * 追加 `$Now` 存活條件，isValueDead 判定之後——現行僅 reset-5h／reset-7d）。
+ */
 function emitOther(state: EmitState, seg: SegmentConfig, descriptor: SegmentDescriptor): string[] {
   const head = headExpr(seg, descriptor)
-  const prefix = styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg))
-  const tail = `'${bgTail(seg.color)}'`
-  const { pre, expr } = valueEmit(state, seg, descriptor)
   const pad = padLit(state)
   const lines: string[] = [`# ${descriptor.id} — ${descriptor.category}/${descriptor.nullPolicy}`]
+
+  const { prefixExpr, tailExpr, setupLines } = colorExprFor(state, seg, descriptor)
+  lines.push(...setupLines)
+
+  if (descriptor.nullPolicy === 'dash') {
+    useHelper(state, 'Format-Tokens')
+    lines.push(`$v = ${descriptor.ps1Path}`)
+    lines.push('if ($null -eq $v) {')
+    lines.push(`  $vt = '--'`)
+    lines.push('} else {')
+    lines.push('  $vt = (Format-Tokens $v)')
+    lines.push('}')
+    lines.push(`$disp = ${concatExpr([head, '$vt', pad])}`)
+    lines.push(...pushLines(state, `${prefixExpr} + $disp`, tailExpr, ''))
+    return lines
+  }
+
+  const { pre, expr } = valueEmit(state, seg, descriptor)
+  let guard = aliveGuard(descriptor.format)
+  if (descriptor.expiresAtPath !== undefined) {
+    state.needsNow = true
+    guard = `${guard} -and $Now -lt $v`
+  }
   lines.push(`$v = ${descriptor.ps1Path}`)
-  lines.push(`if (${aliveGuard(descriptor.format)}) {`)
+  lines.push(`if (${guard}) {`)
   for (const p of pre) lines.push(`  ${p}`)
   lines.push(`  $disp = ${concatExpr([head, expr, pad])}`)
-  lines.push(...pushLines(state, `${prefix} + $disp`, tail, '  '))
+  lines.push(...pushLines(state, `${prefixExpr} + $disp`, tailExpr, '  '))
   lines.push('}')
   return lines
 }
 
-/** 百分比段（dash 政策；可掛閾值＋resets 後綴）。 */
-function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: SegmentDescriptor): string[] {
+/**
+ * percent-reset 後綴（M6 C3，2026-07-14 拍板；magi/08-statusline-catalog-
+ * expansion/TASKS.md T6.3；鏡像 resolve.ts `resetsAtSuffix`）：kind 由
+ * `descriptor.resetsAt.countdown` 目錄驅動（零 id 特判）——rate-5h／rate-7d
+ * 分派 `Format-Reset5h`／`Format-Reset7d`（需 `$Now`；`state.needsNow` 隨
+ * 呼叫置真，天然落實 C5 `$Now` 注入閘門擴充「有倒數段 或 有 percent-reset
+ * 變體的 rate 段」，零額外分支）。死值規則（`resets_at` null／undefined 或
+ * 已過期 `$Now >= 該值`）→ `$sfx` 維持空字串——**只剔後綴，rate 段本體仍
+ * 存活**（與倒數段 `expiresAtPath` 整段剔除的死值規則語意分開，不共用
+ * 該分支／該 guard）。非 percent-reset variant 或 descriptor 無 `resetsAt`
+ * 通道 → 空 `pre`、`sfxRef=''`（沿既有行為，零 helper／`$Now` 開銷）。
+ */
+function resetSuffixEmit(
+  state: EmitState,
+  seg: SegmentConfig,
+  descriptor: SegmentDescriptor,
+): { pre: string[]; sfxRef: string } {
+  if (descriptor.resetsAt === undefined || seg.variant !== 'percent-reset') {
+    return { pre: [], sfxRef: '' }
+  }
+  const helperName = descriptor.resetsAt.countdown === 'reset-countdown-5h' ? 'Format-Reset5h' : 'Format-Reset7d'
+  useHelper(state, helperName)
+  state.needsNow = true
+  const pre = [
+    `$rst = ${descriptor.resetsAt.ps1Path}`,
+    `$sfx = ''`,
+    `if ($null -ne $rst -and $Now -lt $rst) {`,
+    `  $sfx = ' ' + (${helperName} $rst $Now)`,
+    `}`,
+  ]
+  return { pre, sfxRef: '$sfx' }
+}
+
+/**
+ * bar 段（T4.4；PLAN §4／sp4/REPORT.md 41-案 recipe；**M6 C1／C2 改版**，
+ * 2026-07-14 拍板）：恆 4-run（head／filled／empty／value）併單一累加器
+ * 元素——plain 沿既有閾值分裂先例（單一 `$s` 逐 run 烘 reset+fg+text）、
+ * powerline 同構烘 reset+fg+bg+text（run1 亦全烘，非「bare＋join 迴圈補烘」
+ * ——ps1 `joinPowerline` 之 `$Segs[i]` 元素恆已預烘完整，join 迴圈本身不再
+ * 補 fg/bg，見該函式）；填格＝`max(0,min(20,floor(pct/5)))`；
+ * `threshold===undefined` 退段主色。**M6 C2：撤除舊「主值 null → 整段退單
+ * run」路徑**——null（`$v` 為 `$null`）時改與存活值共用同一 4-run 組裝
+ * （`$bn`／`$bucketFg`／`$vt` 於 if/else 兩分支各自賦值、`$filled`／`$empty`
+ * 移至 if/else 之後共用計算），null 時 `$bn=0`（filled 空、empty 滿 20
+ * 格）、`$bucketFg` 恆退段主色（`threshold` 不查表——鏡像 resolve.ts
+ * 「isDash 時 threshold 為 null」）、`$vt` 為 **M6 C1 `NA_TEXT`**（bar 恆
+ * 百分比類，閘門走 category、零 id 特判——由 `emitSegment` 路由至本函式時
+ * 已隱含）。fgOverride 停用規則（headRun 恆用 autoFg，不論 null／存活）不變。
+ * bar 與 auto 互斥（`barEligibleIds`／`autoEligibleIds` 不相交，config
+ * 清洗保證），本函式不處理 auto。
+ */
+function emitBar(state: EmitState, seg: SegmentConfig, descriptor: SegmentDescriptor): string[] {
   const head = headExpr(seg, descriptor)
-  const tail = `'${bgTail(seg.color)}'`
   const hasThreshold = seg.threshold !== undefined
-  const suffix =
-    descriptor.resetsAt !== undefined && seg.variant === 'percent-reset'
-      ? ((): string => {
-          useHelper(state, 'Format-ResetsAt')
-          return `(Format-ResetsAt ${descriptor.resetsAt!.ps1Path})`
-        })()
-      : ''
+  const pad = padLit(state)
+  const lines: string[] = [`# ${descriptor.id} — percentage/dash＋bar${hasThreshold ? '＋threshold' : ''}`]
+  lines.push(`$v = ${descriptor.ps1Path}`)
+  const { pre: sfxPre, sfxRef } = resetSuffixEmit(state, seg, descriptor)
+  lines.push(...sfxPre)
+
+  // 段主色（bar 不支援 auto，見上方文件；M3 placeholder 同既有非 bar 路徑）。
+  const segColorSpec = segmentColorPlaceholder(seg.color)
+  const mainTailLit = psSingleQuote(bgTail(segColorSpec))
+  const mainFgLit = psSingleQuote(colorSgrParams(segColorSpec, 'fg') ?? '')
+  const autoFgLit = psSingleQuote(colorSgrParams(autoFg(segColorSpec), 'fg') ?? '')
+
+  // M6 C2：null／存活兩分支各自求 $bn／$bucketFg／$vt——null 時填格恆 0、
+  // 桶色恆退段主色（threshold 不查表）、值文字＝NA_TEXT；存活時填格＝
+  // max(0,min(20,floor(pct/5)))（`$bn`，非 `$n`——避與 join 之
+  // `$n = $Segs.Count` 混淆），桶色依 hasThreshold 查表或退段主色。
+  lines.push('if ($null -eq $v) {')
+  lines.push('  $bn = 0')
+  lines.push(`  $bucketFg = ${mainFgLit}`)
+  lines.push(`  $vt = ${psSingleQuote(NA_TEXT)}`)
+  lines.push('} else {')
+  lines.push('  $p = [double]$v')
+  lines.push('  $bn = [long][math]::Floor($p / 5)')
+  lines.push('  if ($bn -gt 20) { $bn = 20 }')
+  lines.push('  if ($bn -lt 0) { $bn = 0 }')
+  lines.push("  $vt = ([string][long][math]::Floor($p)) + '%'")
+  if (hasThreshold) {
+    const { fgVar } = declareBarThreshold(state, seg.threshold!)
+    lines.push('  $idx = [long][math]::Floor($p / 10)')
+    lines.push('  if ($idx -gt 9) { $idx = 9 }')
+    lines.push('  if ($idx -lt 0) { $idx = 0 }')
+    lines.push(`  $bucketFg = ${fgVar}[$idx]`)
+  } else {
+    lines.push(`  $bucketFg = ${mainFgLit}`)
+  }
+  lines.push('}')
+  // $bn 兩分支皆已定形（0 或 clamp 後值）——filled／empty 字元重複移出
+  // if/else、兩分支共用同一運算式（4-run 恆定形，零重複組裝碼）。
+  lines.push('$filled = ([string][char]0x2588) * [int]$bn')
+  lines.push('$empty = ([string][char]0x2591) * [int](20 - $bn)')
+
+  const headTextExpr = head === '' ? "''" : head
+  const bucketFgExpr = '$bucketFg'
+  if (state.mode === 'powerline') {
+    // run1 head：fg=autoFg(segColor)（fgOverride 停用，null／存活皆同）、bg=segColor。
+    lines.push('$s = "$e[0m"')
+    lines.push(`if (${autoFgLit} -ne '') { $s += "$e[" + ${autoFgLit} + 'm' }`)
+    lines.push(`if (${mainTailLit} -ne '') { $s += "$e[48;" + ${mainTailLit} + 'm' }`)
+    lines.push(`$s += ${headTextExpr}`)
+    // run2 filled：fg=桶色、bg=segColor。
+    lines.push('$s += "$e[0m"')
+    lines.push(`if (${bucketFgExpr} -ne '') { $s += "$e[" + ${bucketFgExpr} + 'm' }`)
+    lines.push(`if (${mainTailLit} -ne '') { $s += "$e[48;" + ${mainTailLit} + 'm' }`)
+    lines.push('$s += $filled')
+    // run3 empty：無 fg（default）、bg=segColor。
+    lines.push('$s += "$e[0m"')
+    lines.push(`if (${mainTailLit} -ne '') { $s += "$e[48;" + ${mainTailLit} + 'm' }`)
+    lines.push('$s += $empty')
+    // run4 value：fg=桶色、bg=segColor。
+    lines.push('$s += "$e[0m"')
+    lines.push(`if (${bucketFgExpr} -ne '') { $s += "$e[" + ${bucketFgExpr} + 'm' }`)
+    lines.push(`if (${mainTailLit} -ne '') { $s += "$e[48;" + ${mainTailLit} + 'm' }`)
+    lines.push(`$s += ${concatExpr(["' '", '$vt', sfxRef, pad])}`)
+    lines.push(...pushLines(state, '$s', mainTailLit, ''))
+  } else {
+    // plain：run1 head fg=segColor／run2 filled fg=桶色／run3 empty 無 fg／run4 value fg=桶色（皆無 bg）。
+    lines.push('$s = "$e[0m"')
+    lines.push(`if (${mainFgLit} -ne '') { $s += "$e[" + ${mainFgLit} + 'm' }`)
+    lines.push(`$s += ${headTextExpr}`)
+    lines.push('$s += "$e[0m"')
+    lines.push(`if (${bucketFgExpr} -ne '') { $s += "$e[" + ${bucketFgExpr} + 'm' }`)
+    lines.push('$s += $filled')
+    lines.push('$s += "$e[0m"')
+    lines.push('$s += $empty')
+    lines.push('$s += "$e[0m"')
+    lines.push(`if (${bucketFgExpr} -ne '') { $s += "$e[" + ${bucketFgExpr} + 'm' }`)
+    lines.push(`$s += ${concatExpr(["' '", '$vt', sfxRef, pad])}`)
+    lines.push(...pushLines(state, '$s', '', ''))
+  }
+
+  return lines
+}
+
+/** 百分比段（dash 政策；可掛閾值＋resets 後綴＋bar）。 */
+function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: SegmentDescriptor): string[] {
+  if (seg.bar === true) return emitBar(state, seg, descriptor)
+  const head = headExpr(seg, descriptor)
+  // percentage 段非 catalog.autoEligibleIds 成員（無 autoColor 描述子）
+  // ——恆走既有靜態色路徑，同上 emitShellOut 理由。
+  const tail = `'${bgTail(segmentColorPlaceholder(seg.color))}'`
+  const hasThreshold = seg.threshold !== undefined
   const pad = padLit(state)
   const lines: string[] = [`# ${descriptor.id} — percentage/dash${hasThreshold ? '＋threshold' : ''}`]
   lines.push(`$v = ${descriptor.ps1Path}`)
-  if (suffix !== '') lines.push(`$sfx = ${suffix}`)
-  const sfxRef = suffix !== '' ? '$sfx' : ''
+  const { pre: sfxPre, sfxRef } = resetSuffixEmit(state, seg, descriptor)
+  lines.push(...sfxPre)
 
   if (!hasThreshold) {
-    // 無閾值：dash 與數值同段主色。
+    // 無閾值：dash 與數值同段主色。M6 C1：dash-null 顯 NA_TEXT（percentage
+    // 類恆走此顯示形，閘門走 category——emitSegment 路由至本函式時已隱含）。
     const prefix = styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg))
     lines.push('if ($null -eq $v) {')
-    lines.push(`  $vt = '--'`)
+    lines.push(`  $vt = ${psSingleQuote(NA_TEXT)}`)
     lines.push('} else {')
     lines.push("  $vt = ([string][long][math]::Floor([double]$v)) + '%'")
     lines.push('}')
@@ -458,11 +823,12 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
     return lines
   }
 
-  // 有閾值：dash → 段主色（不套閾值色）；數值 → 桶索引查表。
+  // 有閾值：dash → 段主色（不套閾值色）；數值 → 桶索引查表。M6 C1：dash-null
+  // 顯 NA_TEXT（同上，percentage 類）。
   const { fgVar, bgVar } = declareThreshold(state, seg.threshold!, seg.fgOverride)
   const dashPrefix = styledPrefix(segFg(state.mode, seg), segBg(state.mode, seg))
   lines.push('if ($null -eq $v) {')
-  lines.push(`  $disp = ${concatExpr([head, "'--'", sfxRef, pad])}`)
+  lines.push(`  $disp = ${concatExpr([head, psSingleQuote(NA_TEXT), sfxRef, pad])}`)
   lines.push(...pushLines(state, `${dashPrefix} + $disp`, tail, '  '))
   lines.push('} else {')
   lines.push('  $p = [double]$v')
@@ -481,11 +847,12 @@ function emitPercentage(state: EmitState, seg: SegmentConfig, descriptor: Segmen
     lines.push(...pushLines(state, '$s', '$bg', '  '))
   } else {
     // plain 閾值：head 非空 → 兩 run（head 隨段主色 + reset、value 隨桶色）；
-    // head 空 → 單 run（僅 value run 的前置 reset），與 oracle（resolve.ts
-    // 175-178 單 run）＋bash（emit-bash.ts 274-278 pushLine reset='1'）同構。
+    // head 空 → 單 run（僅 value run 的前置 reset），與 oracle（見 resolve.ts
+    // 的 plain 單 run 組裝分支）＋bash（見 emit-bash.ts 的 pushLine
+    // reset='1' 處）同構。
     // 第二個 reset 收進 head!=='' 分支——head 空時勿補、否則多吐 ESC[0m 破
-    // byte-exact（CR2 覆蓋盲區 #2）。
-    const headPrefix = styledPrefix(seg.color, null)
+    // byte-exact（CR2 覆蓋盲區 #2）。percentage 段非 auto-eligible，同上。
+    const headPrefix = styledPrefix(segmentColorPlaceholder(seg.color), null)
     lines.push(`  $fg = ${fgVar}[$idx]`)
     if (head !== '') {
       lines.push(`  $s = ${headPrefix} + ${head}`)
@@ -627,6 +994,34 @@ function groupSegmentsByRow(config: BuilderConfig): RowGroup[] {
   return sortedKeys.map((key) => ({ key, segments: groups.get(key)! }))
 }
 
+// ── now 注入（T4.4；sp2/REPORT.md §2.3 釘死 idiom，逐字抄） ──
+
+/**
+ * `$Now`（epoch 秒）計算區塊：`STATUSLINE_NOW_EPOCH` 環境變數存在且可
+ * 解析為合法整數時採其值（決定論注入，供測試／使用者覆寫）；未設、
+ * 空字串、或非數字字串一律靜默回落真系統時鐘（`DateTimeOffset.Now`），
+ * 不中止腳本（exit 0 不變量）。`[string]::IsNullOrEmpty` 閘先行（避開
+ * `[long]''` 靜默＝0 的陷阱——sp2 §2.1 實證，try/catch 形不可靠）、
+ * `[long]::TryParse` 閘次之（非數字不擲例外，語意精確對齊「不中止」）。
+ * 僅在 `state.needsNow` 時 emit（倒數段／`expiresAtPath` 用到；零使用
+ * 時不印，既有無倒數段 config 之 golden bytes 不受影響）。
+ */
+function nowInjectionLines(): string[] {
+  return [
+    '$__nowEnv = $env:STATUSLINE_NOW_EPOCH',
+    'if ([string]::IsNullOrEmpty($__nowEnv)) {',
+    '  $Now = [DateTimeOffset]::Now.ToUnixTimeSeconds()',
+    '} else {',
+    '  $__nowParsed = 0L',
+    '  if ([long]::TryParse($__nowEnv, [ref]$__nowParsed)) {',
+    '    $Now = $__nowParsed',
+    '  } else {',
+    '    $Now = [DateTimeOffset]::Now.ToUnixTimeSeconds()',
+    '  }',
+    '}',
+  ]
+}
+
 // ── 主入口 ──
 
 /**
@@ -656,6 +1051,8 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
     helpers: new Set(),
     thresholdDecls: [],
     thresholdCount: 0,
+    needsNow: false,
+    autoCount: 0,
     rowVars: { segs: 'Segs', bgt: 'BgT' },
   }
 
@@ -700,6 +1097,10 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
     out.push('$raw = [Console]::In.ReadToEnd()')
     out.push('$d = $null')
     out.push('try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }')
+    if (state.needsNow) {
+      out.push('')
+      out.push(...nowInjectionLines())
+    }
     out.push('')
     out.push('$Segs = @()')
     if (state.mode === 'powerline') out.push('$BgT = @()')
@@ -734,6 +1135,10 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
     out.push('$raw = [Console]::In.ReadToEnd()')
     out.push('$d = $null')
     out.push('try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }')
+    if (state.needsNow) {
+      out.push('')
+      out.push(...nowInjectionLines())
+    }
 
     // 步驟 1：逐列緩衝（宣告＋段 emit；列內累加器獨立）。
     for (let k = 0; k < rowGroups.length; k++) {

@@ -3,8 +3,10 @@
  *
  * 覆蓋：command 形（Windows powershell/pwsh wrapper 逐字＋forward-slash＋
  * 含空白 quote／POSIX 直呼／缺省路徑）；refreshInterval 條件（clock 有/無、
- * rate percent-reset 有/無、只計啟用段、自訂值＋clamp）；hideVimModeIndicator
- * 條件；JSON.parse 回讀合法＋片段結構；附帶文案常數存在。
+ * rate percent-reset 有/無、reset-5h／reset-7d 倒數段矩陣（T4.5，08-PLAN
+ * Rev 4 §4）、percent-reset 變體正反兩向獨立釘住（M6 C6，TASKS.md T6.4）、
+ * 只計啟用段、自訂值＋clamp）；hideVimModeIndicator 條件；JSON.parse
+ * 回讀合法＋片段結構；附帶文案常數存在。
  */
 import { describe, expect, it } from 'vitest'
 import type { BuilderConfig, SegmentConfig } from './config.js'
@@ -112,6 +114,56 @@ describe('refreshInterval 條件（契約 11／F4）', () => {
   it('rate 段 percent variant（無 resets 倒數）→ 省略', () => {
     expect(
       sl(cfg({ segments: [seg('rate-5h', { variant: 'percent' })] }), { target: 'posix' }),
+    ).not.toHaveProperty('refreshInterval')
+  })
+
+  // M6 C6（magi/08-statusline-catalog-expansion/TASKS.md T6.4；使用者
+  // 2026-07-14 拍板契約）：percent-reset 後綴自 C3 起升級為倒數形（隨
+  // now 變動），單獨存在（無 clock、無 reset-5h／reset-7d 獨立倒數段）
+  // 亦須 refreshInterval——正反兩向明確釘住，與上方「rate 段 percent-reset
+  // variant → 附 refreshInterval」互為佐證（hasResetsCountdown 條件本身
+  // 只判 variant、不判 clock／reset-5h／reset-7d 是否存在）。
+  it('C6 正向：percent-reset 變體單獨存在（無 clock／reset-5h／reset-7d）→ 仍需 refreshInterval', () => {
+    expect(
+      sl(cfg({ segments: [seg('model'), seg('rate-5h', { variant: 'percent-reset' })] }), {
+        target: 'posix',
+      }).refreshInterval,
+    ).toBe(60)
+  })
+
+  it('C6 反向：無 percent-reset 變體、無 clock、無 reset-5h／reset-7d → 省略 refreshInterval', () => {
+    expect(
+      sl(
+        cfg({
+          segments: [seg('model'), seg('rate-5h', { variant: 'percent' }), seg('rate-7d')],
+        }),
+        { target: 'posix' },
+      ),
+    ).not.toHaveProperty('refreshInterval')
+  })
+
+  // T4.5（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §4）：reset-5h
+  // ／reset-7d 獨立倒數段——輸出隨時間變動，各自啟用即需 refreshInterval。
+  it('reset-5h 啟用 → 附 refreshInterval（倒數段，08-PLAN Rev 4 §4）', () => {
+    expect(
+      sl(cfg({ segments: [seg('reset-5h')] }), { target: 'posix' }).refreshInterval,
+    ).toBe(60)
+  })
+
+  it('reset-7d 啟用 → 附 refreshInterval（倒數段，08-PLAN Rev 4 §4）', () => {
+    expect(
+      sl(cfg({ segments: [seg('reset-7d')] }), { target: 'posix' }).refreshInterval,
+    ).toBe(60)
+  })
+
+  it('reset-5h／reset-7d 皆停用 → 省略（只計啟用段）', () => {
+    expect(
+      sl(
+        cfg({
+          segments: [seg('reset-5h', { enabled: false }), seg('reset-7d', { enabled: false })],
+        }),
+        { target: 'posix' },
+      ),
     ).not.toHaveProperty('refreshInterval')
   })
 

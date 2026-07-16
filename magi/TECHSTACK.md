@@ -24,8 +24,8 @@
   Transferable 轉移（無-SAB 約束見下方 Constraints，不重述）；
   video-converter 的內部 module worker 由 `@ffmpeg/ffmpeg` 自帶
   （worker chunk 由 Rollup 自動 emit，非自寫）
-- statusline-builder：**零 runtime npm 依賴**；預覽以系統 monospace＋原生
-  emoji 渲染，無簽入字型資產（sprint 06a 已移除先前簽入的 Nerd Font
+- statusline-builder：**零 runtime npm 依賴**；預覽以系統 monospace＋ASCII
+  前綴 icon 渲染，無簽入字型資產（sprint 06a 已移除先前簽入的 Nerd Font
   subset 與其建置工序，devDependency 淨刪記錄見 Deployment）
 
 ## Database / storage
@@ -52,11 +52,16 @@
   devDependency：`subset-font`（原用於產生現已移除的 Nerd Font subset）
   與其唯一消費者 `fontkit`；`package.json` 現無殘留，`verify:dist` 對此
   設有永久回歸斷言（見 scripts/verify-dist.mjs）
+- 倒數段真執行 gate 沿現行同機 oracle 體制（S6 實證三後端零分岔），CI
+  不釘時區；`STATUSLINE_NOW_EPOCH` 為腳本可選注入（單元／golden 層用）
 - 分支策略：DEV 開發、main 部署（merge 即發布）
 - 前置需求（一次性）：GitHub Settings → Pages → Source = GitHub Actions
 
 ## Test framework
-- vitest 4.1.9（`npm test` = `vitest run --passWithNoTests`）
+- vitest 4.1.9（`npm test` = `vitest run`）
+- jsdom（devDep，per-file `@vitest-environment` 局部啟用）
+- `npm run test:e2e`＝CDP 整合案（本機限定、需 Edge/Chromium、自起
+  vite preview、不進 CI）
 
 ## Constraints
 - 產出必須是純靜態檔案，可直接由 GitHub Pages 託管

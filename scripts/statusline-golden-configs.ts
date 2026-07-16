@@ -24,6 +24,8 @@ export interface ByteExactScenario {
   data: StatusData
   shell: MockShellChannel
   env: { home: string }
+  /** 決定論「現在」（epoch 秒；T4.1 ResolveInput.now 必填——由派生來源 mock 情境沿用）。 */
+  now: number
 }
 
 export interface GoldenCase {
@@ -39,6 +41,8 @@ const TC = (hex: string): ColorSpec => ({ kind: 'truecolor', hex })
 
 const TRAFFIC = THRESHOLD_TEMPLATES.traffic
 const TRAFFIC_INV = THRESHOLD_TEMPLATES['traffic-inv']
+const LIMIT_GRADIENT = THRESHOLD_TEMPLATES['limit-gradient']
+const REMAINING_GRADIENT = THRESHOLD_TEMPLATES['remaining-gradient']
 
 const FULL = MOCK_SCENARIOS_BY_ID.full
 const EARLY = MOCK_SCENARIOS_BY_ID['early-null']
@@ -65,12 +69,12 @@ function cfg(mode: BuilderConfig['mode'], over: Partial<BuilderConfig>): Builder
 function fullWith(mutate: (d: StatusData) => void = () => {}): ByteExactScenario {
   const data = clone(FULL.data)
   mutate(data)
-  return { data, shell: FULL.shell, env: FULL.env }
+  return { data, shell: FULL.shell, env: FULL.env, now: FULL.now }
 }
 
 /** 指定 mock 情境派生（原樣、無突變）。 */
 function fromMock(base: (typeof MOCK_SCENARIOS_BY_ID)[keyof typeof MOCK_SCENARIOS_BY_ID]): ByteExactScenario {
-  return { data: clone(base.data), shell: base.shell, env: base.env }
+  return { data: clone(base.data), shell: base.shell, env: base.env, now: base.now }
 }
 
 export const GOLDEN_CASES: readonly GoldenCase[] = [
@@ -209,6 +213,100 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
         seg('context-used', { threshold: TRAFFIC, color: A(240) }),
         seg('rate-5h', { color: A(99) }),
         seg('git-branch', { icon: true, color: A(46) }),
+      ],
+    }),
+  },
+
+  // ── T4.6（08-PLAN Rev 4 §5；TASKS.md T4.6）golden 擴案：新 5 段／bar／
+  //    auto／雙模板結構覆蓋（golden 為「產出腳本文字」，config 結構決定
+  //    輸出——不需 scenario／real-exec 亦可覆蓋新程式碼路徑，故本節新案
+  //    刻意不掛 scenario，維持 golden-only、CI 時間零額外負擔）。
+
+  // 全 30 段單列（plain）：涵蓋新 5 段（token-in／token-out／cache-hit／
+  // reset-5h／reset-7d）jq 產生路徑，與 golden-statusline-ps1.mjs 的
+  // 'plain-full'（本次同步升級 25→30 段）equivalent 覆蓋、非逐字同名
+  // （bash／ps1 兩份 canonical 各自獨立事實來源，見兩檔檔頭）。
+  {
+    name: 'full-30-plain',
+    config: cfg('plain', {
+      segments: [
+        seg('model', { icon: true, color: A(75) }),
+        seg('cwd', { icon: true, variant: 'tilde', prefix: '@' }),
+        seg('project-dir', { icon: true }),
+        seg('output-style', { icon: true }),
+        seg('version', { icon: true, prefix: 'v' }),
+        seg('cost', { icon: true, color: A(220) }),
+        seg('duration', { icon: true }),
+        seg('lines-changed', { icon: true }),
+        seg('context-size', { icon: true }),
+        seg('thinking', { icon: true }),
+        seg('token-in', { icon: true, color: A(80) }),
+        seg('token-out', { icon: true, color: A(81) }),
+        seg('context-used', { icon: true, threshold: TRAFFIC, prefix: "it's " }),
+        seg('context-remaining', { icon: true }),
+        seg('cache-hit', { icon: true, color: A(214) }),
+        seg('rate-5h', { icon: true, variant: 'percent-reset' }),
+        seg('rate-7d', { icon: true, variant: 'percent-reset' }),
+        seg('reset-5h', { icon: true, color: A(99) }),
+        seg('reset-7d', { icon: true, color: A(99) }),
+        seg('session-name', { icon: true, prefix: '$(x)' }),
+        seg('effort', { icon: true }),
+        seg('vim-mode', { icon: true }),
+        seg('agent-name', { icon: true }),
+        seg('pr', { icon: true }),
+        seg('repo', { icon: true }),
+        seg('worktree', { icon: true }),
+        seg('worktree-branch', { icon: true }),
+        seg('git-branch', { icon: true }),
+        seg('git-dirty', { icon: true }),
+        seg('clock', { icon: true }),
+      ],
+    }),
+  },
+
+  // bar 結構覆蓋（plain）：雙模板（limit-gradient／remaining-gradient）＋
+  // traffic＋percent-reset 併 bar＋無閾值 bar（threshold===undefined →
+  // filled／pct 退段主色，emitBarSegment 的 `else bfg=mainFgLit` 分支，
+  // 與有閾值分支的 jq `tf` array／idx 計算為結構性不同程式碼路徑）。
+  {
+    name: 'bar-templates-plain',
+    config: cfg('plain', {
+      segments: [
+        seg('context-used', { bar: true, threshold: LIMIT_GRADIENT, color: A(240) }),
+        seg('context-remaining', { bar: true, threshold: REMAINING_GRADIENT, color: A(45) }),
+        seg('rate-5h', { bar: true, variant: 'percent-reset', threshold: TRAFFIC, color: A(88) }),
+        seg('cache-hit', { bar: true, color: A(200) }),
+      ],
+    }),
+  },
+
+  // bar＋auto＋倒數同列（powerline arrow=true, cap=true）：auto(model) 展開
+  // 色參與箭頭交接／autoFg 對比＋bar 併元素累加器＋countdown 段三者同列
+  // 共存（sp4/verify.mjs 案 10 配方；T4.6 §Verification 錨點）。
+  {
+    name: 'bar-auto-powerline-arrow',
+    config: cfg('powerline', {
+      lastArrowCap: true,
+      segments: [
+        seg('model', { color: { kind: 'auto' } }),
+        seg('context-used', { bar: true, threshold: TRAFFIC, color: A(240) }),
+        seg('reset-5h', { color: A(99) }),
+      ],
+    }),
+  },
+
+  // bar（無閾值）＋auto(effort)＋倒數同列（powerline powerlineArrow=false／
+  // noarrow）：D1 gating 右 padding 與 auto／bar 併元素三者共存（sp4/
+  // verify.mjs 案 11 配方）。
+  {
+    name: 'bar-auto-powerline-noarrow',
+    config: cfg('powerline', {
+      powerlineArrow: false,
+      lastArrowCap: true,
+      segments: [
+        seg('effort', { color: { kind: 'auto' } }),
+        seg('rate-7d', { bar: true, color: A(88) }),
+        seg('reset-7d', { color: A(99) }),
       ],
     }),
   },

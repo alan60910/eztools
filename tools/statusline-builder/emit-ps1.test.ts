@@ -44,6 +44,12 @@ const CATALOG = DESCRIPTORS_BY_ID
 
 const A = (index: number): ColorSpec => ({ kind: 'ansi256', index })
 const TRAFFIC = THRESHOLD_TEMPLATES.traffic
+// T4.6（08-PLAN Rev 4 §5）雙模板：與 scripts/golden-statusline-ps1.mjs 內
+// 手抄 LIMIT_GRADIENT／REMAINING_GRADIENT 同值（此檔可直接 import 真
+// threshold.ts，無需手抄——golden 側因 registerHooks 時序限制才手抄，見
+// 該檔檔頭）。
+const LIMIT_GRADIENT = THRESHOLD_TEMPLATES['limit-gradient']
+const REMAINING_GRADIENT = THRESHOLD_TEMPLATES['remaining-gradient']
 const seg = (id: string, over: Partial<SegmentConfig> = {}): SegmentConfig => ({
   id,
   enabled: true,
@@ -97,6 +103,49 @@ const PLAIN_FULL: BuilderConfig = cfg({
   ],
 })
 
+// T4.6（08-PLAN Rev 4 §5；TASKS.md T4.6）：全 30 段單列（plain）——涵蓋新
+// 5 段（token-in／token-out／cache-hit／reset-5h／reset-7d）ps1 產生路徑。
+// **獨立新 config，刻意不擴充 PLAIN_FULL**：後者被多處既有結構斷言
+// （「無倒數段」不變量、`fullBehaviorCases()` 真執行等）依賴其現行 25 段
+// 形狀，擴充會打破那些既有斷言的前提；與
+// scripts/golden-statusline-ps1.mjs 內同名 'full-30-plain' 逐字同步。
+const FULL_30_PLAIN: BuilderConfig = cfg({
+  mode: 'plain',
+  separator: { kind: 'preset', value: '|' },
+  segments: [
+    seg('model', { color: A(75) }),
+    seg('cwd', { variant: 'tilde', prefix: '@' }),
+    seg('project-dir'),
+    seg('output-style'),
+    seg('version', { prefix: 'v' }),
+    seg('cost', { color: A(220) }),
+    seg('duration'),
+    seg('lines-changed'),
+    seg('context-size'),
+    seg('thinking'),
+    seg('token-in', { color: A(80) }),
+    seg('token-out', { color: A(81) }),
+    seg('context-used', { threshold: TRAFFIC, prefix: "it's " }),
+    seg('context-remaining'),
+    seg('cache-hit', { color: A(214) }),
+    seg('rate-5h', { variant: 'percent-reset' }),
+    seg('rate-7d', { variant: 'percent-reset' }),
+    seg('reset-5h', { color: A(99) }),
+    seg('reset-7d', { color: A(99) }),
+    seg('session-name', { prefix: '$(x)' }),
+    seg('effort'),
+    seg('vim-mode'),
+    seg('agent-name'),
+    seg('pr'),
+    seg('repo'),
+    seg('worktree'),
+    seg('worktree-branch'),
+    seg('git-branch'),
+    seg('git-dirty'),
+    seg('clock'),
+  ],
+})
+
 const POWERLINE_THRESHOLD: BuilderConfig = cfg({
   mode: 'powerline',
   lastArrowCap: true,
@@ -128,10 +177,58 @@ const POWERLINE_NOARROW: BuilderConfig = cfg({
   ],
 })
 
+// T4.6（08-PLAN Rev 4 §5；TASKS.md T4.6）golden 擴案：與
+// scripts/golden-statusline-ps1.mjs 內同名 config 逐字同步（golden 測試
+// 為漂移守門）。
+
+// bar 結構覆蓋（plain）：雙模板（limit-gradient／remaining-gradient）＋
+// traffic＋percent-reset 併 bar＋無閾值 bar（threshold===undefined →
+// filled／pct 退段主色，與有閾值分支為結構性不同 ps1 程式碼路徑）。
+const BAR_TEMPLATES: BuilderConfig = cfg({
+  mode: 'plain',
+  segments: [
+    seg('context-used', { icon: false, bar: true, threshold: LIMIT_GRADIENT, color: A(240) }),
+    seg('context-remaining', { icon: false, bar: true, threshold: REMAINING_GRADIENT, color: A(45) }),
+    seg('rate-5h', { icon: false, bar: true, variant: 'percent-reset', threshold: TRAFFIC, color: A(88) }),
+    seg('cache-hit', { icon: false, bar: true, color: A(200) }),
+  ],
+})
+
+// bar＋auto＋倒數同列（powerline arrow=true, cap=true）：auto(model) 展開
+// 色參與箭頭交接／autoFg 對比＋bar 併元素累加器＋countdown 段三者同列
+// 共存（sp4/verify.mjs 案 10 配方；T4.6 §Verification 錨點）。
+const BAR_AUTO_POWERLINE_ARROW: BuilderConfig = cfg({
+  mode: 'powerline',
+  lastArrowCap: true,
+  segments: [
+    seg('model', { color: { kind: 'auto' } }),
+    seg('context-used', { icon: false, bar: true, threshold: TRAFFIC, color: A(240) }),
+    seg('reset-5h', { icon: false, color: A(99) }),
+  ],
+})
+
+// bar（無閾值）＋auto(effort)＋倒數同列（powerline powerlineArrow:false／
+// noarrow）：D1 gating 右 padding 與 auto／bar 併元素三者共存（sp4/
+// verify.mjs 案 11 配方）。
+const BAR_AUTO_POWERLINE_NOARROW: BuilderConfig = cfg({
+  mode: 'powerline',
+  powerlineArrow: false,
+  lastArrowCap: true,
+  segments: [
+    seg('effort', { color: { kind: 'auto' } }),
+    seg('rate-7d', { icon: false, bar: true, color: A(88) }),
+    seg('reset-7d', { icon: false, color: A(99) }),
+  ],
+})
+
 const GOLDENS: ReadonlyArray<{ name: string; config: BuilderConfig }> = [
   { name: 'plain-full', config: PLAIN_FULL },
   { name: 'powerline-threshold', config: POWERLINE_THRESHOLD },
   { name: 'powerline-noarrow', config: POWERLINE_NOARROW },
+  { name: 'full-30-plain', config: FULL_30_PLAIN },
+  { name: 'bar-templates', config: BAR_TEMPLATES },
+  { name: 'bar-auto-powerline-arrow', config: BAR_AUTO_POWERLINE_ARROW },
+  { name: 'bar-auto-powerline-noarrow', config: BAR_AUTO_POWERLINE_NOARROW },
 ]
 
 // ── 1. 結構契約（跨平台） ──
@@ -363,6 +460,287 @@ describe('分隔符跳脫（preset ›/·，Important #7 修復）', () => {
     )
     expect(script).toContain(`'a' + [char]0x203A + 'b'`)
     expect(script).not.toContain('›')
+  })
+})
+
+// ── T4.4：dash 分派（nullPolicy 驅動、tokens）── ──────────────────────
+
+describe('dash 分派（nullPolicy 驅動；T4.4，PLAN Rev 4 §4）', () => {
+  it('token-in（nullPolicy dash、非 percentage 段）：Format-Tokens helper 只在用到時印出', () => {
+    const withToken = emitPs1(cfg({ segments: [seg('token-in', { icon: false })] }), CATALOG)
+    expect(withToken).toContain('function Format-Tokens($v) {')
+    expect(withToken).toContain("$vt = '--'")
+    expect(withToken).toContain('$vt = (Format-Tokens $v)')
+
+    const without = emitPs1(cfg({ segments: [seg('model', { icon: false })] }), CATALOG)
+    expect(without).not.toContain('Format-Tokens')
+  })
+
+  it('token-out 同構（dash 分派零 id 特判——同一 nullPolicy 驅動路徑）', () => {
+    const script = emitPs1(cfg({ segments: [seg('token-out', { icon: false })] }), CATALOG)
+    expect(script).toContain('function Format-Tokens($v) {')
+  })
+
+  it('Format-Tokens 函式本體：<1000 原樣、≥1000 插小數點＋k（鏡像 resolve.ts formatTokens）', () => {
+    const script = emitPs1(cfg({ segments: [seg('token-in', { icon: false })] }), CATALOG)
+    expect(script).toContain('if ($n -lt 1000) { return [string][long][math]::Floor($n) }')
+    expect(script).toContain("return ([string]$w) + '.' + ([string]$f) + 'k'")
+  })
+})
+
+// ── T4.4：bar 4-run（結構斷言；byte 級由下方 e2e 覆蓋） ──────────────────
+
+describe('bar 4-run 結構（T4.4；PLAN §4／sp4/REPORT.md）', () => {
+  it('plain＋threshold：filled/empty 碼位跳脫、桶陣列宣告、無 bg 相關碼', () => {
+    const script = emitPs1(
+      cfg({ segments: [seg('context-used', { icon: false, bar: true, threshold: TRAFFIC })] }),
+      CATALOG,
+    )
+    expect(script).toContain('$Th0Fg = @(')
+    expect(script).toContain('([string][char]0x2588) * [int]$bn')
+    expect(script).toContain('([string][char]0x2591) * [int](20 - $bn)')
+    expect(script).not.toContain('█')
+    expect(script).not.toContain('░')
+    // plain 無 bg：不應出現 "$e[48;" 動態組裝（bar 段本身）。
+    expect(script).not.toMatch(/\$s \+= "\$e\[48;"/)
+  })
+
+  it('powerline＋threshold：bg 全段維持段主色（4 run 均一 mainTail 常數）＋fgOverride 停用（headFg 恆 autoFg）', () => {
+    const script = emitPs1(
+      cfg({
+        mode: 'powerline',
+        segments: [
+          seg('context-used', {
+            icon: false,
+            bar: true,
+            threshold: TRAFFIC,
+            color: A(20),
+            fgOverride: A(9),
+          }),
+        ],
+      }),
+      CATALOG,
+    )
+    // headFg 用 autoFg 常數字面（不含 fgOverride 之 9 值）；bg 常數＝段主色 20 之 tail。
+    expect(script).toContain(`'5;20'`)
+    expect(script).not.toContain(`'38;5;9'`)
+  })
+
+  it('threshold undefined 而 bar 開：filled／value 退段主色 fg（無 $ThXFg 陣列）', () => {
+    const script = emitPs1(cfg({ segments: [seg('context-used', { icon: false, bar: true })] }), CATALOG)
+    expect(script).not.toContain('$Th0Fg')
+  })
+
+  it('bar＋percent-reset（M6 C3：倒數形，rate-5h→Format-Reset5h）：$sfx 死值守衛＋併入 run4', () => {
+    const script = emitPs1(
+      cfg({
+        segments: [seg('rate-5h', { icon: false, bar: true, variant: 'percent-reset', threshold: TRAFFIC })],
+      }),
+      CATALOG,
+    )
+    expect(script).toContain('function Format-Reset5h($epoch, $now) {')
+    expect(script).not.toContain('Format-ResetsAt')
+    expect(script).toContain('$rst = $d.rate_limits.five_hour.resets_at')
+    expect(script).toMatch(/if \(\$null -ne \$rst -and \$Now -lt \$rst\) \{\s*\n\s*\$sfx = ' ' \+ \(Format-Reset5h \$rst \$Now\)/)
+  })
+
+  it('bar＋percent-reset（rate-7d→Format-Reset7d，零 id 特判——目錄 countdown 欄驅動）', () => {
+    const script = emitPs1(
+      cfg({ segments: [seg('rate-7d', { icon: false, bar: true, variant: 'percent-reset' })] }),
+      CATALOG,
+    )
+    expect(script).toContain('function Format-Reset7d($epoch, $now) {')
+    expect(script).not.toContain('Format-ResetsAt')
+  })
+
+  it('bar 段主值 null 退化（M6 C2：恆 4-run，撤除舊單 run 路徑）：dash 分支僅早設 $bn=0／桶色退主色／NA_TEXT，filled／empty 組裝與存活分支共用', () => {
+    const script = emitPs1(cfg({ segments: [seg('context-used', { icon: false, bar: true })] }), CATALOG)
+    const dashBranch = script.slice(script.indexOf('if ($null -eq $v) {'), script.indexOf('} else {'))
+    expect(dashBranch).toContain('$bn = 0')
+    expect(dashBranch).toContain("$vt = '(n/a)'")
+    expect(dashBranch).not.toContain('$filled')
+    // filled／empty 組裝已移出 if/else、兩分支共用同一運算式（4-run 恆定形）。
+    expect(script).toContain('$filled = ([string][char]0x2588) * [int]$bn')
+    expect(script).toContain('$empty = ([string][char]0x2591) * [int](20 - $bn)')
+  })
+})
+
+// ── T4.4：auto 配色查表（-clike／-ceq，禁 -match） ── ─────────────────────
+
+describe('auto 配色查表（T4.4；PLAN Rev 4 §3／§4）', () => {
+  it('model auto：-clike 前綴比對（大小寫敏感），禁 -match', () => {
+    const script = emitPs1(cfg({ segments: [seg('model', { icon: false, color: { kind: 'auto' } })] }), CATALOG)
+    expect(script).toContain(`-clike 'claude-fable-*'`)
+    expect(script).toContain(`-clike 'claude-opus-*'`)
+    expect(script).toContain(`-clike 'claude-haiku-*'`)
+    expect(script).not.toContain('-match')
+    expect(script).toContain('$Ac0Id = $d.model.id')
+  })
+
+  it('effort auto：-ceq 精確比對（大小寫敏感），禁 -match／-clike', () => {
+    const script = emitPs1(cfg({ segments: [seg('effort', { icon: false, color: { kind: 'auto' } })] }), CATALOG)
+    expect(script).toContain(`-ceq 'low'`)
+    expect(script).toContain(`-ceq 'medium'`)
+    expect(script).toContain(`-ceq 'high'`)
+    expect(script).toContain(`-ceq 'xhigh'`)
+    expect(script).toContain(`-ceq 'max'`)
+    expect(script).not.toContain('-match')
+    expect(script).not.toContain('-clike')
+    expect(script).toContain('$Ac0Id = $d.effort.level')
+  })
+
+  it('auto 段未帶 autoColor 通道（programmer error）：TypeError（防繞道，比照 resolve.ts expandSegmentColor）', () => {
+    // cost 段本無 autoColor 欄（僅 model／effort 有）；直接餵 auto 色＝
+    // config 未經 deserializeConfig 清洗（該函式應退 default）→ 拋錯。
+    expect(() =>
+      emitPs1(cfg({ segments: [seg('cost', { icon: false, color: { kind: 'auto' } })] }), CATALOG),
+    ).toThrow(TypeError)
+  })
+
+  it('多段皆 auto：變數名以索引區隔（$Ac0.../$Ac1...），不互相覆蓋', () => {
+    const script = emitPs1(
+      cfg({
+        segments: [
+          seg('model', { icon: false, color: { kind: 'auto' } }),
+          seg('effort', { icon: false, color: { kind: 'auto' } }),
+        ],
+      }),
+      CATALOG,
+    )
+    expect(script).toContain('$Ac0Id')
+    expect(script).toContain('$Ac1Id')
+  })
+})
+
+// ── T4.4：倒數段（$Now 注入；同機 oracle regime） ── ──────────────────────
+
+describe('倒數段 $Now 注入（T4.4；sp2/REPORT.md §2.3 idiom）', () => {
+  it('config 含 reset-5h：印出 $Now 計算區塊＋Format-Reset5h helper', () => {
+    const script = emitPs1(cfg({ segments: [seg('reset-5h', { icon: false })] }), CATALOG)
+    expect(script).toContain('$__nowEnv = $env:STATUSLINE_NOW_EPOCH')
+    expect(script).toContain('if ([string]::IsNullOrEmpty($__nowEnv)) {')
+    expect(script).toContain('[long]::TryParse($__nowEnv, [ref]$__nowParsed)')
+    expect(script).toContain('function Format-Reset5h($epoch, $now) {')
+  })
+
+  it('config 含 reset-7d：Format-Reset7d helper＋$Now 注入', () => {
+    const script = emitPs1(cfg({ segments: [seg('reset-7d', { icon: false })] }), CATALOG)
+    expect(script).toContain('function Format-Reset7d($epoch, $now) {')
+    expect(script).toContain('$__nowEnv = $env:STATUSLINE_NOW_EPOCH')
+  })
+
+  it('reset-5h／reset-7d 存活守衛含 expiresAtPath 通用規則（$Now -lt $v）', () => {
+    const script = emitPs1(cfg({ segments: [seg('reset-5h', { icon: false })] }), CATALOG)
+    expect(script).toMatch(/if \(\$null -ne \$v -and \$Now -lt \$v\) \{/)
+  })
+
+  it('config 無倒數段／無 expiresAtPath／無 percent-reset 變體：不印 $Now（真無使用情境，零額外開銷）', () => {
+    // M6（TASKS.md T6.3）C5：PLAIN_FULL 因含 rate-5h／rate-7d 的
+    // percent-reset variant 已不再是「無使用情境」（見下方 C5 正向案）——
+    // 本案改用真正不觸及任一 $Now 消費路徑的 config（無倒數段、無
+    // expiresAtPath、rate 段亦非 percent-reset variant）。
+    const script = emitPs1(
+      cfg({
+        segments: [
+          seg('model', { icon: false }),
+          seg('cost', { icon: false }),
+          seg('rate-5h', { icon: false }),
+        ],
+      }),
+      CATALOG,
+    )
+    expect(script).not.toContain('STATUSLINE_NOW_EPOCH')
+    expect(script).not.toContain('$Now')
+  })
+
+  it('C5 閘門擴充（M6，2026-07-14 拍板）：僅 percent-reset 變體、無倒數段（reset-5h／reset-7d）／無 expiresAtPath——仍印 $Now', () => {
+    // PLAIN_FULL：rate-5h／rate-7d 皆 variant:'percent-reset'，但不含
+    // reset-5h／reset-7d（那兩段只在 FULL_30_PLAIN）——證 C5 閘門確實已
+    // 擴為「有倒數段 或 有 percent-reset 變體的 rate 段」，非僅沿用舊閘門。
+    const script = emitPs1(PLAIN_FULL, CATALOG)
+    expect(script).toContain('STATUSLINE_NOW_EPOCH')
+    expect(script).toContain('$Now')
+    expect(script).toContain('function Format-Reset5h($epoch, $now) {')
+    expect(script).toContain('function Format-Reset7d($epoch, $now) {')
+  })
+
+  it('C5 閘門兩向 sanity：單一 percent-reset rate 段（無 threshold、無 bar）亦觸發 $Now', () => {
+    const script = emitPs1(
+      cfg({ segments: [seg('rate-7d', { icon: false, variant: 'percent-reset' })] }),
+      CATALOG,
+    )
+    expect(script).toContain('STATUSLINE_NOW_EPOCH')
+    expect(script).toContain('$Now')
+  })
+})
+
+// ── T4.4：引擎自產字面純 ASCII（機械化斷言）＋文化不變性 ── ───────────────
+
+function isAsciiLine(line: string): boolean {
+  for (let i = 0; i < line.length; i++) {
+    if (line.charCodeAt(i) > 0x7f) return false
+  }
+  return true
+}
+
+describe('引擎自產字面純 ASCII（PLAN §4「ps1 非 ASCII 值字面跳脫」機械化斷言）', () => {
+  it('bar／countdown／auto／分隔符／icon 全開、無使用者非 ASCII prefix：排除註解行後逐行純 ASCII', () => {
+    const script = emitPs1(
+      cfg({
+        mode: 'powerline',
+        powerlineArrow: true,
+        separator: { kind: 'preset', value: '›' },
+        segments: [
+          seg('model', { icon: true, color: { kind: 'auto' } }),
+          seg('effort', { icon: true, color: { kind: 'auto' } }),
+          seg('context-used', { icon: true, bar: true, threshold: TRAFFIC }),
+          seg('reset-5h', { icon: true }),
+          seg('reset-7d', { icon: true }),
+          seg('token-in', { icon: true }),
+          seg('token-out', { icon: true }),
+          seg('cache-hit', { icon: true }),
+        ],
+      }),
+      CATALOG,
+    )
+    const lines = script.split('\n').filter((l) => !l.trimStart().startsWith('#'))
+    for (const line of lines) {
+      expect(isAsciiLine(line), `非 ASCII 行：${line}`).toBe(true)
+    }
+  })
+
+  it('分隔符純 ASCII 版本亦成立（plain 模式；·）', () => {
+    const script = emitPs1(
+      cfg({
+        mode: 'plain',
+        separator: { kind: 'preset', value: '·' },
+        segments: [seg('model', { icon: true }), seg('reset-5h', { icon: true })],
+      }),
+      CATALOG,
+    )
+    const lines = script.split('\n').filter((l) => !l.trimStart().startsWith('#'))
+    for (const line of lines) {
+      expect(isAsciiLine(line), `非 ASCII 行：${line}`).toBe(true)
+    }
+  })
+
+  it('使用者 CJK prefix：排除註解行＋含 prefix 字面的行後，其餘（含新段引擎字面）仍純 ASCII', () => {
+    const script = emitPs1(
+      cfg({
+        segments: [
+          seg('model', { icon: false, prefix: '測試' }),
+          seg('context-used', { icon: false, bar: true, threshold: TRAFFIC }),
+          seg('reset-5h', { icon: false }),
+        ],
+      }),
+      CATALOG,
+    )
+    // sanity：carve-out 通道確實含 CJK（否則本測試對「排除」邏輯零覆蓋）。
+    expect(script).toContain('測試')
+    const lines = script.split('\n').filter((l) => !l.trimStart().startsWith('#') && !l.includes('測試'))
+    for (const line of lines) {
+      expect(isAsciiLine(line), `非 ASCII 行（非 prefix 通道）：${line}`).toBe(true)
+    }
   })
 })
 
@@ -637,7 +1015,7 @@ function sp5Cases(): E2ECase[] {
     const { data, segments } = make()
     const config = cfg({ mode, lastArrowCap: cap, segments })
     const base = make === scenarioCPlain ? EARLY : FULL
-    return { id, config, data, input: { data, shell: base.shell, env: base.env } }
+    return { id, config, data, input: { data, shell: base.shell, env: base.env, now: base.now } }
   }
 
   return [
@@ -661,7 +1039,7 @@ function escapingCase(): E2ECase {
       seg('cwd', { icon: false, variant: 'full', prefix: "a'b" }),
     ],
   })
-  return { id: 'escaping', config, data, input: { data, shell: FULL.shell, env: FULL.env } }
+  return { id: 'escaping', config, data, input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now } }
 }
 
 // 0.0029 Decimal 案（[double] idiom：三後端同得 $0.0028）
@@ -669,7 +1047,7 @@ function decimalCase(): E2ECase {
   const data = clone(FULL.data)
   data.cost.total_cost_usd = 0.0029
   const config = cfg({ mode: 'plain', segments: [seg('cost', { icon: false })] })
-  return { id: 'decimal-0.0029', config, data, input: { data, shell: FULL.shell, env: FULL.env } }
+  return { id: 'decimal-0.0029', config, data, input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now } }
 }
 
 // 分隔符 preset 跳脫 byte-exact（Important #7 修復；證逐 codepoint escape
@@ -682,13 +1060,18 @@ function separatorPresetCases(): E2ECase[] {
       separator: { kind: 'preset', value },
       segments: [seg('model', { icon: false }), seg('cost', { icon: false })],
     })
-    return { id: `separator-preset/${value}`, config, data, input: { data, shell: FULL.shell, env: FULL.env } }
+    return { id: `separator-preset/${value}`, config, data, input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now } }
   }
   return [build('›'), build('·')]
 }
 
-// plain 滿配（非 shell-out 21 段）× 3 情境行為驗證（USERPROFILE=情境 home）
-function fullBehaviorCases(): Array<E2ECase & { home: string }> {
+// plain 滿配（非 shell-out 21 段）× 3 情境行為驗證（USERPROFILE=情境 home）。
+// M6（TASKS.md T6.3）：PLAIN_FULL 的 rate-5h／rate-7d 帶 percent-reset
+// variant，C3 起後綴需 $Now（見 resetSuffixEmit）——原本零 $Now 依賴（舊
+// Format-ResetsAt 只吃 resets_at 本身，與現實時鐘無關），故此處補
+// STATUSLINE_NOW_EPOCH 決定論注入（同 resetCountdownCases／barCases 既有
+// idiom），避免真執行時系統時鐘飄移於 oracle 固定 mock now 之外導致誤判。
+function fullBehaviorCases(): Array<EnvE2ECase & { home: string }> {
   const nonShellOut = PLAIN_FULL.segments.filter(
     (s) => !['git-branch', 'git-dirty', 'clock'].includes(s.id),
   )
@@ -700,8 +1083,9 @@ function fullBehaviorCases(): Array<E2ECase & { home: string }> {
       id: `full-behavior/${sid}`,
       config,
       data,
-      input: { data, shell: scen.shell, env: scen.env },
+      input: { data, shell: scen.shell, env: scen.env, now: scen.now },
       home: scen.env.home,
+      extraEnv: { STATUSLINE_NOW_EPOCH: String(scen.now) },
     }
   })
 }
@@ -732,9 +1116,264 @@ function twoRowCases(): E2ECase[] {
     ],
   })
   return [
-    { id: 'two-row/plain', config: plainConfig, data, input: { data, shell: FULL.shell, env: FULL.env } },
-    { id: 'two-row/powerline', config: powerlineConfig, data, input: { data, shell: FULL.shell, env: FULL.env } },
+    { id: 'two-row/plain', config: plainConfig, data, input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now } },
+    { id: 'two-row/powerline', config: powerlineConfig, data, input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now } },
   ]
+}
+
+// ── T4.4：5 新段＋bar＋auto 真執行（win32；byte-exact vs toAnsi(resolve())） ──
+
+/** e2e case 附加 extraEnv（倒數段需 STATUSLINE_NOW_EPOCH 決定論注入，同機 oracle regime，見 sp2/sp6 REPORT）。 */
+interface EnvE2ECase extends E2ECase {
+  extraEnv?: Record<string, string>
+}
+
+// bar：plain/powerline×threshold/無threshold、null 退化、percent-reset 併 run4。
+function barCases(): EnvE2ECase[] {
+  const mk = (
+    id: string,
+    config: BuilderConfig,
+    scen: (typeof MOCK_SCENARIOS_BY_ID)['full'],
+    extraEnv?: Record<string, string>,
+  ): EnvE2ECase => {
+    const data = clone(scen.data)
+    return { id: `bar/${id}`, config, data, input: { data, shell: scen.shell, env: scen.env, now: scen.now }, extraEnv }
+  }
+  const other = seg('model', { icon: false, color: A(226) })
+  return [
+    mk(
+      'plain-threshold',
+      cfg({ mode: 'plain', segments: [other, seg('context-used', { icon: false, bar: true, threshold: TRAFFIC })] }),
+      FULL,
+    ),
+    mk(
+      'plain-nothreshold',
+      cfg({ mode: 'plain', segments: [seg('context-used', { icon: false, bar: true })] }),
+      FULL,
+    ),
+    mk(
+      'powerline-threshold-arrow',
+      cfg({
+        mode: 'powerline',
+        powerlineArrow: true,
+        lastArrowCap: true,
+        segments: [
+          { ...other, color: A(226) },
+          seg('context-used', { icon: false, bar: true, threshold: TRAFFIC, color: A(20) }),
+        ],
+      }),
+      FULL,
+    ),
+    mk(
+      'powerline-threshold-noarrow',
+      cfg({
+        mode: 'powerline',
+        powerlineArrow: false,
+        lastArrowCap: true,
+        segments: [
+          { ...other, color: A(226) },
+          seg('context-used', { icon: false, bar: true, threshold: TRAFFIC, color: A(20) }),
+        ],
+      }),
+      FULL,
+    ),
+    mk(
+      'plain-percent-reset',
+      cfg({
+        mode: 'plain',
+        segments: [seg('rate-5h', { icon: false, bar: true, variant: 'percent-reset', threshold: TRAFFIC })],
+      }),
+      FULL,
+      // M6 C3：percent-reset 倒數後綴需 $Now——同 resetCountdownCases／
+      // percentResetSuffixCases 既有 idiom，決定論注入避免真執行時系統
+      // 時鐘飄移於 oracle 固定 mock now 之外。
+      { STATUSLINE_NOW_EPOCH: String(FULL.now) },
+    ),
+    mk(
+      'plain-null',
+      cfg({ mode: 'plain', segments: [seg('context-used', { icon: false, bar: true, threshold: TRAFFIC })] }),
+      EARLY,
+    ),
+    mk(
+      'powerline-null-cap',
+      cfg({
+        mode: 'powerline',
+        powerlineArrow: true,
+        lastArrowCap: true,
+        segments: [seg('context-used', { icon: false, bar: true, threshold: TRAFFIC, color: A(20) })],
+      }),
+      EARLY,
+    ),
+    // 邊界：9.99%／90.01%（conditional-absent 情境）填格數字錨點覆蓋。
+    mk(
+      'plain-boundary-9.99',
+      cfg({ mode: 'plain', segments: [seg('context-used', { icon: false, bar: true, threshold: TRAFFIC })] }),
+      MOCK_SCENARIOS_BY_ID['conditional-absent'],
+    ),
+  ]
+}
+
+// token-in/token-out：dash（null）、<1000 原樣、≥1000 縮寫邊界（999/1000 精確錨點）、大數值。
+function tokenCases(): EnvE2ECase[] {
+  const mk = (id: string, tokens: number | null, segId: 'token-in' | 'token-out'): EnvE2ECase => {
+    const data = clone(FULL.data)
+    if (data.context_window.current_usage) {
+      if (segId === 'token-in') data.context_window.current_usage.input_tokens = tokens
+      else data.context_window.current_usage.output_tokens = tokens
+    }
+    const config = cfg({ mode: 'plain', segments: [seg(segId, { icon: false })] })
+    return { id, config, data, input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now } }
+  }
+  return [
+    mk('token-in/below-1000', 999, 'token-in'),
+    mk('token-in/at-1000-boundary', 1000, 'token-in'),
+    mk('token-in/large', 1234567, 'token-in'),
+    mk('token-in/null-dash', null, 'token-in'),
+    mk('token-in/zero', 0, 'token-in'),
+    mk('token-out/below-1000', 42, 'token-out'),
+    mk('token-out/null-dash', null, 'token-out'),
+  ]
+}
+
+// cache-hit：full（存活，公式非 0）／conditional-absent（分母 0 → 0）／windows-cjk（partial-null → dash）。
+function cacheHitCases(): EnvE2ECase[] {
+  const config = cfg({ mode: 'plain', segments: [seg('cache-hit', { icon: false })] })
+  return (['full', 'conditional-absent', 'windows-cjk'] as const).map((sid) => {
+    const scen = MOCK_SCENARIOS_BY_ID[sid]
+    const data = clone(scen.data)
+    return { id: `cache-hit/${sid}`, config, data, input: { data, shell: scen.shell, env: scen.env, now: scen.now } }
+  })
+}
+
+// reset-5h／reset-7d：兩階梯（<1h/≥1h、<1d/≥1d）＋過期／null 隱藏——STATUSLINE_NOW_EPOCH
+// 決定論注入（同機 oracle regime，sp6/REPORT.md §4.3 結局 (b)；HH:mm／MM/dd 不寫死）。
+function resetCountdownCases(): EnvE2ECase[] {
+  const now = FULL.now
+  const mk = (
+    id: string,
+    resetsAt: number | null,
+    which: 'five_hour' | 'seven_day',
+    segId: 'reset-5h' | 'reset-7d',
+  ): EnvE2ECase => {
+    const data = clone(FULL.data)
+    data.rate_limits![which]!.resets_at = resetsAt
+    const config = cfg({ mode: 'plain', segments: [seg(segId, { icon: false })] })
+    return {
+      id,
+      config,
+      data,
+      input: { data, shell: FULL.shell, env: FULL.env, now },
+      extraEnv: { STATUSLINE_NOW_EPOCH: String(now) },
+    }
+  }
+  return [
+    mk('reset-5h/lt-1h-minutes-branch', now + 1800, 'five_hour', 'reset-5h'),
+    mk('reset-5h/ge-1h-hours-branch', now + 7200, 'five_hour', 'reset-5h'),
+    mk('reset-5h/expired-hidden', now - 10, 'five_hour', 'reset-5h'),
+    mk('reset-5h/null-hidden', null, 'five_hour', 'reset-5h'),
+    mk('reset-7d/lt-1d-hm-branch', now + 19800, 'seven_day', 'reset-7d'),
+    mk('reset-7d/ge-1d-days-branch', now + 410400, 'seven_day', 'reset-7d'),
+    mk('reset-7d/expired-hidden', now - 10, 'seven_day', 'reset-7d'),
+  ]
+}
+
+// M6（TASKS.md T6.3；2026-07-14 拍板 C3）：rate-5h／rate-7d 的 percent-reset
+// 後綴（非獨立倒數段本體）——兩階梯 × 兩段＋死值（過期／null）「無後綴但
+// 段仍存活」對照組（與上方 resetCountdownCases 的「整段剔除」語意刻意
+// 區隔：rate 段的 used_percentage 主值恆非 null，只有後綴本身生滅）。
+function percentResetSuffixCases(): EnvE2ECase[] {
+  const now = FULL.now
+  const mk = (
+    id: string,
+    resetsAt: number | null,
+    which: 'five_hour' | 'seven_day',
+    segId: 'rate-5h' | 'rate-7d',
+  ): EnvE2ECase => {
+    const data = clone(FULL.data)
+    data.rate_limits![which]!.resets_at = resetsAt
+    const config = cfg({ mode: 'plain', segments: [seg(segId, { icon: false, variant: 'percent-reset' })] })
+    return {
+      id,
+      config,
+      data,
+      input: { data, shell: FULL.shell, env: FULL.env, now },
+      extraEnv: { STATUSLINE_NOW_EPOCH: String(now) },
+    }
+  }
+  return [
+    mk('percent-reset/rate-5h/minutes-branch', now + 1800, 'five_hour', 'rate-5h'),
+    mk('percent-reset/rate-5h/hours-branch', now + 7200, 'five_hour', 'rate-5h'),
+    mk('percent-reset/rate-5h/expired-suffix-gone-segment-alive', now - 10, 'five_hour', 'rate-5h'),
+    mk('percent-reset/rate-5h/null-suffix-gone-segment-alive', null, 'five_hour', 'rate-5h'),
+    mk('percent-reset/rate-7d/hm-branch', now + 19800, 'seven_day', 'rate-7d'),
+    mk('percent-reset/rate-7d/days-branch', now + 410400, 'seven_day', 'rate-7d'),
+    mk('percent-reset/rate-7d/expired-suffix-gone-segment-alive', now - 10, 'seven_day', 'rate-7d'),
+    mk('percent-reset/rate-7d/null-suffix-gone-segment-alive', null, 'seven_day', 'rate-7d'),
+  ]
+}
+
+// auto：model（4 分支＋大小寫敏感負例）× plain/powerline。
+function autoModelCases(): EnvE2ECase[] {
+  const branches: Array<[string, string]> = [
+    ['claude-fable-5', 'fable'],
+    ['claude-opus-4-8', 'opus'],
+    ['claude-haiku-4-5-20251001', 'haiku'],
+    ['claude-sonnet-5', 'other-fallback'],
+    ['Claude-Opus-4-8', 'case-sensitive-negative'],
+  ]
+  const cases: EnvE2ECase[] = []
+  for (const mode of ['plain', 'powerline'] as const) {
+    for (const [id, tag] of branches) {
+      const data = clone(FULL.data)
+      data.model.id = id
+      const config = cfg({
+        mode,
+        powerlineArrow: mode === 'powerline',
+        lastArrowCap: true,
+        segments: [seg('model', { icon: false, color: { kind: 'auto' } })],
+      })
+      cases.push({
+        id: `auto-model/${mode}/${tag}`,
+        config,
+        data,
+        input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now },
+      })
+    }
+  }
+  return cases
+}
+
+// auto：effort（6 分支＋大小寫敏感負例）× plain（全覆蓋）；powerline 兩代表分支（low/max）。
+function autoEffortCases(): EnvE2ECase[] {
+  const branches: Array<[string, string]> = [
+    ['low', 'low'],
+    ['medium', 'medium'],
+    ['high', 'high'],
+    ['xhigh', 'xhigh'],
+    ['max', 'max'],
+    ['unknown-level', 'fallback'],
+    ['Low', 'case-sensitive-negative'],
+  ]
+  const build = (mode: BuilderConfig['mode'], level: string, tag: string): EnvE2ECase => {
+    const data = clone(FULL.data)
+    data.effort = { level }
+    const config = cfg({
+      mode,
+      powerlineArrow: mode === 'powerline',
+      lastArrowCap: true,
+      segments: [seg('effort', { icon: false, color: { kind: 'auto' } })],
+    })
+    return {
+      id: `auto-effort/${mode}/${tag}`,
+      config,
+      data,
+      input: { data, shell: FULL.shell, env: FULL.env, now: FULL.now },
+    }
+  }
+  const cases: EnvE2ECase[] = branches.map(([level, tag]) => build('plain', level, tag))
+  cases.push(build('powerline', 'low', 'low'))
+  cases.push(build('powerline', 'max', 'max'))
+  return cases
 }
 
 describe.skipIf(!IS_WIN)('端到端 byte-exact（win32；powershell 真執行）', () => {
@@ -786,9 +1425,91 @@ describe.skipIf(!IS_WIN)('端到端 byte-exact（win32；powershell 真執行）
   it.each(fullBehaviorCases())('$id：plain 滿配（非 shell-out）byte-exact', (c) => {
     const script = emitPs1(c.config, CATALOG)
     const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
-    const r = runPs1(script, JSON.stringify(c.data), { USERPROFILE: c.home })
+    const r = runPs1(script, JSON.stringify(c.data), { USERPROFILE: c.home, ...(c.extraEnv ?? {}) })
     expect(r.status, `stderr=${r.stderr}`).toBe(0)
     expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  // ── T4.4：5 新段＋bar＋auto 真執行（PLAN Rev 4 §4；沿既有慣例 byte-exact vs toAnsi(resolve())） ──
+
+  it.each(barCases())('$id：bar 4-run byte-exact', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data), c.extraEnv ?? {})
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  it.each(tokenCases())('$id：token-in/out（dash 分派）byte-exact', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data), c.extraEnv ?? {})
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  it.each(cacheHitCases())('$id：cache-hit byte-exact', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data), c.extraEnv ?? {})
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  it.each(resetCountdownCases())('$id：倒數段 byte-exact（STATUSLINE_NOW_EPOCH 同機 oracle）', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data), c.extraEnv ?? {})
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  it.each(percentResetSuffixCases())('$id：percent-reset 倒數後綴 byte-exact（M6 C3；STATUSLINE_NOW_EPOCH 同機 oracle）', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data), c.extraEnv ?? {})
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  it.each(autoModelCases())('$id：auto model 查表 byte-exact（含大小寫敏感負例）', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data), c.extraEnv ?? {})
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  it.each(autoEffortCases())('$id：auto effort 查表 byte-exact（含大小寫敏感負例）', (c) => {
+    const script = emitPs1(c.config, CATALOG)
+    const expected = Buffer.from(toAnsi(resolve(c.config, c.input)), 'utf8')
+    const r = runPs1(script, JSON.stringify(c.data), c.extraEnv ?? {})
+    expect(r.status, `stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.equals(expected), `\nexpected ${expected.toString('hex')}\nactual   ${r.stdout.toString('hex')}`).toBe(true)
+  })
+
+  // 文化不變性（PLAN §4／sp6/REPORT.md §4.2；同機 oracle 慣例：實跑切換
+  // CurrentCulture，證 InvariantCulture 修法後輸出與預設文化逐位元組相同）。
+  it('文化不變性：CurrentCulture=de-DE 執行結果與預設文化 byte-exact 相同（rate-5h percent-reset＋reset-5h 倒數）', () => {
+    const data = clone(FULL.data)
+    const config = cfg({
+      mode: 'plain',
+      segments: [seg('rate-5h', { icon: false, variant: 'percent-reset' }), seg('reset-5h', { icon: false })],
+    })
+    const script = emitPs1(config, CATALOG)
+    const cultureScript =
+      "[System.Threading.Thread]::CurrentThread.CurrentCulture = [System.Globalization.CultureInfo]::GetCultureInfo('de-DE')\n" +
+      script
+    const extraEnv = { STATUSLINE_NOW_EPOCH: String(FULL.now) }
+    const stdin = JSON.stringify(data)
+    const defaultRun = runPs1(script, stdin, extraEnv)
+    const deRun = runPs1(cultureScript, stdin, extraEnv)
+    expect(defaultRun.status, `stderr=${defaultRun.stderr}`).toBe(0)
+    expect(deRun.status, `stderr=${deRun.stderr}`).toBe(0)
+    expect(
+      deRun.stdout.equals(defaultRun.stdout),
+      `\ndefault ${defaultRun.stdout.toString('hex')}\nde-DE   ${deRun.stdout.toString('hex')}`,
+    ).toBe(true)
   })
 })
 

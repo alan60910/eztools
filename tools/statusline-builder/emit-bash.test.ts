@@ -25,7 +25,7 @@ import { toAnsi } from './emit-ansi.js'
 import { emitBash, JQ_MISSING_HINT, type SegmentDescriptorCatalog } from './emit-bash.js'
 import { MOCK_SCENARIOS_BY_ID, type MockScenarioId } from './mock-data.js'
 import { resolve } from './resolve.js'
-import { DESCRIPTORS_BY_ID } from './segments.js'
+import { DESCRIPTORS_BY_ID, type StatusData } from './segments.js'
 import { THRESHOLD_TEMPLATES } from './threshold.js'
 import {
   GOLDEN_CASES,
@@ -93,7 +93,14 @@ function cfgT(mode: BuilderConfig['mode'], cap: boolean, segments: SegmentConfig
 
 function mockScen(id: MockScenarioId): ByteExactScenario {
   const base = MOCK_SCENARIOS_BY_ID[id]
-  return { data: JSON.parse(JSON.stringify(base.data)), shell: base.shell, env: base.env }
+  return { data: JSON.parse(JSON.stringify(base.data)), shell: base.shell, env: base.env, now: base.now }
+}
+
+/** `mockScen` 派生＋原地突變（T4.3 新段測試：tokens 邊界／倒數過期等自訂資料點）。 */
+function mockScenWith(id: MockScenarioId, mutate: (d: StatusData) => void): ByteExactScenario {
+  const s = mockScen(id)
+  mutate(s.data)
+  return s
 }
 
 // ── 2. 結構／契約斷言 ──
@@ -341,6 +348,136 @@ describe('單列退化（T3.1：emit 期分組壓縮為 1 列 → 扁平結構�
   })
 })
 
+// ── T4.3：bar／auto／tokens／倒數（結構斷言；不牽真執行，恆跑） ──
+
+describe('bar（結構斷言）', () => {
+  it('plain：bar 段 push 4 元素（segstart 1/0/0/0），非 4 段獨立 push 亦非單元素合併', () => {
+    const cfg = cfgT('plain', true, [
+      segT('context-used', { icon: true, prefix: 'ctx:', bar: true, threshold: THRESHOLD_TEMPLATES.traffic }),
+    ])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain(`segstart+=(1)`)
+    expect(s).toContain(`segstart+=(0)`)
+    expect(s).toContain(`filled+=`)
+    expect(s).toContain(`empty+=`)
+    expect(s).toContain('█')
+    expect(s).toContain('░')
+  })
+
+  it('powerline：bar 段併單一累加器元素（btext 變數；run2-4 各自烘 reset+fg+bg，非 4 次獨立 push）', () => {
+    const cfg = cfgT('powerline', true, [
+      segT('context-used', { bar: true, threshold: THRESHOLD_TEMPLATES.traffic }),
+    ])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain('btext=')
+    expect(s).toContain('btext+="$filled"')
+    expect(s).toContain('btext+="$empty"')
+    expect(s).toContain('texts+=("$btext")')
+    // 併元素：M6 C2（撤除舊「null 退單 run」分支）起不論死活恆走同一
+    // btext 組裝路徑，故僅一次 push（"$btext"）——非逐 run push、亦非
+    // 死活兩條互斥 push 路徑（舊版兩路徑各自一次 push、總計 2 次；C2 起
+    // 死活合流，僅 1 次）。
+    const texPushes = s.match(/texts\+=\(/g) ?? []
+    expect(texPushes.length).toBe(1)
+  })
+
+  it('threshold===undefined：filled／value 退段主色（bfg 靜態指派，非陣列索引）', () => {
+    const cfg = cfgT('plain', true, [segT('context-remaining', { bar: true, color: A(240) })])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).not.toContain('idx=')
+    expect(s).toContain(`bfg='38;5;240'`)
+  })
+
+  it('bar null 退化（M6 C2：不再退單 run，恆 4-run；value 部＝NA_TEXT）：powerline 停用 fgOverride，恆用 autoFg，非 fgOverride', () => {
+    const cfg = cfgT('powerline', true, [
+      segT('rate-5h', { bar: true, color: A(240), fgOverride: A(93) }),
+    ])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain(`if [ -z "$v" ]; then`)
+    expect(s).toContain(`bval='(n/a)'`)
+    // fgOverride(93) 不應出現在 bar 段（停用），autoFg(240) 應出現。
+    expect(s).not.toContain('38;5;93')
+  })
+})
+
+describe('auto 配色（結構斷言）', () => {
+  it('model 段：bash case 大小寫敏感前綴（claude-fable-*／claude-opus-*／claude-haiku-*／收尾 *）', () => {
+    const cfg = cfgT('plain', true, [segT('model', { color: { kind: 'auto' } })])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain('case "$ackey" in')
+    expect(s).toContain('claude-fable-*)')
+    expect(s).toContain('claude-opus-*)')
+    expect(s).toContain('claude-haiku-*)')
+    expect(s).toContain("acfg='38;5;214'") // fable→214
+    expect(s).toContain("acfg='38;5;135'") // opus→135
+    expect(s).toContain("acfg='38;5;2'") // haiku→2
+    expect(s).toContain("acfg='38;5;6'") // fallback→6
+  })
+
+  it('effort 段：精確字面比對（low/medium/high/xhigh/max＋收尾 *）、比對來源＝主值本身（無獨立 key jqPath）', () => {
+    const cfg = cfgT('plain', true, [segT('effort', { color: { kind: 'auto' } })])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain('ackey=$(jq -r \'.effort.level // empty\'')
+    expect(s).toContain('low)')
+    expect(s).toContain('medium)')
+    expect(s).toContain('high)')
+    expect(s).toContain('xhigh)')
+    expect(s).toContain('max)')
+    expect(s).toContain("acfg='38;5;9'") // 未知→9
+  })
+
+  it('powerline＋fgOverride：auto tail 仍查表，但 fg 走 fgOverride 靜態字面（非 acautofg 變數）', () => {
+    const cfg = cfgT('powerline', true, [
+      segT('effort', { color: { kind: 'auto' }, fgOverride: A(201) }),
+    ])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain("'38;5;201'")
+    expect(s).not.toContain('$acautofg')
+  })
+
+  it('bar／auto 互斥：auto 段不落入 emitBarSegment（案例本身即證——effort 非 percentage 類、無 bar 分支結構）', () => {
+    const cfg = cfgT('plain', true, [segT('effort', { color: { kind: 'auto' } })])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).not.toContain('bfg=')
+  })
+})
+
+describe('tokens 縮寫（結構斷言）', () => {
+  it('token-in／token-out：dash 分派（nullPolicy 驅動，非 percentage category）＋ tokens jq 縮寫鏈', () => {
+    const cfg = cfgT('plain', true, [segT('token-in', {}), segT('token-out', {})])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain('.context_window.current_usage.input_tokens')
+    expect(s).toContain('.context_window.current_usage.output_tokens')
+    // dash 分派：`// "--"` 而非 `// empty`（token 段不隱藏，null 顯 '--'）。
+    expect(s.match(/current_usage\.input_tokens \/\/ "--"/)).not.toBeNull()
+    expect(s).toContain('"k"')
+    expect(s).toContain('if . < 1000 then tostring')
+  })
+})
+
+describe('倒數段（reset-5h／reset-7d；結構斷言）', () => {
+  it('全 jq pipeline：S2 now idiom＋strflocaltime＋通用死值規則（非 id 特判，兩段同一模板）', () => {
+    const cfg = cfgT('plain', true, [segT('reset-5h', {}), segT('reset-7d', {})])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain('STATUSLINE_NOW_EPOCH // empty | tonumber?')
+    expect(s).toContain('now | floor) as $now')
+    expect(s).toContain('strflocaltime("%H:%M")')
+    expect(s).toContain('strflocaltime("%m/%d %H:%M")')
+    expect(s).toContain('$now >= $r')
+    expect(s).toContain('↺')
+    // 通用死值規則：兩段皆用同一 jqResetCountdown* 模板（零 id 特判）——
+    // 出現次數與段數一致，非各自客製字串。
+    expect(s.match(/\(\$r \| type\) != "number"\) or \(\$now >= \$r\)/g)?.length).toBe(2)
+  })
+
+  it('hide 政策：與其餘 conditional 段同構（`if [ -n "$v" ]` 剔空，非 dash "--"）', () => {
+    const cfg = cfgT('plain', true, [segT('reset-5h', {})])
+    const s = emitBash(cfg, CATALOG)
+    expect(s).toContain('if [ -n "$v" ]; then')
+    expect(s).not.toContain('reset-5h // "--"')
+  })
+})
+
 // ── 3. 端到端 byte-exact（真跑 bash＋jq） ──
 
 type RealExec = { ok: true; bash: string; jqDir: string | undefined } | { ok: false; reason: string }
@@ -406,6 +543,7 @@ function runScript(
   home: string,
   jqDir: string | undefined,
   strictPath = false,
+  extraEnv: Readonly<Record<string, string>> = {},
 ): { status: number | null; stdout: Buffer; stderr: string } {
   if (!REAL_EXEC.ok) throw new Error('runScript called without real-exec')
   const scriptPath = join(scriptDir, `sl-${scriptSeq++}.sh`)
@@ -415,7 +553,7 @@ function runScript(
   // 路徑，令 jq 內 $home ≠ mock home、tilde 前綴比對失敗。真 POSIX 目標無此
   // 轉換；設此旗標令 win32 測試 leg 與 POSIX 引數傳遞等價（非 win32 上為無害
   // 空操作）。bash 本身的 $HOME 不受影響（env 變數不經引數轉換）。
-  let env: NodeJS.ProcessEnv = { ...process.env, HOME: home, MSYS_NO_PATHCONV: '1' }
+  let env: NodeJS.ProcessEnv = { ...process.env, HOME: home, MSYS_NO_PATHCONV: '1', ...extraEnv }
   if (jqDir !== undefined) {
     env = withPath(env, strictPath ? jqDir : jqDir + delimiter + (process.env.PATH ?? ''))
   }
@@ -500,11 +638,14 @@ function buildByteExactCombos(): ByteExactCombo[] {
     config: cfgT('plain', true, []),
     scenario: mockScen('full'),
   })
-  // resets 後綴（percent-reset variant）：三後端同 idiom（jq strflocaltime／
-  // ps1 Format-ResetsAt／oracle resetsAtSuffix），同機同 TZ byte-exact。FULL
-  // five_hour.resets_at=1783497600（number）→ ` (HH:mm)`；斷言不寫死時刻，
-  // 只比對 oracle（spawn 當下 TZ 計）。涵蓋 plain 無閾值／powerline 交接／
-  // plain 閾值分裂（後綴隨值色）／dash+後綴正交（used=null→'-- (HH:mm)'）。
+  // resets 後綴（percent-reset variant；M6 C3 升級倒數形）：三後端同 idiom
+  // （jq jqResetSuffix5h/7d／ps1 對應／oracle resetsAtSuffix），同機同刻
+  // pin（STATUSLINE_NOW_EPOCH=scenario.now，見下方 runScript 呼叫）
+  // byte-exact。FULL five_hour.resets_at=now+2h（number）→ ` ↺ 2h
+  // (HH:MM)`；涵蓋 plain 無閾值／powerline 交接／plain 閾值分裂（後綴隨
+  // 值色）／dash+後綴正交（used=null→'(n/a) ↺ 2h (HH:MM)'，M6 C1+C3
+  // 合流）／後綴過期但 rate 段本體仍存活（M6 C3 死值規則，只剔後綴、非
+  // 整段剔除）。
   const TRAFFIC = THRESHOLD_TEMPLATES.traffic
   combos.push({
     name: 'rate-reset-plain',
@@ -532,13 +673,35 @@ function buildByteExactCombos(): ByteExactCombo[] {
     ]),
     scenario: mockScen('full'),
   })
-  // dash+後綴正交：used_percentage=null（→ '--'）但 resets_at 仍為 number。
+  // dash+後綴正交：used_percentage=null（→ NA_TEXT）但 resets_at 仍為 number。
   const dashReset = mockScen('full')
   dashReset.data.rate_limits!.five_hour!.used_percentage = null
   combos.push({
     name: 'rate-reset-dash',
     config: cfgT('plain', true, [segT('rate-5h', { variant: 'percent-reset', color: A(99) })]),
     scenario: dashReset,
+  })
+  // M6 C3 死值規則（已過期）：resets_at 為 number 但 `now >= resets_at`
+  // ——後綴剔除為 ''，rate 段本體（主值百分比）仍存活，區別於倒數段
+  // （reset-5h/7d）expiresAtPath 的整段剔除語意（見下方獨立 describe）。
+  const expiredReset = mockScen('full')
+  expiredReset.data.rate_limits!.five_hour!.resets_at = expiredReset.now - 5
+  combos.push({
+    name: 'rate-reset-expired',
+    config: cfgT('plain', true, [segT('rate-5h', { variant: 'percent-reset', color: A(99) })]),
+    scenario: expiredReset,
+  })
+  // bar × dash × percent-reset 正交（M6 C2+C3 合流）：主值 null（NA_TEXT、
+  // bn=0）但後綴獨立存活（`sfx` 於 `emitBarSegment` 恆在 if/else 之前
+  // 計算，見該函式文件）。
+  const barDashReset = mockScen('full')
+  barDashReset.data.rate_limits!.five_hour!.used_percentage = null
+  combos.push({
+    name: 'bar-dash-percent-reset',
+    config: cfgT('plain', true, [
+      segT('rate-5h', { bar: true, variant: 'percent-reset', color: A(88) }),
+    ]),
+    scenario: barDashReset,
   })
   // Important 3（CR4）＋SP-0 拆段：對稱「全段」真執行案——鏡像 emit-ps1.test.ts。
   // 把 22 個非 shell-out stdin 段放一個 config，對 {full, windows-cjk, early-null} 三
@@ -594,6 +757,164 @@ function buildByteExactCombos(): ByteExactCombo[] {
     ]),
     scenario: mockScen('full'),
   })
+
+  // ── T4.3：bar（percentage 類 seg.bar===true；sp4/REPORT.md 41-案 recipe） ──
+  combos.push({
+    name: 'bar-plain-threshold',
+    config: cfgT('plain', true, [
+      segT('context-used', {
+        icon: true,
+        prefix: 'ctx',
+        bar: true,
+        threshold: THRESHOLD_TEMPLATES.traffic,
+        color: A(240),
+      }),
+    ]),
+    scenario: mockScen('full'), // used_percentage=42.5
+  })
+  combos.push({
+    name: 'bar-plain-nothreshold',
+    config: cfgT('plain', true, [segT('context-remaining', { bar: true, color: A(45) })]),
+    scenario: mockScen('full'), // remaining_percentage=57.5，退段主色（無 idx 查表）
+  })
+  combos.push({
+    name: 'bar-powerline-threshold-cap',
+    config: cfgT('powerline', true, [
+      segT('model', { color: A(226) }),
+      segT('context-used', {
+        bar: true,
+        threshold: THRESHOLD_TEMPLATES.traffic,
+        color: A(240),
+        fgOverride: A(93), // bar 停用 fgOverride——byte-exact 若誤用會轉紅
+      }),
+    ]),
+    scenario: mockScen('full'),
+  })
+  combos.push({
+    name: 'bar-powerline-noarrow',
+    config: {
+      ...cfgT('powerline', true, [
+        segT('model', { color: A(226) }),
+        segT('context-used', { bar: true, threshold: THRESHOLD_TEMPLATES.traffic, color: A(240) }),
+      ]),
+      powerlineArrow: false,
+    },
+    scenario: mockScen('full'),
+  })
+  combos.push({
+    name: 'bar-dash-plain',
+    config: cfgT('plain', true, [segT('rate-5h', { bar: true, color: A(88) })]),
+    scenario: mockScen('early-null'), // rate_limits 缺席 → 主值 undefined → dash
+  })
+  combos.push({
+    name: 'bar-dash-powerline-cap',
+    config: cfgT('powerline', true, [segT('rate-5h', { bar: true, color: A(88), fgOverride: A(93) })]),
+    scenario: mockScen('early-null'),
+  })
+  combos.push({
+    name: 'bar-percent-reset',
+    config: cfgT('plain', true, [
+      segT('rate-5h', {
+        bar: true,
+        variant: 'percent-reset',
+        color: A(88),
+        threshold: THRESHOLD_TEMPLATES.traffic,
+      }),
+    ]),
+    scenario: mockScen('full'),
+  })
+  combos.push({
+    name: 'bar-0-pct',
+    config: cfgT('plain', true, [segT('context-used', { bar: true, color: A(200) })]),
+    scenario: mockScenWith('conditional-absent', (d) => {
+      d.context_window.used_percentage = 0
+    }),
+  })
+  combos.push({
+    name: 'bar-100-pct',
+    config: cfgT('powerline', true, [segT('context-used', { bar: true, color: A(200) })]),
+    scenario: mockScenWith('conditional-absent', (d) => {
+      d.context_window.used_percentage = 100
+    }),
+  })
+
+  // ── T4.3：auto 配色（model／effort；PLAN Rev4 §3 色票，bash case 大小寫敏感） ──
+  combos.push({
+    name: 'auto-model-fable-plain',
+    config: cfgT('plain', true, [segT('model', { color: { kind: 'auto' } })]),
+    scenario: mockScen('full'), // model.id='claude-fable-5' → 214
+  })
+  combos.push({
+    name: 'auto-model-opus-powerline-cap',
+    config: cfgT('powerline', true, [segT('model', { color: { kind: 'auto' } })]),
+    scenario: mockScen('windows-cjk'), // model.id='claude-opus-4-8' → 135
+  })
+  combos.push({
+    name: 'auto-model-haiku-plain',
+    config: cfgT('plain', true, [segT('model', { color: { kind: 'auto' } })]),
+    scenario: mockScen('conditional-absent'), // model.id='claude-haiku-4-5-20251001' → 2
+  })
+  combos.push({
+    name: 'auto-model-fallback-plain',
+    config: cfgT('plain', true, [segT('model', { color: { kind: 'auto' } })]),
+    scenario: mockScen('early-null'), // model.id='claude-sonnet-5' → fallback 6
+  })
+  combos.push({
+    name: 'auto-effort-plain',
+    config: cfgT('plain', true, [segT('effort', { color: { kind: 'auto' }, icon: true })]),
+    scenario: mockScen('full'), // effort.level='high' → 4
+  })
+  combos.push({
+    name: 'auto-effort-powerline-fgoverride',
+    config: cfgT('powerline', true, [segT('effort', { color: { kind: 'auto' }, fgOverride: A(201) })]),
+    scenario: mockScen('windows-cjk'), // effort.level='medium' → tail=2、fg=fgOverride(201)
+  })
+  combos.push({
+    name: 'auto-effort-unknown-fallback',
+    config: cfgT('plain', true, [segT('effort', { color: { kind: 'auto' } })]),
+    scenario: mockScenWith('full', (d) => {
+      d.effort = { level: 'ultra' } // 未知值 → fallback 9
+    }),
+  })
+
+  // ── T4.3：tokens 縮寫（token-in／token-out；dash 政策，nullPolicy 驅動） ──
+  combos.push({
+    name: 'tokens-full-plain',
+    config: cfgT('plain', true, [segT('token-in', { color: A(80) }), segT('token-out', { color: A(81) })]),
+    scenario: mockScen('full'), // input=52341→"52.3k"、output=8123→"8.1k"
+  })
+  combos.push({
+    name: 'tokens-full-powerline',
+    config: cfgT('powerline', true, [segT('model', { color: A(226) }), segT('token-in', { color: A(80) })]),
+    scenario: mockScen('full'),
+  })
+  combos.push({
+    name: 'tokens-dash-null',
+    config: cfgT('plain', true, [segT('token-in', { color: A(80) }), segT('token-out', { color: A(81) })]),
+    scenario: mockScen('early-null'), // current_usage=null → '--'
+  })
+  combos.push({
+    name: 'tokens-boundary-999',
+    config: cfgT('plain', true, [segT('token-in', { color: A(80) })]),
+    scenario: mockScenWith('full', (d) => {
+      d.context_window.current_usage!.input_tokens = 999 // <1000 原整數字串
+    }),
+  })
+  combos.push({
+    name: 'tokens-boundary-1000',
+    config: cfgT('plain', true, [segT('token-in', { color: A(80) })]),
+    scenario: mockScenWith('full', (d) => {
+      d.context_window.current_usage!.input_tokens = 1000 // 邊界 →"1.0k"
+    }),
+  })
+  combos.push({
+    name: 'tokens-large-no-M-upgrade',
+    config: cfgT('plain', true, [segT('token-in', { color: A(80) })]),
+    scenario: mockScenWith('full', (d) => {
+      d.context_window.current_usage!.input_tokens = 1500000 // 僅 k 檔，不升 M →"1500.0k"
+    }),
+  })
+
   return combos
 }
 
@@ -618,7 +939,14 @@ describe.skipIf(!REAL_EXEC.ok)('端到端 byte-exact（bash＋jq 真執行）', 
     const script = emitBash(combo.config, CATALOG)
     const oracle = Buffer.from(toAnsi(resolve(combo.config, combo.scenario)), 'utf8')
     const stdin = JSON.stringify(combo.scenario.data)
-    const r = runScript(script, stdin, combo.scenario.env.home, jqDir)
+    // M6 T6.2（C3）：percent-reset 變體的倒數後綴現依賴 `$now`（jq S2
+    // idiom）——顯式釘 `STATUSLINE_NOW_EPOCH=scenario.now`（與 oracle 的
+    // `resolve(..., scenario)` 同一 now 來源），避免 bash 端落回真時鐘
+    // 與 oracle 的固定 mock now 不同刻而假陽性失敗（沿下方「T4.3 倒數段」
+    // 描述區塊已建立的 pin-now 慣例；非倒數段的 jq 程式不讀此 env，無害）。
+    const r = runScript(script, stdin, combo.scenario.env.home, jqDir, false, {
+      STATUSLINE_NOW_EPOCH: String(combo.scenario.now),
+    })
     expect(r.status, `非零 exit；stderr=${r.stderr}`).toBe(0)
     // hex 比對＝可讀 diff；byte-exact 命中 oracle（emit-ansi.toAnsi）。
     expect(r.stdout.toString('hex')).toBe(oracle.toString('hex'))
@@ -634,5 +962,80 @@ describe.skipIf(!REAL_EXEC.ok)('端到端 byte-exact（bash＋jq 真執行）', 
     const r = runScript(script, JSON.stringify(mockScen('full').data), '/home/x', emptyDir, true)
     expect(r.status).toBe(0)
     expect(r.stdout.toString('utf8')).toBe(JQ_MISSING_HINT)
+  })
+})
+
+// ── T4.3：倒數段（reset-5h／reset-7d）端到端 byte-exact ──
+//
+// sp6/REPORT.md 定案「同機 oracle」體制：oracle（toAnsi(resolve(...))）與
+// bash 產出腳本皆於同一測試進程／同一時刻執行期即時算 now，天然一致、不
+// 釘 CI 時區。本區塊更進一步——顯式將 `STATUSLINE_NOW_EPOCH` 注入 bash
+// 子行程（值＝scenario.now，與 oracle 的 ResolveInput.now 同一來源），令
+// 兩側 now 完全相同（非僅「同機同刻」的近似一致），徹底排除次毫秒級時序
+// race，同時是 S2 idiom「合法整數注入」分支的真執行覆蓋。
+describe.skipIf(!REAL_EXEC.ok)('T4.3 倒數段（reset-5h／reset-7d；STATUSLINE_NOW_EPOCH 顯式釘 now）', () => {
+  const jqDir = REAL_EXEC.ok ? REAL_EXEC.jqDir : undefined
+
+  interface ResetCombo {
+    name: string
+    config: BuilderConfig
+    scenario: ByteExactScenario
+  }
+
+  const fullNow = mockScen('full').now
+
+  const combos: ResetCombo[] = [
+    {
+      name: 'reset-5h-hours-plain',
+      config: cfgT('plain', true, [segT('reset-5h', { color: A(99) })]),
+      scenario: mockScen('full'), // five_hour.resets_at=now+7200 → "↺ 2h (HH:MM)"
+    },
+    {
+      name: 'reset-7d-days-plain',
+      config: cfgT('plain', true, [segT('reset-7d', { color: A(99) })]),
+      scenario: mockScen('full'), // seven_day.resets_at=now+114h → "↺ 4d (MM/DD HH:MM)"
+    },
+    {
+      name: 'reset-7d-null-hidden',
+      config: cfgT('plain', true, [segT('model', { color: A(226) }), segT('reset-7d', { color: A(99) })]),
+      scenario: mockScen('windows-cjk'), // seven_day.resets_at=null → 隱藏
+    },
+    {
+      name: 'reset-5h-expired-hidden',
+      config: cfgT('plain', true, [segT('model', { color: A(226) }), segT('reset-5h', { color: A(99) })]),
+      scenario: mockScenWith('full', (d) => {
+        d.rate_limits!.five_hour!.resets_at = fullNow - 100 // now-100，已過期 → 隱藏
+      }),
+    },
+    {
+      name: 'reset-5h-minutes-plain',
+      config: cfgT('plain', true, [segT('reset-5h', { color: A(99) })]),
+      scenario: mockScenWith('full', (d) => {
+        d.rate_limits!.five_hour!.resets_at = fullNow + 1500 // now+25m → "↺ 25m (...)"
+      }),
+    },
+    {
+      name: 'reset-7d-hours-minutes-plain',
+      config: cfgT('plain', true, [segT('reset-7d', { color: A(99) })]),
+      scenario: mockScenWith('full', (d) => {
+        d.rate_limits!.seven_day!.resets_at = fullNow + 5000 // now+1h23m20s → "↺ 1h23m (...)"
+      }),
+    },
+    {
+      name: 'reset-5h-powerline-cap',
+      config: cfgT('powerline', true, [segT('model', { color: A(226) }), segT('reset-5h', { color: A(99) })]),
+      scenario: mockScen('full'),
+    },
+  ]
+
+  it.each(combos.map((c) => [c.name, c] as const))('%s', (_name, combo) => {
+    const script = emitBash(combo.config, CATALOG)
+    const oracle = Buffer.from(toAnsi(resolve(combo.config, combo.scenario)), 'utf8')
+    const stdin = JSON.stringify(combo.scenario.data)
+    const r = runScript(script, stdin, combo.scenario.env.home, jqDir, false, {
+      STATUSLINE_NOW_EPOCH: String(combo.scenario.now),
+    })
+    expect(r.status, `非零 exit；stderr=${r.stderr}`).toBe(0)
+    expect(r.stdout.toString('hex')).toBe(oracle.toString('hex'))
   })
 })

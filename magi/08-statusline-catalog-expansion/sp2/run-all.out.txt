@@ -1,0 +1,96 @@
+########## jq versions / PowerShell versions ##########
+jq-1.8.1
+PS5.1 5.1.26100.8655
+pwsh7 7.6.3
+
+########## jq half: naive expr (proves non-numeric path errors) ##########
+expr: ((env.STATUSLINE_NOW_EPOCH // (now|floor))|tonumber)
+-- (a) unset --
+1783862019
+exit: 0
+-- (b) legit=1783497600 --
+1783497600
+exit: 0
+-- (c) nonnumeric=abc --
+jq: error (at <unknown>): string ("abc") cannot be parsed as a number
+exit: 5
+
+########## jq half: safe idiom (probe.jq, -f) ##########
+expr: (env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now|floor)
+-- (a) unset --
+1783862019
+exit: 0
+-- (b) legit=1783497600 --
+1783497600
+exit: 0
+-- (c) nonnumeric=abc --
+1783862019
+exit: 0
+-- (d) explicit empty string (bonus edge case) --
+1783862019
+exit: 0
+
+########## ps1 half: cast trap check (trap-check.ps1) ##########
+-- PS 5.1 --
+PSVersion: 5.1.26100.8655
+--- [long]\ ---
+OK value=0 type=System.Int64
+--- [long]'' ---
+OK value=0
+--- [long]'abc' ---
+THREW: System.Management.Automation.RuntimeException: 無法將 "abc" 值轉換為 "System.Int64" 型別。錯誤: "輸入字串格式不正確。"
+exit: 0
+-- pwsh 7 --
+PSVersion: 7.6.3
+--- [long]\ ---
+OK value=0 type=System.Int64
+--- [long]'' ---
+OK value=0
+--- [long]'abc' ---
+THREW: System.Management.Automation.RuntimeException: Cannot convert value "abc" to type "System.Int64". Error: "The input string 'abc' was not in a correct format."
+exit: 0
+
+########## ps1 half: TryParse no-throw check (tryparse-check.ps1) ##########
+-- PS 5.1 --
+TryParse(null) -> ok=False parsed=0 (input type=)
+TryParse('') -> ok=False parsed=0 (input type=System.String)
+TryParse('abc') -> ok=False parsed=0 (input type=System.String)
+TryParse('1783497600') -> ok=True parsed=1783497600 (input type=System.String)
+TryParse(' 123') -> ok=True parsed=123 (input type=System.String)
+-- pwsh 7 --
+TryParse(null) -> ok=False parsed=0 (input type=)
+TryParse('') -> ok=False parsed=0 (input type=System.String)
+TryParse('abc') -> ok=False parsed=0 (input type=System.String)
+TryParse('1783497600') -> ok=True parsed=1783497600 (input type=System.String)
+TryParse(' 123') -> ok=True parsed=123 (input type=System.String)
+
+########## ps1 half: final idiom (probe.ps1), 3 paths x {PS5.1, pwsh7} ##########
+===== powershell.exe =====
+-- (a) unset --
+PSVersion=5.1.26100.8655 STATUSLINE_NOW_EPOCH=[] branch=absent-fallback n=1783862024 oracle_now=1783862024 diff=0
+exit: 0
+-- (b) legit=1783497600 --
+PSVersion=5.1.26100.8655 STATUSLINE_NOW_EPOCH=[1783497600] branch=legit-parsed n=1783497600 oracle_now=1783862025 diff=364425
+exit: 0
+-- (c) nonnumeric=abc --
+PSVersion=5.1.26100.8655 STATUSLINE_NOW_EPOCH=[abc] branch=nonnumeric-fallback n=1783862026 oracle_now=1783862026 diff=0
+exit: 0
+-- (d) explicit empty string (bonus edge case) --
+PSVersion=5.1.26100.8655 STATUSLINE_NOW_EPOCH=[] branch=absent-fallback n=1783862027 oracle_now=1783862027 diff=0
+exit: 0
+===== pwsh =====
+-- (a) unset --
+PSVersion=7.6.3 STATUSLINE_NOW_EPOCH=[] branch=absent-fallback n=1783862028 oracle_now=1783862028 diff=0
+exit: 0
+-- (b) legit=1783497600 --
+PSVersion=7.6.3 STATUSLINE_NOW_EPOCH=[1783497600] branch=legit-parsed n=1783497600 oracle_now=1783862028 diff=364428
+exit: 0
+-- (c) nonnumeric=abc --
+PSVersion=7.6.3 STATUSLINE_NOW_EPOCH=[abc] branch=nonnumeric-fallback n=1783862029 oracle_now=1783862029 diff=0
+exit: 0
+-- (d) explicit empty string (bonus edge case) --
+PSVersion=7.6.3 STATUSLINE_NOW_EPOCH=[] branch=absent-fallback n=1783862029 oracle_now=1783862029 diff=0
+exit: 0
+
+########## zero-shell-date grep check (executable lines only, comments stripped) ##########
+no shell 'date' invocation found in probe.jq / probe.ps1 executable lines

@@ -73,7 +73,7 @@ $Segs2 = @()
 # context-used — percentage/dash＋threshold
 $v = $d.context_window.used_percentage
 if ($null -eq $v) {
-  $disp = '--'
+  $disp = '(n/a)'
   $Segs2 += "$e[0m$e[38;5;240m" + $disp
 } else {
   $p = [double]$v
@@ -91,7 +91,7 @@ if ($null -eq $v) {
 # rate-5h — percentage/dash
 $v = $d.rate_limits.five_hour.used_percentage
 if ($null -eq $v) {
-  $vt = '--'
+  $vt = '(n/a)'
 } else {
   $vt = ([string][long][math]::Floor([double]$v)) + '%'
 }

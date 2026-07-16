@@ -1,9 +1,13 @@
 /**
  * S5-T1.3（magi/05-statusline-builder/PLAN.md §D2／§Verification 1
  * 閾值矩陣）：bucketIndex 上下界 clamp＋小數＋NaN／型別外滲入矩陣、
- * 桶覆蓋區間 [i*10,(i+1)*10)、4 模板預填陣列釘值＋與 color.ts 公式
+ * 桶覆蓋區間 [i*10,(i+1)*10)、模板預填陣列釘值＋與 color.ts 公式
  * 一致性（ansi256ToHex 對照）、auto-fg 成對陣列（派生律＋釘值＋
  * fgOverride 全桶）。
+ *
+ * 08-statusline-catalog-expansion T3.5（PLAN.md Rev 4 §3）：新增
+ * limit-gradient／remaining-gradient 雙模板登記案（尾插、既有 4 套
+ * 不變、互為逆序）。
  */
 import { describe, expect, it } from 'vitest'
 import { ansi256ToHex, autoFg, type ColorSpec } from './color.js'
@@ -60,9 +64,16 @@ describe('bucketIndex（idx = max(0, min(floor(p/10), 9))）', () => {
   })
 })
 
-describe('模板（4 套預填 10-tuple，ansi256 軌）', () => {
-  it('id 一覽恰 4 套，與 record 鍵一致', () => {
-    expect(THRESHOLD_TEMPLATE_IDS).toEqual(['traffic', 'traffic-inv', 'cool-warm', 'mono-fade'])
+describe('模板（6 套預填 10-tuple，ansi256 軌；08 T3.5 新增 limit-gradient／remaining-gradient 尾插）', () => {
+  it('id 一覽恰 6 套、既有 4 套原順序不動、新兩套尾插，與 record 鍵一致', () => {
+    expect(THRESHOLD_TEMPLATE_IDS).toEqual([
+      'traffic',
+      'traffic-inv',
+      'cool-warm',
+      'mono-fade',
+      'limit-gradient',
+      'remaining-gradient',
+    ])
     expect(Object.keys(THRESHOLD_TEMPLATES).sort()).toEqual([...THRESHOLD_TEMPLATE_IDS].sort())
   })
 
@@ -86,6 +97,8 @@ describe('模板（4 套預填 10-tuple，ansi256 軌）', () => {
     ['traffic-inv', [196, 208, 214, 220, 226, 190, 154, 118, 82, 46]],
     ['cool-warm', [21, 57, 93, 129, 165, 200, 199, 198, 197, 196]],
     ['mono-fade', [232, 235, 237, 240, 242, 245, 247, 250, 252, 255]],
+    ['limit-gradient', [244, 246, 247, 249, 250, 34, 34, 34, 220, 196]],
+    ['remaining-gradient', [196, 220, 34, 34, 34, 250, 249, 247, 246, 244]],
   ] as const)('%s 釘值', (id, indices) => {
     expect(THRESHOLD_TEMPLATES[id].buckets).toEqual(indices.map(ansi))
   })
@@ -93,6 +106,12 @@ describe('模板（4 套預填 10-tuple，ansi256 軌）', () => {
   it('traffic-inv ＝ traffic 逆序', () => {
     expect(THRESHOLD_TEMPLATES['traffic-inv'].buckets).toEqual(
       [...THRESHOLD_TEMPLATES.traffic.buckets].reverse(),
+    )
+  })
+
+  it('remaining-gradient ＝ limit-gradient 逆序（08 T3.5：閾值輸入一律＝該段原始值，不做隱式反轉）', () => {
+    expect(THRESHOLD_TEMPLATES['remaining-gradient'].buckets).toEqual(
+      [...THRESHOLD_TEMPLATES['limit-gradient'].buckets].reverse(),
     )
   })
 
@@ -108,6 +127,13 @@ describe('模板（4 套預填 10-tuple，ansi256 軌）', () => {
     expect(hexAt('cool-warm', 9)).toBe('#ff0000') // 暖端
     expect(hexAt('mono-fade', 0)).toBe('#080808') // 灰階 232
     expect(hexAt('mono-fade', 9)).toBe('#eeeeee') // 灰階 255
+    expect(hexAt('limit-gradient', 0)).toBe('#808080') // 灰階 244 起點
+    expect(hexAt('limit-gradient', 4)).toBe('#bcbcbc') // 灰階 250（0–49% 段末）
+    expect(hexAt('limit-gradient', 5)).toBe('#00af00') // 綠三桶起（色立方 34）
+    expect(hexAt('limit-gradient', 8)).toBe('#ffd700') // 黃（色立方 220）
+    expect(hexAt('limit-gradient', 9)).toBe('#ff0000') // 紅端（色立方 196）
+    expect(hexAt('remaining-gradient', 0)).toBe('#ff0000') // 逆序：紅端在前
+    expect(hexAt('remaining-gradient', 9)).toBe('#808080') // 逆序：灰階在末
   })
 
   it('模板深凍結（record／rule／tuple／各桶）——UI 套用須複製', () => {

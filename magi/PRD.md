@@ -15,8 +15,9 @@
 - APNG → GIF 等圖片格式轉換功能
 - GIF 編輯功能（頁數編輯、時間停留等基礎功能）
 - 影片格式轉換功能（如 MKV → MP4）
-- Claude Code statusline 設定產生器（預覽＋腳本產出；圖示採通用 emoji，
-  免安裝字型即可零豆腐使用；多列輸出，列數無上限）
+- Claude Code statusline 設定產生器（預覽＋腳本產出；圖示採 ASCII 短前綴
+  （零字型依賴）；多列輸出，列數無上限；進度條、限額重置倒數、tokens
+  三段、模型／effort 自動配色）
 - 全站深／淺主題切換與統一 footer
 - 可直接由 GitHub Pages 託管（純靜態、無後端）
 

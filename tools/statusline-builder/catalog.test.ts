@@ -79,15 +79,15 @@ describe('buildCatalogGroups（左欄目錄 view-model）', () => {
     expect(reversed.always.map((item) => item.enabled)).toEqual([false, true, true])
   })
 
-  it('與真實 25 段目錄整合：categoryOrder 四類分佈恰 10/4/8/3，總數 25，各類別內序＝SEGMENT_DESCRIPTORS 既有序', () => {
+  it('與真實 30 段目錄整合（T3.2 新 5 段後）：categoryOrder 四類分佈恰 12/5/10/3，總數 30，各類別內序＝SEGMENT_DESCRIPTORS 既有序', () => {
     const config = defaultConfig(SEGMENT_CATALOG)
     const groups = buildCatalogGroups(SEGMENT_DESCRIPTORS, config.segments, CATEGORY_ORDER)
-    expect(groups.always).toHaveLength(10)
-    expect(groups.percentage).toHaveLength(4)
-    expect(groups.conditional).toHaveLength(8)
+    expect(groups.always).toHaveLength(12)
+    expect(groups.percentage).toHaveLength(5)
+    expect(groups.conditional).toHaveLength(10)
     expect(groups['shell-out']).toHaveLength(3)
     const total = groups.always.length + groups.percentage.length + groups.conditional.length + groups['shell-out'].length
-    expect(total).toBe(25)
+    expect(total).toBe(30)
     // 全部預設停用（defaultConfig 全停用）。
     for (const category of CATEGORY_ORDER) {
       expect(groups[category].every((item) => item.enabled === false)).toBe(true)

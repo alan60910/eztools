@@ -11,8 +11,12 @@
  *    消費段（非 shell-out）啟用時 emit 此守衛**（契約 10 最小化精神；
  *    純 shell-out／空 config 不需 jq，不應誤判空白）。
  * 3  null 三態 idiom（依 descriptor.nullPolicy）：
- *    - dash（百分比）：jq `// "--"`＋number 分支顯示 `⌊p⌋%`；桶索引另一
- *      jq，`-1` 哨值由 bash 分流（bash 零數學）。
+ *    - dash（百分比類，`category==='percentage'`；M6 C1 修正）：jq
+ *      `// "(n/a)"`（NA_TEXT）＋number 分支顯示 `⌊p⌋%`；桶索引另一 jq，
+ *      `-1` 哨值由 bash 分流（bash 零數學）。dash 但非百分比類
+ *      （token-in／out，`category==='always'`）維持 `// "--"`（DASH_TEXT，
+ *      見 `emitSegment` 尾段 nullPolicy 分支）——閘門走 category，零 id
+ *      特判。
  *    - hide／empty：jq `// empty`＋bash `[ -n "$v" ]` 剔段（false 亦被
  *      jq `//` 剔除——thinking 同構）。
  * 4  執行期兩趟 join（平行陣列 texts/fgs/bgs 或 texts/fgs/segstart）：
@@ -28,11 +32,13 @@
  * 9  exit-0 不變量：禁 `set -e`；每個 shell-out `… 2>/dev/null || true`；
  *    結尾顯式 `exit 0`。
  * 10 shell-out 最小化：僅啟用段 emit 對應呼叫；jq 守衛條件 emit（見 2）。
- * 12 時間（resets_at HH:mm）：percent-reset variant 段於主值後 emit resets
- *    後綴——jq `strflocaltime("%H:%M")` 直吃 epoch（.t26 定案，jq 1.8.1
- *    可用），`type=="number"→" (HH:mm)"`、否則 ''（鏡像 resetsAtSuffix／
+ * 12 時間（resets_at 倒數；M6 C3 升級）：percent-reset variant 段於主值後
+ *    emit resets 後綴——`jqResetSuffix5h`／`jqResetSuffix7d` 全 jq
+ *    pipeline（kind 由 `descriptor.resetsAt.countdown` 驅動，零 id
+ *    特判），`strflocaltime` 直吃 epoch（.t26 定案，jq 1.8.1 可用），
+ *    死值（非 number／已過期）→ `''`（鏡像 resolve.ts resetsAtSuffix／
  *    emit-ps1 Format-ResetsAt；三後端同機同 TZ 一致）。後綴附於 value 部、
- *    與主值 dash 正交（`-- (HH:mm)`），閾值分裂時隨值色。
+ *    與主值 dash 正交（`(n/a) ↺ 2h (16:00)`），閾值分裂時隨值色。
  *
  * ── D1 gating（S6-T2.3：`config.powerlineArrow`，僅 powerline 模式）──
  * `powerlineArrow=false`（v2 預設）：不 emit `ARROW=` 變數、join 迴圈不插
@@ -64,10 +70,62 @@
  *   4 零存活列退化——`outs` 為空 → `out` 直接賦值單一 SGR reset
  *     （`${ESC}[0m`，對齊 oracle `toAnsi([[]])`）。
  * 兩路徑皆維持 `printf '%s' "$out"`（契約 6/9 不受列數影響）。
+ *
+ * ── T4.3（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3/§4）──
+ * 承接 T3.2 追補的 5 新段（token-in／token-out／cache-hit／reset-5h／
+ * reset-7d）與 T4.2 的 bar／auto 契約，本檔補齊 bash 端真實作：
+ * - **bar**（`seg.bar===true`，percentage 類）：`emitBarSegment`——plain
+ *   逐 run push 4 元素（`joinPlain` 零改動）；powerline 併單一累加器
+ *   元素（run1 進 fgs/bgs 欄位、run2–4 各自完整烘焗，sp4/REPORT.md 精確
+ *   配方，勿 4-run 全烘）。
+ * - **auto 配色**（`seg.color.kind==='auto'`，僅 model／effort，與
+ *   bar／shell-out／percentage 互斥）：`emitAutoBinding`——emit 期預算
+ *   各色票分支的 fg／bg 尾／autoFg 對比 fg 三值，執行期以 bash `case`
+ *   一次分派（大小寫敏感前綴／精確字面比對）；`generalSegmentColor` 為
+ *   always／conditional 分支的唯一 auto 落點，非 auto 段沿既有靜態公式
+ *   byte-exact 不變。
+ * - **tokens 縮寫**（token-in／token-out，`nullPolicy:'dash'`）：
+ *   `emitOther` 概念（本檔 `emitSegment` 尾段）改由 `nullPolicy` 驅動
+ *   （非 category）分派 dash 分支，jq `TOKENS_JQ_FORMAT` 鏡像
+ *   resolve.ts `formatTokens`。
+ * - **倒數段**（reset-5h／reset-7d，`expiresAtPath`＋兩套階梯格式）：
+ *   `jqResetCountdown5h`／`jqResetCountdown7d` 全 jq pipeline——`$now`
+ *   採 sp2/REPORT.md §3 S2 idiom（`STATUSLINE_NOW_EPOCH` 合法整數優先，
+ *   否則 `now|floor`，非數字靜默 fallback）；通用死值規則（非 number 或
+ *   `now>=resets_at` → `empty`）與格式化皆鏡像 resolve.ts
+ *   `formatResetCountdown5h`/`7d`；HH:MM／MM:DD 用 jq `strflocaltime`
+ *   直吃 epoch（同機同 TZ，sp6/REPORT.md 定案，不釘 CI 時區）。
+ *
+ * ── M6 T6.2（magi/08-statusline-catalog-expansion/TASKS.md；使用者
+ * 2026-07-14 拍板契約 C1–C3，見 resolve.ts 檔頭「T6.1」節與 WORKS.md 同日
+ * 條目）：oracle（resolve.ts）真機回饋修正的 bash 端同構落地 ──
+ * **C1 百分比無資料標記**：見上方契約 3 節；`emitSegment` 百分比分支
+ * （非 bar）與 `emitBarSegment` 的 dash 分派皆改吐 NA_TEXT（`'(n/a)'`，
+ * 從 resolve.ts import）取代舊 `'--'`；token-in/out 的獨立 dashProg
+ * （`emitSegment` 尾段 nullPolicy 分支）不受影響。
+ * **C2 bar×null 不再退單 run**：`emitBarSegment` 撤除舊「`[ -z "$v" ]` →
+ * 整段退單 run」分支，改為不論死活恆走 4-run（`bn`／`bval` 為死活兩態
+ * 唯一差異點，filled／empty／bfg／run4 組裝與 push 皆共用同一路徑）；
+ * bucket 退段主色的判定改以執行期 `[ -n "$v" ]` 同構複刻 oracle
+ * 「isDash 時 threshold 恆 null」規則。
+ * **C3 percent-reset 後綴升級倒數形**：`jqResetSuffix5h`／
+ * `jqResetSuffix7d`（`jqResetCountdown5h`/`7d` 姊妹版，見該二函式檔頭
+ * 差異註解）取代舊 `strflocaltime("%H:%M")` 靜態後綴；kind 由
+ * `descriptor.resetsAt.countdown` 驅動（零 id 特判）；死值（非
+ * number／已過期）→ `''`（只剔後綴，rate 段本體仍存活，非
+ * `jqResetCountdown5h/7d` 之 `empty`——那版供獨立 reset-5h/7d 段整段
+ * 死值判定，語意不同不可混用）。`emitBarSegment` 與 `emitSegment` 百分比
+ * 分支的後綴計算皆改走此二函式。
  */
 import { autoFg, colorSgrParams, type ColorSpec } from './color.js'
-import type { BuilderConfig, SegmentConfig } from './config.js'
-import { POWERLINE_ARROW } from './resolve.js'
+import { segmentColorPlaceholder, type BuilderConfig, type SegmentConfig } from './config.js'
+import {
+  BAR_CELL_COUNT,
+  BAR_EMPTY_CHAR,
+  BAR_FILLED_CHAR,
+  NA_TEXT,
+  POWERLINE_ARROW,
+} from './resolve.js'
 import { defaultVariant, type FormatKind, type SegmentDescriptor } from './segments.js'
 import { autoFgBuckets, type ThresholdRule } from './threshold.js'
 
@@ -89,6 +147,15 @@ function sgrLit(params: string): string {
   return `'${params}'`
 }
 
+/**
+ * JS 字串 → jq 字串字面（M6 T6.2；jq 字串語法為 JSON 相容子集，直接借用
+ * `JSON.stringify`）：`NA_TEXT`（`'(n/a)'`）等無特殊字元的字面亦可用一般
+ * 手寫 `"..."`，此處求單一事實來源（避免常數與 jq 程式文字兩處手打漂移）。
+ */
+function jqStrLit(s: string): string {
+  return JSON.stringify(s)
+}
+
 /** ColorSpec → fg SGR 參數段（`38;5;n`／`38;2;r;g;b`）；default → ''（不 emit）。 */
 function fgParams(spec: ColorSpec): string {
   return colorSgrParams(spec, 'fg') ?? ''
@@ -105,7 +172,9 @@ function sgrTail(spec: ColorSpec): string {
 
 /** powerline 段主色的 fg：fgOverride 優先、否則 auto-fg（D2；default → ''）。 */
 function powerlineMainFg(seg: SegmentConfig): string {
-  return fgParams(seg.fgOverride ?? autoFg(seg.color))
+  // M3 邊界（08-PLAN Rev 4 §3）：auto 色票展開屬 M4 T4.3，此處以
+  // segmentColorPlaceholder 佔位（auto → default）滿足 typecheck。
+  return fgParams(seg.fgOverride ?? autoFg(segmentColorPlaceholder(seg.color)))
 }
 
 /** bash 陣列字面 `name=('a' 'b' …)`（元素單引號；SGR 參數不含 `'`）。 */
@@ -162,8 +231,114 @@ function jqFormatSuffix(format: FormatKind, variant: string | undefined): string
     case 'percentage':
     case 'dirty':
     case 'clock':
-      throw new TypeError(`jqFormatSuffix 不處理 ${format}（dash／shell-out 另處理）`)
+    case 'tokens':
+    case 'reset-countdown-5h':
+    case 'reset-countdown-7d':
+      // tokens／reset-countdown-*（T4.3）比照 percentage／dirty／clock 的既有
+      // 先例：不走 `// empty${suffix}` 的 hide/empty 組合——tokens 為 dash
+      // 政策（emitOther dash 分支，見 emitSegment 尾段）、reset-countdown-*
+      // 需通用 expiresAtPath 死值規則＋S2 now idiom＋strflocaltime 的專屬
+      // 全 jq pipeline（jqResetCountdown5h／jqResetCountdown7d），皆在
+      // emitSegment 攔截、不呼叫本函式。
+      throw new TypeError(
+        `jqFormatSuffix 不處理 ${format}（dash／shell-out／reset-countdown 另處理）`,
+      )
   }
+}
+
+/**
+ * tokens 縮寫 jq 鏡像（T4.3；resolve.ts formatTokens 同構，全 floor，禁
+ * Math.round）：`.`＝已知存活主值（呼叫端先過 `// "--"` 分流 null）。
+ * n<1000 原樣 tostring；否則 ⌊n/100⌋ 插小數點取一位＋'k'（僅 k 檔，不升
+ * M——與 formatTokens 同語意）。
+ */
+const TOKENS_JQ_FORMAT =
+  'if . < 1000 then tostring else ' +
+  '((. / 100 | floor) as $s | (($s / 10 | floor | tostring) + "." + (($s % 10) | tostring) + "k")) end'
+
+/**
+ * reset-5h 倒數全 jq pipeline（FormatKind 'reset-countdown-5h'；T4.3，
+ * 契約 12＋sp2/REPORT.md §3 idiom＋sp6/REPORT.md 同機 oracle 定案）：
+ * `$now`＝S2 idiom（`STATUSLINE_NOW_EPOCH` 合法整數優先，否則 jq
+ * `now|floor`；非數字靜默 fallback，不硬錯，exit-0 不變量）。通用
+ * expiresAtPath 死值規則（resolve.ts resolveSegment 同構、零 id
+ * 特判）：resets_at 非 number 或 `now>=resets_at` → `empty`（整段剔除，
+ * 沿既有 `[ -n "$v" ]` 判定）；否則依 resolve.ts formatResetCountdown5h
+ * 兩階梯格式化（全 floor）。HH:MM 用 jq `strflocaltime` 直吃 epoch（同機
+ * 同 TZ，sp6 定案）。`↺`＝U+21BA UTF-8 字面（sp7 真機驗證可用）。
+ */
+// M6 T6.2：`$now`／`$r` 綁定前綴＋通用死值判定抽為共用骨架——
+// jqResetCountdown5h/7d（整段死值＝`empty`）與下方 jqResetSuffix5h/7d
+// （後綴死值＝`''`，C3 新增）共用同一骨架，僅死活分支的產出相異（見
+// jqResetSuffix5h/7d 檔頭差異註解）。純字串組裝、抽出後兩既有函式輸出
+// byte-identical（emit-bash.test.ts『倒數段』結構斷言沿用不動）。
+function nowAndR(jqPath: string): string {
+  return (
+    '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | ' +
+    `(${jqPath}) as $r | `
+  )
+}
+
+/** resets_at 通用死值判定（非 number 或已過期）；四函式共用同一判定式。 */
+const RESET_DEAD_COND = '(($r | type) != "number") or ($now >= $r)'
+
+function jqResetCountdown5h(jqPath: string): string {
+  return (
+    nowAndR(jqPath) +
+    `if ${RESET_DEAD_COND} then empty else ` +
+    '($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | ' +
+    'if $diff >= 3600 then "↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" ' +
+    'else "↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end'
+  )
+}
+
+/**
+ * reset-7d 倒數全 jq pipeline（FormatKind 'reset-countdown-7d'；T4.3；
+ * 同上規則，resolve.ts formatResetCountdown7d 兩階梯：`diff≥86400→"↺ Xd
+ * (…)"`、否則`"↺ XhYm (…)"`；`MM/DD HH:MM` 由 `strflocaltime("%m/%d
+ * %H:%M")` 零填直出。
+ */
+function jqResetCountdown7d(jqPath: string): string {
+  return (
+    nowAndR(jqPath) +
+    `if ${RESET_DEAD_COND} then empty else ` +
+    '($r - $now) as $diff | ($r | strflocaltime("%m/%d %H:%M")) as $stamp | ' +
+    'if $diff >= 86400 then "↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" ' +
+    'else "↺ " + (($diff / 3600 | floor) | tostring) + "h" + ' +
+    '((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end'
+  )
+}
+
+/**
+ * rate-X `percent-reset` 變體後綴倒數 pipeline（M6 C3，2026-07-14 拍板；
+ * `jqResetCountdown5h` 姊妹版）——**差異**：死值（非 number／已過期）→
+ * 空字串 `''`（不用 `empty`——`empty` 屬 jqResetCountdown5h/7d 的整段死值
+ * 語意，若誤用會令呼叫端 `sfx=$(jq ...)` 之外層若恰好是唯一輸出時連帶
+ * 消失一整行輸出；此處 `sfx` 為獨立變數，語意上更精確地表達「只剔後綴、
+ * rate 段主值 `$v` 仍存活」，避免與整段死值 pipeline 混淆複用）。存活分支
+ * 較 `jqResetCountdown5h` 多一枚前導空格（比照 resolve.ts `resetsAtSuffix`
+ * 的 `' ' + countdown`），供呼叫端 `"$v$sfx"` 直接串接、不需另補空格判斷。
+ */
+function jqResetSuffix5h(jqPath: string): string {
+  return (
+    nowAndR(jqPath) +
+    `if ${RESET_DEAD_COND} then "" else ` +
+    '($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | ' +
+    'if $diff >= 3600 then " ↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" ' +
+    'else " ↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end'
+  )
+}
+
+/** 同上（rate-7d 版；`jqResetCountdown7d` 姊妹版，差異同 jqResetSuffix5h 檔頭）。 */
+function jqResetSuffix7d(jqPath: string): string {
+  return (
+    nowAndR(jqPath) +
+    `if ${RESET_DEAD_COND} then "" else ` +
+    '($r - $now) as $diff | ($r | strflocaltime("%m/%d %H:%M")) as $stamp | ' +
+    'if $diff >= 86400 then " ↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" ' +
+    'else " ↺ " + (($diff / 3600 | floor) | tostring) + "h" + ' +
+    '((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end'
+  )
 }
 
 // ── 桶陣列預算（emit 期；執行期只索引，D2） ──
@@ -182,6 +357,105 @@ function powerlineBuckets(rule: ThresholdRule, fgOverride: ColorSpec | undefined
 /** plain 閾值：桶色作 fg 參數陣列（plain 閾值套 fg，不套 bg）。 */
 function plainBucketFg(rule: ThresholdRule): string[] {
   return rule.buckets.map(fgParams)
+}
+
+// ── auto 配色執行期查表（T4.3；PLAN Rev4 §3／§4；resolve.ts
+// expandSegmentColor 之 bash 鏡像；emit-ps1.ts MODEL_PALETTE／EFFORT_PALETTE
+// 同值同構複本——resolve.ts modelPaletteIndex／effortPaletteIndex 未
+// export，兩 emitter 各自持一份，三後端數值以此契約段落為單一事實來源） ──
+
+/** model 色票：`pattern:null`＝收尾預設分支（bash case `*`，大小寫敏感前綴 glob）。 */
+const MODEL_PALETTE: ReadonlyArray<{ pattern: string | null; index: number }> = [
+  { pattern: 'claude-fable-*', index: 214 },
+  { pattern: 'claude-opus-*', index: 135 },
+  { pattern: 'claude-haiku-*', index: 2 },
+  { pattern: null, index: 6 },
+]
+
+/** effort 色票：bash case 對字面精確比對（無 glob 字元，天然大小寫敏感）。 */
+const EFFORT_PALETTE: ReadonlyArray<{ pattern: string | null; index: number }> = [
+  { pattern: 'low', index: 3 },
+  { pattern: 'medium', index: 2 },
+  { pattern: 'high', index: 4 },
+  { pattern: 'xhigh', index: 5 },
+  { pattern: 'max', index: 15 },
+  { pattern: null, index: 9 },
+]
+
+interface AutoBinding {
+  /** bash 變數名（不含 `$`）：段主色本身 fg SGR 參數。 */
+  fgVar: string
+  /** bash 變數名：段主色 bg 尾（powerline bg／箭頭交接用）。 */
+  tailVar: string
+  /** bash 變數名：autoFg(段主色) 的 fg SGR 參數（powerline 無 fgOverride 時用）。 */
+  autoFgVar: string
+  /** 段區塊最前需接的查表陳述式（讀 `$input`，故不可如 threshold 陣列般提前印於檔首）。 */
+  setupLines: string[]
+}
+
+/**
+ * `seg.color.kind==='auto'` 段的執行期查表區塊（T4.3）：比對來源＝
+ * `descriptor.autoColor.key`（缺省用主值 jqPath 本身，沿 resolve.ts
+ * `expandSegmentColor` 同一 fallback 規則）。bash `case` glob 前綴天然
+ * 大小寫敏感（model palette）；effort 為精確字面比對，同構。emit 期為
+ * 每個色票分支預算三值（本身 fg／bg 尾／autoFg 對比 fg，皆呼叫
+ * production color.ts 函式），執行期只做一次 case 分派（零亮度數學，
+ * D2 同構）。未帶 `autoColor` 的 descriptor 呼叫本函式＝programmer
+ * error（config 應先經 deserializeConfig 清洗），比照 resolve.ts 同語意
+ * 拋 TypeError。
+ */
+function emitAutoBinding(descriptor: SegmentDescriptor): AutoBinding {
+  const autoColor = descriptor.autoColor
+  if (autoColor === undefined) {
+    throw new TypeError(
+      `segment ${descriptor.id} 無 autoColor 通道卻收到 auto 色（config 應先經 deserializeConfig 清洗）`,
+    )
+  }
+  const keyJqPath = autoColor.key !== undefined ? autoColor.key.jqPath : descriptor.jqPath
+  const branches = autoColor.palette === 'model' ? MODEL_PALETTE : EFFORT_PALETTE
+  const lines: string[] = []
+  lines.push(`ackey=$(jq -r ${bashSingleQuote(`${keyJqPath} // empty`)} <<<"$input")`)
+  lines.push('case "$ackey" in')
+  for (const b of branches) {
+    const spec: ColorSpec = { kind: 'ansi256', index: b.index }
+    const pattern = b.pattern === null ? '*' : b.pattern
+    lines.push(
+      `  ${pattern}) acfg=${sgrLit(fgParams(spec))}; actail=${sgrLit(sgrTail(spec))}; ` +
+        `acautofg=${sgrLit(fgParams(autoFg(spec)))} ;;`,
+    )
+  }
+  lines.push('esac')
+  return { fgVar: 'acfg', tailVar: 'actail', autoFgVar: 'acautofg', setupLines: lines }
+}
+
+/**
+ * always／conditional 分支專用段色解析（T4.3；auto 真展開落點——bar／
+ * shell-out／percentage 皆與 auto 互斥（`autoEligibleIds` 僅 model／
+ * effort，二者皆 always／conditional 類），故此為 auto 唯一可達分支）：
+ * `seg.color.kind==='auto'` → 執行期 case 查表（`emitAutoBinding`）覆寫
+ * fg／bg 尾（bash 變數引用取代 emit 期靜態字面）；否則沿既有 emit 期
+ * 靜態公式（與頂層 `mainFg`／`mainTail` 同源，非 auto 段 byte-exact
+ * 不變）。
+ */
+function generalSegmentColor(
+  seg: SegmentConfig,
+  descriptor: SegmentDescriptor,
+  em: Emitter,
+): { setupLines: string[]; fg: string; tail: string } {
+  if (seg.color.kind !== 'auto') {
+    const fg = em.mode === 'powerline' ? powerlineMainFg(seg) : fgParams(seg.color)
+    const tail = em.mode === 'powerline' ? sgrLit(sgrTail(seg.color)) : '1'
+    return { setupLines: [], fg: sgrLit(fg), tail }
+  }
+  const binding = emitAutoBinding(descriptor)
+  const fg =
+    em.mode === 'powerline'
+      ? seg.fgOverride !== undefined
+        ? sgrLit(fgParams(seg.fgOverride))
+        : `"$${binding.autoFgVar}"`
+      : `"$${binding.fgVar}"`
+  const tail = em.mode === 'powerline' ? `"$${binding.tailVar}"` : '1'
+  return { setupLines: binding.setupLines, fg, tail }
 }
 
 // ── 段內 head（prefix＋icon glyph；resolve composition 同源） ──
@@ -231,6 +505,122 @@ function textDynamic(headLit: string, valueRef: string): string {
 }
 
 /**
+ * bar 段（percentage 類，`seg.bar===true`；T4.3；sp4/REPORT.md 41-案
+ * byte-verified recipe；M6 T6.2 C2 修正）：**不論主值死活恆 4-run**
+ * （run1=head、run2=filled 桶色、run3=empty default 色、run4=
+ * `' '+bval+suffix+pad` 桶色；`threshold===undefined` → filled／value
+ * 退段主色）。`bn`（填格數）／`bval`（value 文字部）為死活兩態唯一差異
+ * 點：主值存活→`pct%`＋依 threshold 查桶（`$v` 非空時）；主值 null（dash）
+ * →`bn=0`、`bval=NA_TEXT`（M6 C1）、bucket 退段主色（isDash 時 oracle
+ * threshold 恆為 null，此處以 `[ -n "$v" ]` 執行期判定同構複刻，零額外
+ * TS 分支）。bash-plain＝4 元素逐一 push（segstart 1/0/0/0，既有
+ * `joinPlain` 迴圈零改動）。bash-powerline＝併單一累加器元素：run1 的
+ * fg/bg 進 `fgs[i]`/`bgs[i]`（供箭頭交接、裸文字不烘色碼，**停用
+ * fgOverride**——恆用 autoFg／segColor，不論死活）；run2–4 各自完整烘
+ * `reset+fg+bg+text` 追加進 text 尾——sp4 精確配方（run1 若也全烘會與
+ * join 迴圈自己補的 `reset+fg1+bg1` 重複，多出位元組，破壞 byte-exact）。
+ * resets 後綴（percent-reset variant，M6 C3 升級倒數形）與主值死活正交，
+ * 恆附於 run4 尾（`jqResetSuffix5h/7d`，kind 由 `descriptor.resetsAt.
+ * countdown` 驅動，零 id 特判）。bar 與 auto 互斥（`barEligibleIds`／
+ * `autoEligibleIds` 不相交，config 清洗保證），故本函式不處理 auto
+ * （`segmentColorPlaceholder` 恆 passthrough）。
+ */
+function emitBarSegment(
+  seg: SegmentConfig,
+  descriptor: SegmentDescriptor,
+  em: Emitter,
+  rowSuffix: string,
+  headLit: string,
+  pad: string,
+): string[] {
+  const lines: string[] = []
+  const segColorSpec = segmentColorPlaceholder(seg.color)
+  const mainFgLit = sgrLit(fgParams(segColorSpec))
+  const mainTailLit = sgrLit(sgrTail(segColorSpec))
+  const mainTailRaw = sgrTail(segColorSpec)
+  const autoFgLit = sgrLit(fgParams(autoFg(segColorSpec)))
+  const headTextExpr = headLit === '' ? "''" : headLit
+
+  const hasResets = descriptor.resetsAt !== undefined && seg.variant === 'percent-reset'
+  lines.push(`v=$(jq -r ${bashSingleQuote(`${descriptor.jqPath} // empty`)} <<<"$input")`)
+  let sfxRef = ''
+  if (hasResets) {
+    const kind = descriptor.resetsAt!.countdown
+    const sfxProg =
+      kind === 'reset-countdown-5h'
+        ? jqResetSuffix5h(descriptor.resetsAt!.jqPath)
+        : jqResetSuffix7d(descriptor.resetsAt!.jqPath)
+    lines.push(`sfx=$(jq -r ${bashSingleQuote(sfxProg)} <<<"$input")`)
+    sfxRef = '$sfx'
+  }
+
+  // M6 C2（2026-07-14 拍板；撤除舊「isDash → 整段退單 run」分支）：`bn`
+  // （填格數）／`bval`（value 文字部）為死活兩態僅有差異點，下方 filled／
+  // empty／bfg／run4 組裝與 push 皆不論死活共用同一路徑（零重複結構）。
+  lines.push(`if [ -z "$v" ]; then`)
+  lines.push(`  bn=0`)
+  lines.push(`  bval=${bashSingleQuote(NA_TEXT)}`) // M6 C1：百分比 dash → NA_TEXT。
+  lines.push(`else`)
+  lines.push(`  pct=$(jq -r ${bashSingleQuote(`${descriptor.jqPath} | floor | tostring`)} <<<"$input")`)
+  const fillProg = `${descriptor.jqPath} | (. / 5 | floor) | if . > ${BAR_CELL_COUNT} then ${BAR_CELL_COUNT} elif . < 0 then 0 else . end`
+  lines.push(`  bn=$(jq -r ${bashSingleQuote(fillProg)} <<<"$input")`)
+  lines.push(`  bval="$pct%"`)
+  lines.push(`fi`)
+
+  lines.push(`filled=''`)
+  lines.push(`for ((bi = 0; bi < bn; bi++)); do filled+='${BAR_FILLED_CHAR}'; done`)
+  lines.push(`empty=''`)
+  lines.push(`for ((bi = bn; bi < ${BAR_CELL_COUNT}; bi++)); do empty+='${BAR_EMPTY_CHAR}'; done`)
+
+  // 桶色（filled／value run 之 fg）：主值存活（"$v" 非空）且 threshold 定義
+  // → 查桶（`bfg` 執行期 array 索引）；否則（含 null——M6 C2：isDash 時
+  // oracle threshold 恆為 null，此處以 `[ -n "$v" ]` 同構複刻，零額外 TS
+  // 分支）退段主色（emit 期靜態字面，仍指派進 `bfg` 統一下游引用）。
+  if (seg.threshold !== undefined) {
+    lines.push(bashArray('tf', plainBucketFg(seg.threshold)))
+    const idxProg = `${descriptor.jqPath} | (. / 10 | floor) | if . > 9 then 9 elif . < 0 then 0 else . end`
+    lines.push(`if [ -n "$v" ]; then`)
+    lines.push(`  idx=$(jq -r ${bashSingleQuote(idxProg)} <<<"$input")`)
+    lines.push(`  bfg="\${tf[$idx]}"`)
+    lines.push(`else`)
+    lines.push(`  bfg=${mainFgLit}`)
+    lines.push(`fi`)
+  } else {
+    lines.push(`bfg=${mainFgLit}`)
+  }
+
+  // run4＝' '+bval(pct%／NA_TEXT)+後綴+pad 單一運算式（M6 C1/C2/C3 合流；
+  // percent-reset 後綴與 powerline-noarrow 右 padding 一律併入，沿既有
+  // 「後綴附於 value 部」規則）。
+  const run4Text = `" $bval${sfxRef}${pad}"`
+
+  if (em.mode === 'powerline') {
+    // run1 head → fgs[i]/bgs[i]（裸文字）；run2-4 各自完整烘 reset+fg+bg+text。
+    lines.push(`btext=${headTextExpr}`)
+    lines.push(`btext+="\${ESC}[0m"`)
+    lines.push(`if [ -n "$bfg" ]; then btext+="\${ESC}[\${bfg}m"; fi`)
+    if (mainTailRaw !== '') lines.push(`btext+="\${ESC}[48;${mainTailRaw}m"`)
+    lines.push(`btext+="$filled"`)
+    lines.push(`btext+="\${ESC}[0m"`)
+    if (mainTailRaw !== '') lines.push(`btext+="\${ESC}[48;${mainTailRaw}m"`)
+    lines.push(`btext+="$empty"`)
+    lines.push(`btext+="\${ESC}[0m"`)
+    lines.push(`if [ -n "$bfg" ]; then btext+="\${ESC}[\${bfg}m"; fi`)
+    if (mainTailRaw !== '') lines.push(`btext+="\${ESC}[48;${mainTailRaw}m"`)
+    lines.push(`btext+=${run4Text}`)
+    lines.push(pushLine(em, '"$btext"', autoFgLit, mainTailLit, rowSuffix))
+  } else {
+    // plain：4 元素逐一 push（segstart 1/0/0/0）；run3 恆無 fg（default 色）。
+    lines.push(pushLine(em, headTextExpr, mainFgLit, '1', rowSuffix))
+    lines.push(pushLine(em, '"$filled"', '"$bfg"', '0', rowSuffix))
+    lines.push(pushLine(em, '"$empty"', sgrLit(''), '0', rowSuffix))
+    lines.push(pushLine(em, run4Text, '"$bfg"', '0', rowSuffix))
+  }
+
+  return lines
+}
+
+/**
  * `rowSuffix`＝多列陣列變數隔離（T3.1；見 pushLine）。命名避開既有區域
  * 變數 `suffix`（jqFormatSuffix 之 jq 尾段，見下方 always／conditional
  * 分支）——兩者語意無關，同名會遮蔽（shadow）本參數。
@@ -244,8 +634,9 @@ function emitSegment(
   const lines: string[] = []
   const head = segmentHead(seg, descriptor)
   const headLit = head === '' ? '' : bashSingleQuote(head)
-  const mainFg = em.mode === 'powerline' ? powerlineMainFg(seg) : fgParams(seg.color)
-  const mainBg = sgrTail(seg.color)
+  // M3 邊界（08-PLAN Rev 4 §3）：同上，auto 色票展開屬 M4 T4.3。
+  const mainFg = em.mode === 'powerline' ? powerlineMainFg(seg) : fgParams(segmentColorPlaceholder(seg.color))
+  const mainBg = sgrTail(segmentColorPlaceholder(seg.color))
   // 段主色的 push 尾參（powerline：bg 尾；plain：segstart）。
   const mainTail = em.mode === 'powerline' ? sgrLit(mainBg) : '1'
   // D1 padding：powerline＋powerlineArrow=false → 每段 value 尾綴一格空白。
@@ -271,20 +662,35 @@ function emitSegment(
   }
 
   if (descriptor.category === 'percentage') {
-    // dash 政策（null → '--' 不套閾值色）＋可選閾值。
-    const dashProg = `${descriptor.jqPath} // "--" | if type == "number" then (floor | tostring) + "%" else . end`
+    if (seg.bar === true) {
+      lines.push(...emitBarSegment(seg, descriptor, em, rowSuffix, headLit, pad))
+      return lines
+    }
+    // dash 政策（M6 C1，2026-07-14 拍板：百分比類 null → NA_TEXT '(n/a)'
+    // 取代 DASH_TEXT——本分支已限定 `category === 'percentage'`，閘門走
+    // category、零 id 特判；token-in/out（category='always'）走下方
+    // always/conditional 分支的獨立 dashProg，DASH_TEXT 不受影響）。不套
+    // 閾值色（沿契約 3）。
+    const dashProg = `${descriptor.jqPath} // ${jqStrLit(NA_TEXT)} | if type == "number" then (floor | tostring) + "%" else . end`
     lines.push(`v=$(jq -r ${bashSingleQuote(dashProg)} <<<"$input")`)
 
-    // resets 後綴（契約 12；variant 'percent-reset' 且 descriptor 有 resetsAt）：
-    // 附於 value 部、與主值 dash 正交（`-- (HH:mm)`），閾值分裂時隨值色。jq
-    // strflocaltime 直吃 epoch → 本地 HH:mm（.t26 定案；三後端同機同 TZ 一致）；
-    // number → ` (HH:mm)`、null／缺席鏈 → ''（jq null 傳播不報錯，鏡像
-    // resetsAtSuffix 語意）。與 emit-ps1 的 Format-ResetsAt 對照同構。
+    // resets 後綴（M6 C3，2026-07-14 拍板；契約 12 升級版）：`variant
+    // 'percent-reset'` 附倒數字串，kind 由 `descriptor.resetsAt.countdown`
+    // 目錄驅動（零 id 特判，rate-5h/rate-7d 各掛對應 kind）。附於 value 部、
+    // 與主值 dash 正交（`(n/a) ↺ 2h (16:00)` 亦合法），閾值分裂時隨值色。
+    // `jqResetSuffix5h/7d` 死值（非 number／已過期）→ `''`（只剔後綴，非
+    // `jqResetCountdown5h/7d` 的 `empty`——那版供獨立 reset-5h/7d 段整段
+    // 死值判定，語意不同，見該二函式檔頭差異註解）。與 emit-ps1 的
+    // Format-ResetsAt 對照同構。
     const hasResets = descriptor.resetsAt !== undefined && seg.variant === 'percent-reset'
     // D1 padding 併入 valueRef（見上）：pad 恆位於 value（＋後綴）尾端。
     let valueRef = `"$v${pad}"`
     if (hasResets) {
-      const sfxProg = `${descriptor.resetsAt!.jqPath} | if type == "number" then " (" + strflocaltime("%H:%M") + ")" else "" end`
+      const kind = descriptor.resetsAt!.countdown
+      const sfxProg =
+        kind === 'reset-countdown-5h'
+          ? jqResetSuffix5h(descriptor.resetsAt!.jqPath)
+          : jqResetSuffix7d(descriptor.resetsAt!.jqPath)
       lines.push(`sfx=$(jq -r ${bashSingleQuote(sfxProg)} <<<"$input")`)
       valueRef = `"$v$sfx${pad}"`
     }
@@ -332,15 +738,42 @@ function emitSegment(
     return lines
   }
 
-  // always／conditional（hide／empty 政策）：jq `// empty`＋格式尾＋剔空。
+  // always／conditional（emitOther 概念：nullPolicy 驅動 dash／hide／
+  // empty；T4.3）。auto 真展開落點：seg.color.kind==='auto' 唯一可達此
+  // 分支（bar／shell-out／percentage 與 auto 互斥），故色彩改由
+  // `generalSegmentColor` 統一解析（非 auto 段沿頂層 mainFg／mainTail
+  // 同一公式，byte-exact 不變）。
+  const colorPlan = generalSegmentColor(seg, descriptor, em)
+  lines.push(...colorPlan.setupLines)
+
+  if (descriptor.nullPolicy === 'dash') {
+    // dash 分支（現行僅 token-in／token-out）：null → '--'（存活、無格式，
+    // 不套色—— dash 段本無閾值概念）；否則 tokens 縮寫 jq 鏡像（全 floor）。
+    const dashProg = `${descriptor.jqPath} // "--" | if type == "number" then (${TOKENS_JQ_FORMAT}) else . end`
+    lines.push(`v=$(jq -r ${bashSingleQuote(dashProg)} <<<"$input")`)
+    lines.push(
+      pushLine(em, textDynamic(headLit, `"$v${pad}"`), colorPlan.fg, colorPlan.tail, rowSuffix),
+    )
+    return lines
+  }
+
+  // hide／empty：jq `// empty`＋格式尾＋剔空。reset-countdown-* 走專屬全
+  // jq pipeline（含通用 expiresAtPath 死值規則、S2 now idiom、
+  // strflocaltime；契約 12），其餘沿既有 jqFormatSuffix 鏈。
   const variant = seg.variant ?? defaultVariant(descriptor)
-  const suffix = jqFormatSuffix(descriptor.format, variant)
-  const prog = `${descriptor.jqPath} // empty${suffix}`
+  const prog =
+    descriptor.format === 'reset-countdown-5h'
+      ? jqResetCountdown5h(descriptor.jqPath)
+      : descriptor.format === 'reset-countdown-7d'
+        ? jqResetCountdown7d(descriptor.jqPath)
+        : `${descriptor.jqPath} // empty${jqFormatSuffix(descriptor.format, variant)}`
   const needsHome = descriptor.format === 'path' && variant === 'tilde'
   const argHome = needsHome ? '--arg home "$HOME" ' : ''
   lines.push(`v=$(jq -r ${argHome}${bashSingleQuote(prog)} <<<"$input")`)
   lines.push(`if [ -n "$v" ]; then`)
-  lines.push(`  ${pushLine(em, textDynamic(headLit, `"$v${pad}"`), sgrLit(mainFg), mainTail, rowSuffix)}`)
+  lines.push(
+    `  ${pushLine(em, textDynamic(headLit, `"$v${pad}"`), colorPlan.fg, colorPlan.tail, rowSuffix)}`,
+  )
   lines.push(`fi`)
   return lines
 }

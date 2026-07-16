@@ -1,0 +1,64 @@
+=== label=UTC ===
+system tzutil=UTC
+date=Sun Jul 12 14:03:41 UTC 2026
+
+--- epoch case=general value=1784118896 (utc=2026-07-15T12:34:56.000Z) ---
+[node]
+selfCalc=07/15 12:34
+toLocaleString=07/15, 12:34
+[jq strflocaltime]
+07/15 12:34
+[powershell 5.1]
+plain=07/15 12:34
+invariant=07/15 12:34
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=07/15 12:34
+invariant=07/15 12:34
+psversion=7.6.3
+
+--- epoch case=monthBoundary value=1769902200 (utc=2026-01-31T23:30:00.000Z) ---
+[node]
+selfCalc=01/31 23:30
+toLocaleString=01/31, 23:30
+[jq strflocaltime]
+01/31 23:30
+[powershell 5.1]
+plain=01/31 23:30
+invariant=01/31 23:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=01/31 23:30
+invariant=01/31 23:30
+psversion=7.6.3
+
+--- epoch case=yearBoundary value=1767223800 (utc=2025-12-31T23:30:00.000Z) ---
+[node]
+selfCalc=12/31 23:30
+toLocaleString=12/31, 23:30
+[jq strflocaltime]
+12/31 23:30
+[powershell 5.1]
+plain=12/31 23:30
+invariant=12/31 23:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=12/31 23:30
+invariant=12/31 23:30
+psversion=7.6.3
+
+--- epoch case=dstNear value=1772955000 (utc=2026-03-08T07:30:00.000Z) ---
+[node]
+selfCalc=03/08 07:30
+toLocaleString=03/08, 07:30
+[jq strflocaltime]
+03/08 07:30
+[powershell 5.1]
+plain=03/08 07:30
+invariant=03/08 07:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=03/08 07:30
+invariant=03/08 07:30
+psversion=7.6.3
+

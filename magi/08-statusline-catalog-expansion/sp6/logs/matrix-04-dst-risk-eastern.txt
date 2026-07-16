@@ -1,0 +1,32 @@
+=== label=Eastern-Standard-Time-DST-risk ===
+system tzutil=Eastern Standard Time
+--- epoch case=beforeJump value=1772951400 (utc=2026-03-08T06:30:00.000Z) ---
+[node]
+selfCalc=03/08 01:30
+toLocaleString=03/08, 01:30
+[jq strflocaltime]
+03/08 01:30
+[powershell 5.1]
+plain=03/08 01:30
+invariant=03/08 01:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=03/08 01:30
+invariant=03/08 01:30
+psversion=7.6.3
+
+--- epoch case=afterJump value=1772955000 (utc=2026-03-08T07:30:00.000Z) ---
+[node]
+selfCalc=03/08 03:30
+toLocaleString=03/08, 03:30
+[jq strflocaltime]
+03/08 03:30
+[powershell 5.1]
+plain=03/08 03:30
+invariant=03/08 03:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=03/08 03:30
+invariant=03/08 03:30
+psversion=7.6.3
+

@@ -1,0 +1,64 @@
+=== label=Tokyo-Standard-Time ===
+system tzutil=Tokyo Standard Time
+date=Sun Jul 12 14:03:11 UTC 2026
+
+--- epoch case=general value=1784118896 (utc=2026-07-15T12:34:56.000Z) ---
+[node]
+selfCalc=07/15 21:34
+toLocaleString=07/15, 21:34
+[jq strflocaltime]
+07/15 21:34
+[powershell 5.1]
+plain=07/15 21:34
+invariant=07/15 21:34
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=07/15 21:34
+invariant=07/15 21:34
+psversion=7.6.3
+
+--- epoch case=monthBoundary value=1769902200 (utc=2026-01-31T23:30:00.000Z) ---
+[node]
+selfCalc=02/01 08:30
+toLocaleString=02/01, 08:30
+[jq strflocaltime]
+02/01 08:30
+[powershell 5.1]
+plain=02/01 08:30
+invariant=02/01 08:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=02/01 08:30
+invariant=02/01 08:30
+psversion=7.6.3
+
+--- epoch case=yearBoundary value=1767223800 (utc=2025-12-31T23:30:00.000Z) ---
+[node]
+selfCalc=01/01 08:30
+toLocaleString=01/01, 08:30
+[jq strflocaltime]
+01/01 08:30
+[powershell 5.1]
+plain=01/01 08:30
+invariant=01/01 08:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=01/01 08:30
+invariant=01/01 08:30
+psversion=7.6.3
+
+--- epoch case=dstNear value=1772955000 (utc=2026-03-08T07:30:00.000Z) ---
+[node]
+selfCalc=03/08 16:30
+toLocaleString=03/08, 16:30
+[jq strflocaltime]
+03/08 16:30
+[powershell 5.1]
+plain=03/08 16:30
+invariant=03/08 16:30
+psversion=5.1.26100.8655
+[pwsh 7]
+plain=03/08 16:30
+invariant=03/08 16:30
+psversion=7.6.3
+

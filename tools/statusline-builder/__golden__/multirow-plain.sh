@@ -49,7 +49,7 @@ texts_2=()
 fgs_2=()
 segstart_2=()
 # context-used
-v=$(jq -r '.context_window.used_percentage // "--" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
+v=$(jq -r '.context_window.used_percentage // "(n/a)" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
 idx=$(jq -r '.context_window.used_percentage | if type == "number" then ((. / 10 | floor) | (if . > 9 then 9 elif . < 0 then 0 else . end)) else -1 end' <<<"$input")
 tf=('38;5;46' '38;5;82' '38;5;118' '38;5;154' '38;5;190' '38;5;226' '38;5;220' '38;5;214' '38;5;208' '38;5;196')
 if [ "$idx" = "-1" ]; then
@@ -58,7 +58,7 @@ else
   texts_2+=("$v"); fgs_2+=("${tf[$idx]}"); segstart_2+=(1)
 fi
 # rate-5h
-v=$(jq -r '.rate_limits.five_hour.used_percentage // "--" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
+v=$(jq -r '.rate_limits.five_hour.used_percentage // "(n/a)" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
 texts_2+=("$v"); fgs_2+=('38;5;99'); segstart_2+=(1)
 
 # ── join（第二趟：逐列獨立 join，reset 恆在列尾） ──

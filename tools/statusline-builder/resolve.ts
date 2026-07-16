@@ -30,18 +30,72 @@
  * 同構鏡像（bash `$v` 尾綴空格／ps1 `$disp` 尾綴 `' '`，powerline 模式
  * 才適用；plain 模式完全不受 `powerlineArrow` 影響）。
  *
+ * ── T4.1（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §4）──
+ * `ResolveInput` 增必填 `now`（epoch 秒）——resolve 純函式不碰 Date.now，
+ * mock 消費端以 `MockScenario.now` 接線（每情境固定值；真時鐘留給未來
+ * 非 mock 輸入路徑）。resolveSegment 於既有 isValueDead 判定後追加
+ * `expiresAtPath` 通用死值規則（零 id 特判）；`'tokens'`／
+ * `'reset-countdown-5h'`／`'reset-countdown-7d'` 三 FormatKind 需 now、
+ * 真實作在本檔 formatMainValue（shell 端同構屬 T4.3／T4.4）。
+ *
+ * ── T4.2（08-PLAN Rev 4 §3/§4；byte 形 oracle＝sp4/REPORT.md 41 案）──
+ * bar 4-run：bar 啟用（config 清洗限 percentage 段）且主值存活 →
+ * run1=head（prefix＋icon 皆空仍 emit 空 text run 佔位，4-run 恆定形）、
+ * run2=filled `█`×`max(0, min(20, floor(pct/5)))`（桶色）、run3=empty
+ * `░`×餘格（default 色）、run4=**`' '+pct%+suffix+pad` 單一運算式**
+ * （percent-reset 後綴與 powerline-noarrow 右 padding 一律併入 run4）。
+ * 主值 null（T6.1 前）→ 整段退單 run；**T6.1 起改 4-run**（見下方 M6
+ * 節 C2，該單 run 路徑隨之整條消失）。powerline 下 bar 段**停用
+ * fgOverride**（4-run 分支本身向來如此——S4 保守解讀定案，M6 未變動此
+ * 點；下方 powerline fg 推導的 `bar` 分支因而恆不可達，一併簡化）。
+ * `threshold === undefined` 而 bar 開（手改存檔可達）→ filled／pct 退段
+ * 主色。auto 配色（`SegmentColor` 'auto'）於 run 建構**之前**依
+ * descriptor.autoColor 展開為具體 ColorSpec（palette 查表、零 id 特判；
+ * powerline autoFg 對展開後 index 計算）——SGR／預覽同源。倒數段 value
+ * run 的 ariaText 顯式代換 `↺`→「重置」。
+ *
+ * ── T6.1（M6，magi/08-statusline-catalog-expansion/TASKS.md；使用者
+ * 2026-07-14 拍板契約 C1–C4，見 WORKS.md 同日條目）：真機回饋修正 ──
+ * **C1 百分比無資料標記**：`nullPolicy:'dash'` **且**
+ * `descriptor.category==='percentage'` 且主值 null → 顯示 `NA_TEXT`
+ * （'(n/a)'）取代 DASH_TEXT；閘門走 category（零 id 特判，見
+ * resolveSegment 的 `isNa` 判定）。token-in／token-out（dash 但
+ * category='always'）不受影響、仍顯 DASH_TEXT——全域 DASH_TEXT 值不改動
+ * （契約 3 沿用：不套閾值色、段仍存活）。
+ * **C2 bar×null 不再退單 run**：`bar===true && category==='percentage'`
+ * 恆走 4-run（撤除舊 `&& !isDash` 閘門）；null 時 filled=0、run3=
+ * `░`×BAR_CELL_COUNT、run4 值部＝NA_TEXT（+suffix+pad）。bucket 色沿用
+ * 既有派生（isDash 時 threshold 恆為 null → bucket 退段主色，零新分支）。
+ * **C3 percent-reset 後綴升級倒數形**：`resetsAtSuffix` 簽章擴為
+ * `(v, now, kind)`——kind 由 `descriptor.resetsAt.countdown` 目錄驅動
+ * （rate-5h='reset-countdown-5h'／rate-7d='reset-countdown-7d'，零 id
+ * 特判）；null／已過期（`now >= resets_at`）→''，否則複用
+ * formatResetCountdown5h/7d（本檔既有）。**函式歸屬**：因需 now 與倒數
+ * 格式化兩函式（本檔既有），`resetsAtSuffix` 整函式自 segments.ts 遷入
+ * 本檔（segments.ts 為純目錄資料層、不碰 now；resolve.ts 早已 import
+ * segments.ts，逆向遷入會成循環——遷入本檔為零循環的最小改動路徑）。
+ * segments.ts 端保留 `resetsAt` tri-path 與新 `countdown` 欄（目錄資料），
+ * 純格式化邏輯歸此檔。
+ * **C4 aria**：後綴含 `↺` 之三處組裝點（powerline／plain 單 run、plain
+ * 閾值分裂 value run、bar run4）比照倒數段既有 `↺`→「重置」代換慣例
+ * 顯式代換 ariaText（見下方 `ariaSuffix`／`needsSuffixAria`）；未含 `↺`
+ * 之後綴（或無 suffix）維持原省略／組裝規則不變。
+ *
  * ── 契約沉默處選擇（T2.3/T2.4/T2.5/T3.2 依賴面，勿改動語意）──
  * 1. **run 粒度**：powerline 段恆為單 run（段只有一組 fg/bg，箭頭交接
- *    才有唯一 bg 可取）；plain 段單 run，**唯一分裂例外**＝閾值生效且
- *    head（prefix+icon）非空 → 兩 run（head fg=段主色、value+後綴
- *    fg=閾值桶色）。不做「色相同即合併」的深比較——粒度規則決定論，
- *    emitter 逐 head/value 兩次著色自然同構。
+ *    才有唯一 bg 可取）——**bar 段例外（4 run）；箭頭交接 bg 一律取段
+ *    主色**（T4.2 不變量改寫，08-PLAN Rev 4 §4）。plain 段單 run，分裂
+ *    例外＝(a) 閾值生效且 head（prefix+icon）非空 → 兩 run（head fg=
+ *    段主色、value+後綴 fg=閾值桶色）；(b) bar 啟用且主值存活 → 4 run
+ *    （見檔頭 T4.2 節）。不做「色相同即合併」的深比較——粒度規則決定
+ *    論，emitter 逐 run 著色自然同構。
  * 2. **default 色不落 run 屬性**：fg/bg 只在非 `{kind:'default'}` 時
  *    設定（正規形，結構斷言穩定）；toAnsi 對缺席／default 皆不 emit。
  * 3. **resets 後綴獨立於主值**：variant 'percent-reset' 時後綴只看
- *    resets_at 自身（null→''、非 null→` (HH:mm)`）；主值 dash '--'
- *    仍可帶後綴（'-- (14:30)'）——composition 正交、emitter 無條件耦合。
- *    後綴附於 value 部（閾值分裂時隨值色）。
+ *    resets_at 自身與 now（M6 T6.1 起升級倒數形，見上方 C3）——
+ *    null／已過期→''、否則→倒數字串；主值 dash（'--' 或百分比類的
+ *    NA_TEXT '(n/a)'，見上方 C1）仍可帶後綴——composition 正交、emitter
+ *    無條件耦合。後綴附於 value 部（閾值分裂時隨值色）。
  * 4. **閾值只作用 percentage 類**：config 清洗保留任意段的 threshold
  *    （T1.3 契約 9），resolve 對非 percentage 段忽略之。
  * 5. **plain 分隔符 run ariaText=''**：分隔符與 powerline 箭頭同屬
@@ -50,8 +104,9 @@
  *    可整顆直傳（結構子集）；shell-out 段取 shell 通道（死值語意同
  *    isValueDead），tilde home 取 env 通道。
  * 7. **D1 padding 不增 run 數**（T2.3）：`powerlineArrow=false` 的右
- *    padding 併入既有段 run 的 text（`+ ' '`），不新開一個裝飾 run——
- *    「powerline 段恆單 run」的粒度規則（選擇 1）不受影響。
+ *    padding 併入既有段 run 的 text（`+ ' '`；bar 段併入 run4，T4.2），
+ *    不新開一個裝飾 run——選擇 1 的粒度規則（含 bar 4-run 例外）不受
+ *    影響。
  *
  * ── StyledRun.ariaText 規則（型別契約；toAriaLabel 機械 enforcement）──
  * 凡 text 含 PUA／裝飾 glyph 之 run 一律顯式設 ariaText：裝飾箭頭／
@@ -62,14 +117,16 @@
  * 純函式、零 DOM import，node 可測。
  */
 import { autoFg, type ColorSpec } from './color.js'
-import type { BuilderConfig, SegmentConfig } from './config.js'
+import type { BuilderConfig, SegmentColor, SegmentConfig } from './config.js'
 import type { MockShellChannel } from './mock-data.js'
 import {
   DESCRIPTORS_BY_ID,
   defaultVariant,
+  formatClockHM,
+  formatResetsAt,
   formatValue,
   isValueDead,
-  resetsAtSuffix,
+  type FormatKind,
   type SegmentDescriptor,
   type SegmentId,
   type StatusData,
@@ -99,6 +156,12 @@ export interface ResolveInput {
   data: StatusData
   shell: MockShellChannel
   env: { home: string }
+  /**
+   * 決定論「現在」（epoch 秒；T4.1，08-PLAN Rev 4 §4）：expiresAtPath
+   * 過期判定與倒數段格式化的時間基準。resolve 為純函式、不碰 Date.now
+   * ——mock 消費端以 `MockScenario.now` 填入（結構子集直傳即含此欄）。
+   */
+  now: number
 }
 
 /** powerline 轉場箭頭（v1 固定 U+E0B0，PLAN Non-Goals 記 minority）。 */
@@ -106,6 +169,199 @@ export const POWERLINE_ARROW = ''
 
 /** dash 政策的 null 顯示形（契約 3：顯示 '--'、不套閾值色、段存活）。 */
 export const DASH_TEXT = '--'
+
+/**
+ * 百分比類 dash-null 顯示形（M6 C1，2026-07-14 使用者拍板；取代
+ * DASH_TEXT）：`nullPolicy:'dash'` 且 `category==='percentage'` 時顯示
+ * 本常數——token-in／token-out（dash 但 category='always'）不受影響，
+ * 閘門走 category（零 id 特判，見 resolveSegment 的 `isNa` 判定）。全域
+ * DASH_TEXT 值本身不改動（仍為非百分比 dash 段的顯示形）。
+ */
+export const NA_TEXT = '(n/a)'
+
+/**
+ * bar 顯示字元與格數（T4.2，08-PLAN Rev 4 §4；S7 真機 gate 已閉合——
+ * `█░` 如實顯示、fallback 條款失效不啟用）。emit-bash（T4.3）沿用同一
+ * 字面；emit-ps1（T4.4）以 `[char]0x2588`／`[char]0x2591` 執行期建構
+ * （純 ASCII 腳本不變量），碼位與此同值。
+ */
+export const BAR_FILLED_CHAR = '█'
+export const BAR_EMPTY_CHAR = '░'
+export const BAR_CELL_COUNT = 20
+
+// ── T4.1 FormatKind 真實作（08-PLAN Rev 4 §4；需 now／落 resolve 端） ──
+
+/**
+ * tokens 縮寫（FormatKind 'tokens'；T4.1）：`n ≥ 1000 → ⌊n/100⌋ 手動插
+ * 小數點 'X.Yk'`（比照 formatCost「floor 後插點」idiom；僅 k 檔——
+ * `1500000 → '1500.0k'` 不升 M）；`< 1000` 原整數字串。禁 Math.round、
+ * 全 floor（threshold.ts 檔頭不變量沿用）。shell 端同構屬 T4.3／T4.4。
+ */
+export function formatTokens(n: number): string {
+  if (n < 1000) return String(n)
+  const scaled = Math.floor(n / 100)
+  return `${Math.floor(scaled / 10)}.${scaled % 10}k`
+}
+
+/**
+ * reset-5h 倒數（FormatKind 'reset-countdown-5h'；T4.1，08-PLAN Rev 4 §4）：
+ * diff＝resets_at−now（秒）——`diff ≥ 3600 → "↺ Xh (HH:MM)"`
+ * （X=⌊diff/3600⌋）；否則 `"↺ Xm (HH:MM)"`（X=⌊diff/60⌋）。HH:MM＝
+ * resets_at 本地時刻**同機現算**（sp6/REPORT.md S6 結局 (b)；沿
+ * formatResetsAt 的 Date 先例）。空格照字面：`↺` 後一格、時刻括號前一格；
+ * 全 floor 禁 Math.round。過期（diff ≤ 0）不至此——expiresAtPath 通用
+ * 死值規則已於 resolveSegment 剔段。
+ */
+export function formatResetCountdown5h(resetsAt: number, now: number): string {
+  const diff = resetsAt - now
+  const clock = formatResetsAt(resetsAt)
+  if (diff >= 3600) return `↺ ${Math.floor(diff / 3600)}h (${clock})`
+  return `↺ ${Math.floor(diff / 60)}m (${clock})`
+}
+
+/**
+ * reset-7d 倒數（FormatKind 'reset-countdown-7d'；T4.1）：
+ * `diff ≥ 86400 → "↺ Xd (MM/DD HH:MM)"`（X=⌊diff/86400⌋）；否則
+ * `"↺ XhYm (MM/DD HH:MM)"`（X=⌊diff/3600⌋、Y=⌊(diff%3600)/60⌋）。
+ * MM/DD 零填、本地時刻同機現算（同上 S6 結局 (b)）。
+ */
+export function formatResetCountdown7d(resetsAt: number, now: number): string {
+  const diff = resetsAt - now
+  const d = new Date(resetsAt * 1000)
+  const mmdd = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+  const stamp = `${mmdd} ${formatClockHM(d.getHours(), d.getMinutes())}`
+  if (diff >= 86400) return `↺ ${Math.floor(diff / 86400)}d (${stamp})`
+  return `↺ ${Math.floor(diff / 3600)}h${Math.floor((diff % 3600) / 60)}m (${stamp})`
+}
+
+/**
+ * resets_at 後綴（M6 C3，2026-07-14 拍板；遷自 segments.ts——見檔頭
+ * 「T6.1」節函式歸屬理由）：null/undefined → ''；已過期
+ * （`now >= resets_at`，恰等亦算過期）→ ''（沿倒數段 expiresAtPath hide
+ * 精神，僅影響後綴、rate 段本體仍存活——rate 段沒有 expiresAtPath，不
+ * 整段剔除）；否則依 `kind` 派發 formatResetCountdown5h/7d、前綴一格
+ * 空白（` ` + 倒數字串，例：' ↺ 4h (02:40)'）。非 number 的非 null 值＝
+ * epoch 假設破產（SP-0 對帳點）→ TypeError（沿舊版 segments.ts 邊界
+ * 哲學不變）。
+ */
+export function resetsAtSuffix(
+  v: unknown,
+  now: number,
+  kind: 'reset-countdown-5h' | 'reset-countdown-7d',
+): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v !== 'number' || Number.isNaN(v)) {
+    throw new TypeError(`resets_at 預期 epoch 秒（number），得到 ${typeof v}`)
+  }
+  if (now >= v) return ''
+  const countdown =
+    kind === 'reset-countdown-5h' ? formatResetCountdown5h(v, now) : formatResetCountdown7d(v, now)
+  return ` ${countdown}`
+}
+
+/** 形狀不符＝programmer error → TypeError（對齊 segments.ts asNumber 邊界哲學）。 */
+function asNumber(v: unknown, what: string): number {
+  if (typeof v !== 'number' || Number.isNaN(v)) {
+    throw new TypeError(`${what} 預期 number，得到 ${typeof v === 'number' ? 'NaN' : typeof v}`)
+  }
+  return v
+}
+
+/**
+ * 主值格式化派發（T4.1）：'tokens'／'reset-countdown-5h'／
+ * 'reset-countdown-7d' 需 now、真實作在本檔（segments.ts formatValue 對
+ * 三者拋 TypeError 防繞道）；其餘 kind 沿 formatValue（TS 參考實作）。
+ */
+function formatMainValue(
+  kind: FormatKind,
+  raw: unknown,
+  input: ResolveInput,
+  variant: string | undefined,
+): string {
+  switch (kind) {
+    case 'tokens':
+      return formatTokens(asNumber(raw, 'tokens 值'))
+    case 'reset-countdown-5h':
+      return formatResetCountdown5h(asNumber(raw, 'resets_at'), input.now)
+    case 'reset-countdown-7d':
+      return formatResetCountdown7d(asNumber(raw, 'resets_at'), input.now)
+    default:
+      return formatValue(kind, raw, { variant, home: input.env.home })
+  }
+}
+
+// ── T4.2 auto 配色展開（08-PLAN Rev 4 §3；resolve＝預覽端真展開） ──
+
+/**
+ * model 色票（PLAN Rev 4 §3）：對 model.id 做**大小寫敏感前綴比對**——
+ * `claude-fable-*`→214（金）、`claude-opus-*`→135（紫）、
+ * `claude-haiku-*`→2（綠）、`claude-sonnet-*`／未知 fallback→6（青）。
+ * 三後端同構規則釘死：bash `case "$id" in claude-opus-*)`（glob 前綴、
+ * 大小寫敏感）／ps1 `-clike`・`StartsWith`（禁 `-match`）／TS
+ * `startsWith`——T4.3／T4.4 依此抄寫。0–15 基本色可被終端主題覆寫屬
+ * 傘狀明文裁決（與參考方案一致），不重開。
+ */
+function modelPaletteIndex(id: string): number {
+  if (id.startsWith('claude-fable-')) return 214
+  if (id.startsWith('claude-opus-')) return 135
+  if (id.startsWith('claude-haiku-')) return 2
+  return 6
+}
+
+/**
+ * effort 色票（PLAN Rev 4 §3）：low=3／medium=2／high=4／xhigh=5／
+ * max=15＋unknown 值=9（亮紅）。欄位缺席不至此——effort 段 nullPolicy
+ * 'hide' 已於 resolveSegment 死值判定整段剔除（「無欄位→灰」分支不可
+ * 達，勿補）。
+ */
+function effortPaletteIndex(level: string): number {
+  switch (level) {
+    case 'low':
+      return 3
+    case 'medium':
+      return 2
+    case 'high':
+      return 4
+    case 'xhigh':
+      return 5
+    case 'max':
+      return 15
+    default:
+      return 9
+  }
+}
+
+/**
+ * `SegmentColor` → 具體 ColorSpec（T4.2 真展開——取代 T3.4 的
+ * `segmentColorPlaceholder` 最小防禦，該函式文件明示換裝時直接刪呼叫
+ * 點；emit-bash／emit-ps1／main.ts 的佔位各歸 T4.3／T4.4／M5）。
+ * `kind==='auto'` 依 descriptor.autoColor 查色票（palette 驅動、零 id
+ * 特判）；比對來源＝autoColor.key（model 段＝`.model.id`），key 缺省＝
+ * 主值本身（effort 段直接複用 `.effort.level`）。展開時機在 run 建構
+ * 之前（SGR／預覽同源；powerline autoFg 對展開後具體 index 計算）。
+ * auto 落在無 autoColor 通道之段＝config 未經清洗（sanitizeSegmentColor
+ * 會退 default）→ programmer error，比照未知 id 慣例拋 TypeError。
+ */
+function expandSegmentColor(
+  color: SegmentColor,
+  descriptor: SegmentDescriptor,
+  input: ResolveInput,
+  mainRaw: unknown,
+): ColorSpec {
+  if (color.kind !== 'auto') return color
+  const autoColor = descriptor.autoColor
+  if (autoColor === undefined) {
+    throw new TypeError(
+      `segment ${descriptor.id} 無 autoColor 通道卻收到 auto 色（config 應先經 deserializeConfig 清洗）`,
+    )
+  }
+  const raw = autoColor.key !== undefined ? autoColor.key.tsPath(input.data) : mainRaw
+  if (typeof raw !== 'string') {
+    throw new TypeError(`auto 配色比對鍵預期 string，得到 ${typeof raw}`)
+  }
+  const index = autoColor.palette === 'model' ? modelPaletteIndex(raw) : effortPaletteIndex(raw)
+  return { kind: 'ansi256', index }
+}
 
 // ── 第一趟：逐段求值 ──
 
@@ -138,15 +394,40 @@ function resolveSegment(
   const raw = mainValue(descriptor, input)
   const isDash = descriptor.nullPolicy === 'dash' && raw == null
   if (descriptor.nullPolicy !== 'dash' && isValueDead(raw)) return null
+  // T4.1（08-PLAN Rev 4 §4）：expiresAtPath 通用死值規則——欄位存在且
+  // 「該路徑值 null／undefined，或 now ≥ 該值（已過期）」→ 視同死值、
+  // 整段剔除。descriptor 掛欄驅動（reset-5h／reset-7d 掛 resets_at），
+  // 禁 id 特判。
+  if (descriptor.expiresAtPath !== undefined) {
+    const expiresAt = descriptor.expiresAtPath.tsPath(input.data)
+    if (expiresAt == null) return null
+    if (input.now >= asNumber(expiresAt, 'expiresAtPath 值（epoch 秒）')) return null
+  }
+  // T4.2（08-PLAN Rev 4 §3）：auto 色票真展開（palette 查表；死值判定
+  // 之後、run 建構之前——SGR／預覽同源，powerline autoFg 對展開後 index）。
+  const segColor = expandSegmentColor(seg.color, descriptor, input, raw)
 
   const variant = seg.variant ?? defaultVariant(descriptor)
+  // M6 C1（2026-07-14 拍板）：閘門走 category（零 id 特判）——百分比類
+  // dash-null 顯 NA_TEXT；其餘 dash 政策段（token-in/out 等 category
+  // 'always'）dash-null 仍顯 DASH_TEXT（全域 DASH_TEXT 值不動）。
+  const isNa = isDash && descriptor.category === 'percentage'
   const valueText = isDash
-    ? DASH_TEXT
-    : formatValue(descriptor.format, raw, { variant, home: input.env.home })
+    ? isNa
+      ? NA_TEXT
+      : DASH_TEXT
+    : formatMainValue(descriptor.format, raw, input, variant)
   const suffix =
     descriptor.resetsAt !== undefined && variant === 'percent-reset'
-      ? resetsAtSuffix(descriptor.resetsAt.tsPath(input.data))
+      ? resetsAtSuffix(descriptor.resetsAt.tsPath(input.data), input.now, descriptor.resetsAt.countdown)
       : ''
+  // M6 C4（2026-07-14 拍板）：後綴含 `↺` 代換為「重置」（沿倒數段既有
+  // aria 代換慣例）——suffix 非空時恆含 `↺`（resetsAtSuffix 兩套倒數形皆
+  // 以 `↺` 起首），故 needsSuffixAria ⟺ suffix !== ''；仍以 includes 判定
+  // 保留形狀彈性（零 id 特判）。三處 ariaText 組裝點（下方 powerline／
+  // plain 單 run、plain 閾值分裂 value run、bar run4）皆消費本二值。
+  const ariaSuffix = suffix.includes('↺') ? suffix.replace('↺', '重置') : suffix
+  const needsSuffixAria = ariaSuffix !== suffix
   const prefix = seg.prefix ?? ''
   const head = prefix + (seg.icon ? `${descriptor.icon.glyph} ` : '')
   // icon run 的顯式 aria＝glyph 機械代換為 icon.ariaText（prefix 字面保留）；
@@ -162,20 +443,83 @@ function resolveSegment(
       ? { rule: seg.threshold, index: bucketIndex(raw) }
       : null
 
+  // ── T4.2 bar 4-run（08-PLAN Rev 4 §4；byte 形＝sp4/REPORT.md oracle）──
+  // bar 啟用（config 清洗已限百分比段；resolve 端沿閾值慣例對非
+  // percentage 段忽略）→ 靜態 4-run。**M6 C2（2026-07-14 拍板）撤除舊
+  // `&& !isDash` 閘門**：不論主值是否存活恆走本節 4-run（null 時
+  // filled=0、value 部＝NA_TEXT，見下方）。
+  const bar = seg.bar === true && descriptor.category === 'percentage'
+  if (bar) {
+    // 填格＝max(0, min(20, floor(pct/5)))（負值防禦下界，比照 bucketIndex
+    // 雙向 clamp 慣例）；主值 null（isDash）→ 填格恆 0（M6 C2，不取 raw）。
+    const filled = isDash
+      ? 0
+      : Math.max(0, Math.min(BAR_CELL_COUNT, Math.floor(asNumber(raw, 'bar 百分比主值') / 5)))
+    // threshold === undefined 而 bar 開（手改存檔可達）→ filled／pct 退段主色。
+    // isDash 時 threshold 本就為 null（上方 `!isDash` 閘門）→ bucket 自然
+    // 退段主色，M6 C2 零新分支。
+    const bucket = threshold !== null ? threshold.rule.buckets[threshold.index] : segColor
+    const pad = mode === 'powerline' && !powerlineArrow ? ' ' : ''
+    // run1＝head：prefix＋icon 皆空仍 emit 空 text run 佔位（4-run 恆定形）。
+    const headRun: StyledRun = { text: head }
+    if (headAria !== null) headRun.ariaText = headAria
+    // run2 filled／run3 empty 顯式 ariaText:''（PLAN §4 a11y：20 格方塊字
+    // 不得進列 aria-label；數值語意由 run4 承載——run4 純文字 fallback）。
+    const filledRun: StyledRun = { text: BAR_FILLED_CHAR.repeat(filled), ariaText: '' }
+    const emptyRun: StyledRun = { text: BAR_EMPTY_CHAR.repeat(BAR_CELL_COUNT - filled), ariaText: '' }
+    // run4＝' '+pct%+suffix+pad 單一運算式（percent-reset 後綴與
+    // powerline-noarrow 右 padding 一律併入，沿「後綴附於 value 部」規則；
+    // pct% 部分 null 時即 NA_TEXT，M6 C1）。M6 C4：後綴含 `↺` 時顯式代換
+    // ariaText（pad 不入 aria，沿 D1 padding 慣例）。
+    const valueRun: StyledRun = { text: ` ${valueText}${suffix}${pad}` }
+    if (needsSuffixAria) valueRun.ariaText = ` ${valueText}${ariaSuffix}`
+    assignColor(filledRun, 'fg', bucket)
+    assignColor(valueRun, 'fg', bucket)
+    if (mode === 'powerline') {
+      // 桶色套 fg、bg 全段維持段主色（箭頭交接 bg 一律取段主色）、停用
+      // fgOverride——head 恆 autoFg(段主色)，非 fgOverride ?? autoFg。
+      assignColor(headRun, 'fg', autoFg(segColor))
+      assignColor(headRun, 'bg', segColor)
+      assignColor(filledRun, 'bg', segColor)
+      assignColor(emptyRun, 'bg', segColor)
+      assignColor(valueRun, 'bg', segColor)
+    } else {
+      assignColor(headRun, 'fg', segColor)
+    }
+    return { runs: [headRun, filledRun, emptyRun, valueRun], bg: segColor }
+  }
+
+  // 倒數段 value 部 aria 代換（T4.2，08-PLAN Rev 4 §4）：引擎自產 `↺`
+  // 非 PUA、機械 enforcement 不攔——顯式代換「重置」（沿 icon glyph→
+  // ariaText 代換慣例；使用者 prefix 通道字面保留不代換；S7 失守換
+  // ASCII 替代時自然退場）。
+  const valueAria =
+    descriptor.format === 'reset-countdown-5h' || descriptor.format === 'reset-countdown-7d'
+      ? valueText.replace('↺', '重置')
+      : null
+  const ariaValue = valueAria ?? valueText
+
   if (mode === 'powerline') {
-    // 段恆單 run：bg=閾值桶或段主色（dash-null 退主色），fg=成對 auto-fg
-    // 陣列索引（D2）或 fgOverride；非閾值段同一派生規則。
-    const bg = threshold !== null ? threshold.rule.buckets[threshold.index] : seg.color
+    // 段恆單 run（bar 段例外已於上方 return）：bg=閾值桶或段主色
+    // （dash-null 退主色），fg=成對 auto-fg 陣列索引（D2）或 fgOverride；
+    // 非閾值段同一派生規則。
+    const bg = threshold !== null ? threshold.rule.buckets[threshold.index] : segColor
     const fg =
       threshold !== null
         ? autoFgBuckets(threshold.rule, seg.fgOverride)[threshold.index]
-        : (seg.fgOverride ?? autoFg(seg.color))
+        : // bar 段的 fgOverride 停用規則已於上方 4-run 分支無條件 return
+          // 落地（M6 C2 起不論主值死活皆走該分支）——`bar` 到此處恆為
+          // false，fgOverride 對非 bar 段正常生效。
+          (seg.fgOverride ?? autoFg(segColor))
     // D1 gating：powerlineArrow=false → 每段 value 後補一格右側空白（併入
     // 著色 run，composition 單源）；ariaText 維持不補格——toAriaLabel 逐
     // chunk trim，補了也會被削掉，省略較不易誤導閱讀者「aria 有格」。
     const pad = powerlineArrow ? '' : ' '
     const run: StyledRun = { text: head + valueText + suffix + pad }
-    if (headAria !== null) run.ariaText = `${headAria} ${valueText}${suffix}`
+    // M6 C4：後綴含 `↺` 時併入 ariaSuffix（代換「重置」）；headAria 為
+    // null 但後綴仍需代換（needsSuffixAria）時比照 valueAria 分支組裝。
+    if (headAria !== null) run.ariaText = `${headAria} ${ariaValue}${ariaSuffix}`
+    else if (valueAria !== null || needsSuffixAria) run.ariaText = `${prefix}${ariaValue}${ariaSuffix}`
     assignColor(run, 'fg', fg)
     assignColor(run, 'bg', bg)
     return { runs: [run], bg }
@@ -185,15 +529,19 @@ function resolveSegment(
   if (threshold !== null && head !== '') {
     const headRun: StyledRun = { text: head }
     if (headAria !== null) headRun.ariaText = headAria
-    assignColor(headRun, 'fg', seg.color)
+    assignColor(headRun, 'fg', segColor)
     const valueRun: StyledRun = { text: valueText + suffix }
+    // M6 C4：本分裂路徑 valueAria 恆為 null（reset-countdown 格式僅見於
+    // conditional 類、不落閾值分裂路徑）——僅後綴代換需求觸發顯式 ariaText。
+    if (needsSuffixAria) valueRun.ariaText = `${valueText}${ariaSuffix}`
     assignColor(valueRun, 'fg', threshold.rule.buckets[threshold.index])
-    return { runs: [headRun, valueRun], bg: seg.color }
+    return { runs: [headRun, valueRun], bg: segColor }
   }
   const run: StyledRun = { text: head + valueText + suffix }
-  if (headAria !== null) run.ariaText = `${headAria} ${valueText}${suffix}`
-  assignColor(run, 'fg', threshold !== null ? threshold.rule.buckets[threshold.index] : seg.color)
-  return { runs: [run], bg: seg.color }
+  if (headAria !== null) run.ariaText = `${headAria} ${ariaValue}${ariaSuffix}`
+  else if (valueAria !== null || needsSuffixAria) run.ariaText = `${prefix}${ariaValue}${ariaSuffix}`
+  assignColor(run, 'fg', threshold !== null ? threshold.rule.buckets[threshold.index] : segColor)
+  return { runs: [run], bg: segColor }
 }
 
 // ── 第二趟：join ──

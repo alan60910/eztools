@@ -25,6 +25,10 @@ import { dirname, join } from 'node:path'
 const A = (index) => ({ kind: 'ansi256', index })
 /** traffic 模板（threshold.ts THRESHOLD_TEMPLATES.traffic 之值；黃金固定參照）。 */
 const TRAFFIC = { buckets: [46, 82, 118, 154, 190, 226, 220, 214, 208, 196].map(A) }
+/** T4.6（08-PLAN Rev 4 §3 round 2）雙模板：limit-gradient／remaining-gradient
+ *（threshold.ts 之值；黃金固定參照，同 TRAFFIC 手抄慣例）。 */
+const LIMIT_GRADIENT = { buckets: [244, 246, 247, 249, 250, 34, 34, 34, 220, 196].map(A) }
+const REMAINING_GRADIENT = { buckets: [196, 220, 34, 34, 34, 250, 249, 247, 246, 244].map(A) }
 const seg = (id, over = {}) => ({ id, enabled: true, icon: true, color: { kind: 'default' }, ...over })
 const cfg = (over) => {
   const mode = over.mode ?? 'plain'
@@ -46,6 +50,10 @@ export const CANONICAL_CONFIGS = [
     // plain 滿配：全 25 段啟用、icon 全開、涵蓋每個 FormatKind／null 政策；
     // 前綴 escaping 對抗案（`it's `→`''`、`$(x)`→單引號不插值）；cwd tilde；
     // rate percent-reset；context-used 掛 traffic 閾值（plain 分裂）。
+    // **注意（T4.6）**：本 config 亦被 emit-ps1.test.ts 多處結構斷言重用
+    // （「無倒數段」不變量、`fullBehaviorCases()` 真執行等）——刻意不塞新
+    // 5 段以免打破既有假設；「全 30 段單列」golden 覆蓋見下方獨立新案
+    // `full-30-plain`（不與本 config 共用、零耦合）。
     config: cfg({
       mode: 'plain',
       separator: { kind: 'preset', value: '|' },
@@ -64,6 +72,51 @@ export const CANONICAL_CONFIGS = [
         seg('context-remaining'),
         seg('rate-5h', { variant: 'percent-reset' }),
         seg('rate-7d', { variant: 'percent-reset' }),
+        seg('session-name', { prefix: '$(x)' }),
+        seg('effort'),
+        seg('vim-mode'),
+        seg('agent-name'),
+        seg('pr'),
+        seg('repo'),
+        seg('worktree'),
+        seg('worktree-branch'),
+        seg('git-branch'),
+        seg('git-dirty'),
+        seg('clock'),
+      ],
+    }),
+  },
+  {
+    name: 'full-30-plain',
+    // T4.6（08-PLAN Rev 4 §5；TASKS.md T4.6）：全 30 段單列（plain）——
+    // 涵蓋新 5 段（token-in／token-out／cache-hit／reset-5h／reset-7d）
+    // ps1 產生路徑；獨立新案、不與 'plain-full' 共用 config（該 config
+    // 被多處既有結構斷言依賴其「無倒數段」形狀，見上方註解）；與
+    // scripts/statusline-golden-configs.ts 的 'full-30-plain'（bash）段序
+    // equivalent，非逐字同名事實來源。
+    config: cfg({
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      segments: [
+        seg('model', { color: A(75) }),
+        seg('cwd', { variant: 'tilde', prefix: '@' }),
+        seg('project-dir'),
+        seg('output-style'),
+        seg('version', { prefix: 'v' }),
+        seg('cost', { color: A(220) }),
+        seg('duration'),
+        seg('lines-changed'),
+        seg('context-size'),
+        seg('thinking'),
+        seg('token-in', { color: A(80) }),
+        seg('token-out', { color: A(81) }),
+        seg('context-used', { threshold: TRAFFIC, prefix: "it's " }),
+        seg('context-remaining'),
+        seg('cache-hit', { color: A(214) }),
+        seg('rate-5h', { variant: 'percent-reset' }),
+        seg('rate-7d', { variant: 'percent-reset' }),
+        seg('reset-5h', { color: A(99) }),
+        seg('reset-7d', { color: A(99) }),
         seg('session-name', { prefix: '$(x)' }),
         seg('effort'),
         seg('vim-mode'),
@@ -112,6 +165,59 @@ export const CANONICAL_CONFIGS = [
         seg('context-used', { icon: false, threshold: TRAFFIC, color: A(240) }),
         seg('rate-5h', { icon: false, color: A(99) }),
         seg('git-branch', { color: A(46) }),
+      ],
+    }),
+  },
+
+  // ── T4.6（08-PLAN Rev 4 §5；TASKS.md T4.6）golden 擴案：與
+  //    scripts/statusline-golden-configs.ts 內同名 bash 案結構 equivalent
+  //    （non-literal，兩份 canonical 各自獨立事實來源）；golden 為「產出
+  //    腳本文字」，config 結構決定輸出——本節新案不掛 scenario（ps1 側本
+  //    無此欄，emit-ps1.test.ts 之真執行案另走專屬 combo 函式）。 ──
+
+  {
+    name: 'bar-templates',
+    // bar 結構覆蓋（plain）：雙模板（limit-gradient／remaining-gradient）＋
+    // traffic＋percent-reset 併 bar＋無閾值 bar（threshold===undefined →
+    // filled／pct 退段主色，與有閾值分支為結構性不同 ps1 程式碼路徑）。
+    config: cfg({
+      mode: 'plain',
+      segments: [
+        seg('context-used', { icon: false, bar: true, threshold: LIMIT_GRADIENT, color: A(240) }),
+        seg('context-remaining', { icon: false, bar: true, threshold: REMAINING_GRADIENT, color: A(45) }),
+        seg('rate-5h', { icon: false, bar: true, variant: 'percent-reset', threshold: TRAFFIC, color: A(88) }),
+        seg('cache-hit', { icon: false, bar: true, color: A(200) }),
+      ],
+    }),
+  },
+  {
+    name: 'bar-auto-powerline-arrow',
+    // bar＋auto＋倒數同列（powerline arrow=true, cap=true）：auto(model)
+    // 展開色參與箭頭交接／autoFg 對比＋bar 併元素累加器＋countdown 段三者
+    // 同列共存（sp4/verify.mjs 案 10 配方；T4.6 §Verification 錨點）。
+    config: cfg({
+      mode: 'powerline',
+      lastArrowCap: true,
+      segments: [
+        seg('model', { color: { kind: 'auto' } }),
+        seg('context-used', { icon: false, bar: true, threshold: TRAFFIC, color: A(240) }),
+        seg('reset-5h', { icon: false, color: A(99) }),
+      ],
+    }),
+  },
+  {
+    name: 'bar-auto-powerline-noarrow',
+    // bar（無閾值）＋auto(effort)＋倒數同列（powerline powerlineArrow:
+    // false／noarrow）：D1 gating 右 padding 與 auto／bar 併元素三者共存
+    // （sp4/verify.mjs 案 11 配方）。
+    config: cfg({
+      mode: 'powerline',
+      powerlineArrow: false,
+      lastArrowCap: true,
+      segments: [
+        seg('effort', { color: { kind: 'auto' } }),
+        seg('rate-7d', { icon: false, bar: true, color: A(88) }),
+        seg('reset-7d', { icon: false, color: A(99) }),
       ],
     }),
   },

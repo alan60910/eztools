@@ -41,7 +41,7 @@ if ($null -ne $v -and $v -ne '') {
 # context-used — percentage/dash＋threshold
 $v = $d.context_window.used_percentage
 if ($null -eq $v) {
-  $disp = [char]0x75 + [char]0x73 + [char]0x65 + [char]0x64 + [char]0x3A + ' ' + '--'
+  $disp = [char]0x75 + [char]0x73 + [char]0x65 + [char]0x64 + [char]0x3A + ' ' + '(n/a)'
   $Segs += "$e[0m$e[38;5;231m$e[48;5;240m" + $disp
   $BgT += '5;240'
 } else {

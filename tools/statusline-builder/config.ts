@@ -24,12 +24,28 @@ import { validateCustomText } from './validate.js'
 
 // ── 目錄注入 ──
 
-/** segment 目錄的最小注入面（M2 segments.ts 派生真目錄；測試可給假目錄）。 */
+/**
+ * segment 目錄的最小注入面（M2 segments.ts 派生真目錄；測試可給假目錄）。
+ *
+ * `barEligibleIds`／`autoEligibleIds`（T3.3，magi/08-statusline-catalog-
+ * expansion/PLAN.md Rev 4 §3；round 2 補閉）：segments.ts 側的
+ * `SEGMENT_CATALOG` 導出依據——`barEligibleIds`＝`category === 'percentage'`
+ * 之段、`autoEligibleIds`＝有 `autoColor` 欄之段。本檔（config.ts）維持
+ * 不依賴 segments.ts（檔頭現行架構明文）、零硬編 id 清單，故兩集合僅落
+ * 型別於此、由 catalog 注入方（segments.ts）實際導出——目錄擴充時兩集合
+ * 自動跟進，本檔無需同步改動。**本任務只落型別＋導出**：`sanitizeSegment`
+ * 對兩集合的實際清洗消費（bar 限百分比段／auto 限 model・effort 段）屬
+ * T3.4（下一棒），此處先開放型別供其直接消費。
+ */
 export interface SegmentCatalog {
   /** 全部 segment id，目錄順序＝缺段補列時的附加順序。 */
   ids: readonly string[]
   /** 各 id 的允許 variant 集（目錄衍生，非自由字串）；無 variant 之段可缺鍵。 */
   variantsById: Readonly<Record<string, readonly string[] | undefined>>
+  /** 允許套用長條圖（`bar`）之段集（category==='percentage'）；T3.4 消費。 */
+  barEligibleIds: ReadonlySet<string>
+  /** 允許套用自動配色（`SegmentColor.kind==='auto'`）之段集（有 autoColor 欄）；T3.4 消費。 */
+  autoEligibleIds: ReadonlySet<string>
 }
 
 // ── 型別（PLAN 型別契約） ──
@@ -44,15 +60,35 @@ export type SeparatorConfig =
   | { kind: 'preset'; value: SeparatorPresetValue }
   | { kind: 'custom'; value: string } // plain 限定，≤8、過拒收集 R
 
+/**
+ * 段主色三態＋auto（T3.4，magi/08-statusline-catalog-expansion/PLAN.md
+ * Rev 4 §3）：`ColorSpec`（color.ts）維持封閉三態不動——該檔為 SGR 建構
+ * ＋色彩數學（亮度／auto-fg／SGR 參數段）的單一事實來源，其檔頭明文
+ * 「零 DOM import、純函式」職責邊界不收容「使用者選了 auto 配色」這種
+ * config 層選填語意。`SegmentColor` 故於此（config.ts）另立、僅用於
+ * `SegmentConfig.color`——落點屬本任務裁量（型別放哪個檔案由 developer
+ * 依現行架構判斷），選 config.ts 自持。
+ */
+export type SegmentColor = ColorSpec | { kind: 'auto' }
+
 export interface SegmentConfig {
   id: string // 清洗保證 ∈ catalog.ids（見檔頭）
   enabled: boolean
   icon: boolean
   prefix?: string // ≤8 字元，過 validate.ts 拒收集 R（Q4 進 v1）
-  color: ColorSpec // plain=fg；powerline=bg（D3：mode 切換保值）
-  fgOverride?: ColorSpec // powerline 覆寫 auto-fg
+  color: SegmentColor // plain=fg；powerline=bg（D3：mode 切換保值）；auto 限 catalog.autoEligibleIds 段
+  fgOverride?: ColorSpec // powerline 覆寫 auto-fg；三態封閉，一律不收 auto（見 sanitizeSegment）
   threshold?: ThresholdRule
   variant?: string // 須 ∈ catalog.variantsById[id]，否則清洗退預設
+  /**
+   * 長條圖正交欄（T3.4，08-PLAN Rev 4 §3；D-c：CONFIG_VERSION 不 bump，
+   * 選填欄缺省 false，先例同 06b `row`）：限 `catalog.barEligibleIds`
+   * （category==='percentage'）之段——raw `true` 且段合格 → `true`；
+   * 其餘一切（`false`／缺席／非 boolean／非百分比段）→ 欄位**缺席**（比照
+   * `prefix`／`fgOverride` 等既有選填欄「不搬運非法值」慣例，非寫入
+   * `false`）。resolve／emit 消費（4-run bar 展開）屬 M4。
+   */
+  bar?: boolean
   /**
    * 多列佈局（T2.1，PLAN §D2 06b）：所屬渲染列（0-index）。**缺欄**＝
    * 語意上等同 0（分組鍵 `seg.row ?? 0`，供 resolve（T2.2）沿用），鍵維持
@@ -139,6 +175,37 @@ function sanitizeColorSpec(raw: unknown): ColorSpec | null {
 }
 
 /**
+ * `.color` 專用清洗（T3.4，08-PLAN Rev 4 §3；清洗順序釘死——**先判
+ * auto**：先進 `sanitizeColorSpec` 會被其 `default` case 吃掉、id 合格
+ * 判定太遲，round 2 haiku 發現）：`raw?.kind === 'auto'` 時，allowAuto
+ * （呼叫端傳入該段 id ∈ `catalog.autoEligibleIds`）才放行
+ * `{kind:'auto'}`，否則退 `{kind:'default'}`；非 auto 一律委派既有三態
+ * 封閉的 `sanitizeColorSpec`。**`fgOverride` 不得走此函式**——一律維持
+ * `sanitizeColorSpec`（見 `sanitizeSegment`），杜絕手改存檔
+ * `{fgOverride:{kind:'auto'}}` 讓 auto 流入 SGR 建構（`colorSgrParams`
+ * 窮盡 switch 無 default，未攔截的 auto 會使該處回傳 undefined）。
+ */
+function sanitizeSegmentColor(raw: unknown, allowAuto: boolean): SegmentColor {
+  if (isRecord(raw) && raw.kind === 'auto') {
+    return allowAuto ? { kind: 'auto' } : { kind: 'default' }
+  }
+  return sanitizeColorSpec(raw) ?? { kind: 'default' }
+}
+
+/**
+ * `SegmentColor` → `ColorSpec` 佔位轉換（M3／M4 邊界，08-PLAN Rev 4 §3
+ * 「M3 邊界」條款）：`auto` 尚未展開為具體色票——真正的色票查表展開屬
+ * M4（resolve.ts T4.2／emit-bash.ts T4.3／emit-ps1.ts T4.4；main.ts 基色
+ * 選色器 UI 屬 M5 T5.2）。本函式只供上述下游消費點滿足 TypeScript
+ * strict 的最小防禦：遇 `auto` 暫以 `{kind:'default'}` 頂替，**不得**在
+ * 此或任何下游消費點實作色票展開邏輯（該邏輯換裝時直接刪除本函式的
+ * 呼叫點、改接 M4／M5 的真展開）。
+ */
+export function segmentColorPlaceholder(color: SegmentColor): ColorSpec {
+  return color.kind === 'auto' ? { kind: 'default' } : color
+}
+
+/**
  * 桶數校正恰 10：不足補 { kind:'default' }、超長截斷、壞桶逐桶退
  * default。threshold 整體非物件／buckets 非陣列＝形狀不可辨 → undefined
  * （退「無閾值」預設，不猜）。
@@ -191,13 +258,21 @@ function sanitizeSegment(raw: unknown, catalog: SegmentCatalog): SegmentConfig |
     id,
     enabled: raw.enabled === true,
     icon: raw.icon === true,
-    color: sanitizeColorSpec(raw.color) ?? { kind: 'default' },
+    // auto 段別限定：allowAuto＝該 id ∈ catalog.autoEligibleIds（T3.4）。
+    color: sanitizeSegmentColor(raw.color, catalog.autoEligibleIds.has(id)),
   }
   if (typeof raw.prefix === 'string' && validateCustomText(raw.prefix).ok) {
     seg.prefix = raw.prefix
   }
+  // fgOverride 一律不收 auto（維持三態封閉 sanitizeColorSpec，見上方
+  // sanitizeSegmentColor 檔頭說明；防手改存檔 {kind:'auto'} 注入）。
   const fgOverride = sanitizeColorSpec(raw.fgOverride)
   if (fgOverride !== null) seg.fgOverride = fgOverride
+  // bar：限 catalog.barEligibleIds；其餘（false/缺席/非 boolean/非百分比
+  // 段）欄位缺席（比照 prefix／fgOverride 慣例，不搬運 false）。
+  if (raw.bar === true && catalog.barEligibleIds.has(id)) {
+    seg.bar = true
+  }
   const threshold = sanitizeThreshold(raw.threshold)
   if (threshold !== undefined) seg.threshold = threshold
   const variants = catalog.variantsById[id]

@@ -20,7 +20,8 @@
  * 額外資訊。故依 PLAN 名目拆回兩段：`worktree`（名稱，取值 fallback 鏈
  * `workspace.git_worktree` 優先、次 `worktree.name`；tsPath `??`／jqPath `//`
  * ／ps1Path `$(if …)` 三路同構）＋`worktree-branch`（`.worktree.branch`）。
- * 目錄實數 **25 段**（＝PLAN 名目）。
+ * 目錄當時（SP-0）實數 **25 段**（＝PLAN 名目；T3.2 追補至現役 **30 段**，
+ * 見下方「T3.2」節與 :525 定義處，二者不矛盾——此處為 SP-0 時間點快照）。
  *
  * ── tri-path 取值 idiom（下游 emitter 依此抄寫）──
  * - tsPath：`(d: StatusData) => unknown`，回傳「未格式化的來源節點」；
@@ -39,12 +40,46 @@
  *   shell 通道供給（tsPath 恆回 undefined）。
  *
  * ── null／存活語意（resolve（T2.2）依此實作）──
- * - nullPolicy 'dash'（4 百分比段）：主值 nullish → 顯示 '--'、不套閾值
- *   色，段仍存活。
+ * - nullPolicy 'dash'（百分比段＋token 兩段）：主值 nullish → 顯示 '--'、
+ *   不套閾值色，段仍存活。
  * - 'hide'／'empty'：值「死」→ 整段（含 prefix、icon）自段陣列剔除。
  *   死值判定見 isValueDead：null／undefined／''／false——false 入列使
  *   thinking 的 jq `// empty`（false 亦 fallback）語意三後端同構
  *   （PLAN 契約 3：null/false 同視為不顯示，刻意選擇）。
+ *
+ * ── T3.2（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3；
+ * TASKS.md T3.2；前綴表核可見 magi/07-statusline-multirow-layout/
+ * prefix-table.md「06c 新 5 段增列」節，2026-07-12 使用者核可）追補 ──
+ * 目錄 25→30 段：新增 token-in／token-out（category='always'、
+ * nullPolicy='dash'，主值＝`current_usage.input_tokens`／`output_tokens`）、
+ * cache-hit（category='percentage'、nullPolicy='dash'，主值＝
+ * tri-path 取值層算出的公式結果，見下方 computeCacheHitPercentage）、
+ * reset-5h／reset-7d（category='conditional'、nullPolicy='hide'，主值＝
+ * `rate_limits.*.resets_at`，與 rate-5h／rate-7d 的 `resetsAt` 後綴通道
+ * 共用同一底層欄位、但屬獨立段）。兩條新 TriPath 通道
+ * （`autoColor`／`expiresAtPath`）僅落型別＋掛欄——resolve／emit 消費屬
+ * M4（T4.1／T4.2），本次變更後兩欄皆 inert（未被任何現行程式碼讀取）。
+ * **FormatKind 占位聲明（T4.1 已解除）**：T3.2 曾以 `'cost'`／`'duration'`
+ * 暫掛 token×2／reset×2 段（當時 emit-bash 窮盡 switch 屬禁改範圍）；
+ * T4.1（08-PLAN Rev 4 §4）換掛真 kind——token-in／token-out＝`'tokens'`
+ * （k 縮寫）、reset-5h／reset-7d＝`'reset-countdown-5h'／'-7d'`（倒數兩套
+ * 階梯，需 now）。三 kind 真實作在 resolve.ts（本檔 formatValue 對其拋
+ * TypeError 防繞道）；emit-bash `jqFormatSuffix`／emit-ps1 對應 switch
+ * 對這三 kind 同樣刻意 throw（防繞道，非 stub）——真實作已於 T4.3／T4.4
+ * 落地，改走各自專屬 jq／ps1 pipeline（tokens 整數縮寫、reset-countdown-*
+ * 全 jq/ps1 倒數管線），不經這條窮盡 switch。
+ *
+ * ── T6.1（M6，magi/08-statusline-catalog-expansion/TASKS.md；使用者
+ * 2026-07-14 拍板契約 C1–C4，見 WORKS.md 同日條目）追補 ──
+ * `resetsAt` 型別擴為 `TriPath & {countdown}`：rate-5h／rate-7d 各掛
+ * 'reset-countdown-5h'／'reset-countdown-7d'（percent-reset 後綴格式選擇，
+ * 目錄驅動、零 id 特判——與該兩段 FormatKind 字面同名但語意獨立：後綴
+ * 用途 vs 主值格式）。`resetsAtSuffix` 因升級為倒數形需 `now`，整函式
+ * 遷至 resolve.ts（segments.ts 維持純目錄資料層、不碰 now，避免逆向
+ * import 循環——resolve.ts 早已 import segments.ts）；真實作與理由見
+ * resolve.ts 檔頭「T6.1」節。`NA_TEXT`（百分比類 dash-null 顯示形，取代
+ * DASH_TEXT）與 bar×null 4-run／aria 代換規則亦屬 M6，皆落 resolve.ts
+ * 端行為，本檔零改動。
  *
  * 純函式、零 DOM import，node 可測。
  */
@@ -53,12 +88,23 @@ import type { SegmentCatalog } from './config.js'
 // ── StatusData：stdin JSON 忠實 typed mirror（F1） ──
 
 /**
- * `context_window.current_usage` 非 null 時的形狀（SP-0 對帳確認：
+ * `context_window.current_usage` 非 null 時的形狀（T3.2：自 `Record<string,
+ * unknown>` 收緊為具名型別，08-PLAN Rev4 §3）。SP-0 對帳確認真 stdin：
  * `{cache_creation_input_tokens, cache_read_input_tokens, input_tokens,
- * output_tokens}` 皆 number；欄位永在、null 期 4/73＝首回應前／compact 後）。
- * v1 無段消費本節點，型別保留寬 Record 即可。
+ * output_tokens}` 皆 number、欄位永在（null 期 4/73＝首回應前／compact
+ * 後）；但本檔既有 mock-data.ts（S5-T2.1，禁改）canonical 情境集現形僅設
+ * `input_tokens`／`output_tokens` 兩欄、未曾提供 cache 兩欄——為與現行
+ * mock 情境相容（M4／T4.5 才補齊 cache 兩欄＋partial-null 矩陣情境），
+ * `input_tokens`／`output_tokens` 維持必填（mock 情境恆同時齊備兩者）、
+ * `cache_creation_input_tokens`／`cache_read_input_tokens` 收為選填。
+ * token-in／token-out／cache-hit 三段消費本型別（見下方 TriPath 定義）。
  */
-export type CurrentUsage = Record<string, unknown>
+export interface CurrentUsage {
+  input_tokens: number | null
+  output_tokens: number | null
+  cache_creation_input_tokens?: number | null
+  cache_read_input_tokens?: number | null
+}
 
 /**
  * rate_limits 視窗（SP-0 對帳確認：Pro/Max＋首次回應後出現，69/73 在席）。
@@ -145,9 +191,10 @@ export interface StatusData {
 export type SegmentId =
   | 'model' | 'cwd' | 'project-dir' | 'output-style' | 'version'
   | 'cost' | 'duration' | 'lines-changed' | 'context-size' | 'thinking'
-  | 'context-used' | 'context-remaining' | 'rate-5h' | 'rate-7d'
+  | 'token-in' | 'token-out'
+  | 'context-used' | 'context-remaining' | 'rate-5h' | 'rate-7d' | 'cache-hit'
   | 'session-name' | 'effort' | 'vim-mode' | 'agent-name' | 'pr' | 'repo'
-  | 'worktree' | 'worktree-branch'
+  | 'worktree' | 'worktree-branch' | 'reset-5h' | 'reset-7d'
   | 'git-branch' | 'git-dirty' | 'clock'
 
 export type SegmentCategory = 'always' | 'percentage' | 'conditional' | 'shell-out'
@@ -171,6 +218,9 @@ export type FormatKind =
   | 'pr'            // pr 節點 → #<number>
   | 'repo'          // repo 節點 → <owner>/<name>
   | 'clock'         // ClockParts → HH:mm（零填補）
+  | 'tokens'        // token 縮寫：≥10³→⌊n/100⌋插小數點 'X.Yk'（僅 k 檔）；<10³ 原整數字串（T4.1；真實作 resolve.ts）
+  | 'reset-countdown-5h' // ↺ Xh/Xm (HH:MM) 兩階梯；需 now，真實作 resolve.ts（T4.1）
+  | 'reset-countdown-7d' // ↺ Xd/XhYm (MM/DD HH:MM) 兩階梯；需 now，真實作 resolve.ts（T4.1）
 
 /** 三後端取值路徑組（resets_at 後綴通道複用）。 */
 export interface TriPath {
@@ -181,8 +231,10 @@ export interface TriPath {
 
 /**
  * tri-path 描述子——三後端取值語意的單一事實來源（PLAN 型別契約）。
- * 契約沉默處的本檔擴充欄：resetsAt／shellOut／provisional(+Note)；
- * icon 收窄為必填（06a 核可 emoji 對照表 25 段全覆蓋）。
+ * 契約沉默處的本檔擴充欄：resetsAt／shellOut／provisional(+Note)／
+ * autoColor／expiresAtPath（T3.2 新增，見下方欄位文件）；icon 收窄為
+ * 必填（06a 核可對照表 25 段全覆蓋；T3.2 新增 5 段循 T1.5.2／06c 核可
+ * 對照表比照辦理，現役 30 段全覆蓋，見 prefix-table.md）。
  */
 export interface SegmentDescriptor {
   id: SegmentId
@@ -199,11 +251,35 @@ export interface SegmentDescriptor {
   /** 允許集（目錄衍生）；預設＝variants[0]（見 defaultVariant）。 */
   variants?: readonly string[]
   /**
-   * rate 段限定：resets_at 後綴 tri-path。variant 'percent-reset' 且值
-   * 非 null 時，於主值後附 ` (HH:mm)`（resetsAtSuffix）；後綴為段內
+   * rate 段限定：resets_at 後綴 tri-path＋倒數 kind（M6 C3，2026-07-14
+   * 拍板；magi/08-statusline-catalog-expansion/TASKS.md T6.1）。variant
+   * 'percent-reset' 且值非 null／未過期時，於主值後附倒數字串（如
+   * ` ↺ 4h (02:40)`）——真格式化派發（`resetsAtSuffix`）因需 `now` 已遷
+   * 至 resolve.ts（本檔僅目錄資料，見該檔檔頭「T6.1」節歸屬理由）。
+   * `countdown` 為目錄驅動的格式選擇（零 id 特判）：rate-5h 掛
+   * 'reset-countdown-5h'、rate-7d 掛 'reset-countdown-7d'。後綴為段內
    * composition 成分、非主值——主值 null 判定不看它。
    */
-  resetsAt?: TriPath
+  resetsAt?: TriPath & { countdown: 'reset-countdown-5h' | 'reset-countdown-7d' }
+  /**
+   * auto 配色承載欄（T3.2，08-PLAN Rev4 §3；沿 resetsAt 先例、選填、不動
+   * 既有段語意）：`palette` 指定套哪組色票（model／effort，resolve／emit
+   * 不得出現任何 id 特判）；`key` 為比對來源 TriPath（缺省＝主值本身
+   * 免 key，如 effort 段直接複用 `.effort.level`）。model 段掛
+   * `{palette:'model', key: .model.id 三式}`（id 較 display_name 穩定，
+   * 色票對照鍵以 model id family 前綴比對）。**resolve／emit 消費屬
+   * M4——本任務只落型別＋掛欄，欄位 inert（未被任何現行程式碼讀取）**。
+   */
+  autoColor?: { palette: 'model' | 'effort'; key?: TriPath }
+  /**
+   * 通用「過期即死值」標記 TriPath（T3.2，08-PLAN Rev4 §3；沿 resetsAt
+   * 先例、選填）：reset-5h／reset-7d 掛 `resets_at`（與該兩段主值
+   * tsPath/jqPath/ps1Path 為同一底層欄位，僅承載角色不同）。**T4.1 已
+   * 消費**：resolve 於既有 isValueDead 判定後追加通用步驟「expiresAtPath
+   * 存在且（值 null 或 now ≥ 該值）→ 視同死值」，零 id 特判（見
+   * resolve.ts resolveSegment）。
+   */
+  expiresAtPath?: TriPath
   /** shell-out 段限定：兩後端核心命令（防禦包裹＝emitter 契約 9）。 */
   shellOut?: { bash: string; ps1: string }
   /** SP-0 前全目錄 true（provisional 體制）；對帳後逐段拆標。 */
@@ -298,18 +374,10 @@ export function formatResetsAt(epochSeconds: number): string {
   return formatClockHM(d.getHours(), d.getMinutes())
 }
 
-/**
- * resets_at 後綴：null/undefined → ''（無後綴）；epoch 秒 → ` (HH:mm)`
- * （空格＋括號的後綴形＝FormatKind 對等面的一部分，emitter 同構）。
- * 非 number 的非 null 值＝epoch 假設破產（SP-0 對帳點）→ TypeError。
- */
-export function resetsAtSuffix(v: unknown): string {
-  if (v === null || v === undefined) return ''
-  if (typeof v !== 'number' || Number.isNaN(v)) {
-    throw new TypeError(`resets_at 預期 epoch 秒（number），得到 ${typeof v}`)
-  }
-  return ` (${formatResetsAt(v)})`
-}
+// resetsAtSuffix（rate 段 percent-reset 後綴格式化）已於 M6 T6.1 遷至
+// resolve.ts（升級為倒數形需 `now`；見該檔檔頭「T6.1」節歸屬理由與上方
+// `SegmentDescriptor.resetsAt` 欄位 doc）。本檔僅保留 formatResetsAt
+// （HH:mm 渲染，clock／resets_at 共用，倒數格式化的 clock 字串生成仍靠它）。
 
 /**
  * path（cwd variants）：'full' 原樣；'basename' 取最後路徑節（`/`／`\`
@@ -411,10 +479,60 @@ export function formatValue(kind: FormatKind, value: unknown, ctx: FormatContext
       const node = asRecord(value, 'clock 值')
       return formatClockHM(asNumber(node.hours, 'clock.hours'), asNumber(node.minutes, 'clock.minutes'))
     }
+    case 'tokens':
+    case 'reset-countdown-5h':
+    case 'reset-countdown-7d':
+      // T4.1：三 kind 真實作在 resolve.ts formatMainValue（倒數需 now，
+      // 本函式簽章不擴）；此 case 僅滿足 FormatKind 窮盡 switch。
+      throw new TypeError(`FormatKind '${kind}' 由 resolve 層格式化（T4.1），不經 formatValue`)
   }
 }
 
-// ── Segment 目錄（25 段；順序＝PLAN 目錄表序＝UI 清單序） ──
+// ── cache-hit 公式（tri-path 取值層完成；T3.2，08-PLAN Rev4 §3） ──
+
+/**
+ * cache-hit 主值公式：`floor(cache_read × 100 / (input + cache_creation +
+ * cache_read))`。分母 0 → `0`；`usage` 為 null 或任一輸入欄
+ * null／undefined（缺席）→ `null`——**恆回 `number | null`，不得取節點**
+ * （PLAN 明文：resolve 閾值閘要求 `typeof raw === 'number'`、ps1
+ * percentage 路徑 `[double]$v` 對物件會擲例外，故公式必須在此完成、不
+ * 可沿 context-size「取節點＋FormatKind 算」慣例）。jqPath／ps1Path 為
+ * 本函式的字串鏡像（同語意，真執行對等驗證屬 M4）。
+ */
+function computeCacheHitPercentage(usage: CurrentUsage | null): number | null {
+  // `== null` 涵蓋 null／undefined 兩態：真 stdin context_window 可能整包
+  // 省略 current_usage key（非顯式 null），此時 `d.context_window.current_usage`
+  // 為 undefined；嚴格 `=== null` 會漏接、fall through 到下方解構賦值而
+  // TypeError。對齊下方欄位守衛（:501 起）與檔頭 `== null` 慣例，兩個 shell
+  // 鏡像（CACHE_HIT_JQ_PATH／CACHE_HIT_PS1_PATH，見下方）本就把缺席
+  // current_usage 當 null 處理，此處對齊三後端一致行為（回歸見 segments.test.ts）。
+  if (usage == null) return null
+  const { input_tokens, cache_creation_input_tokens, cache_read_input_tokens } = usage
+  if (input_tokens == null || cache_creation_input_tokens == null || cache_read_input_tokens == null) {
+    return null
+  }
+  const denominator = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+  if (denominator === 0) return 0
+  return Math.floor((cache_read_input_tokens * 100) / denominator)
+}
+
+/** cache-hit jqPath：`computeCacheHitPercentage` 的 jq 鏡像（單一運算式，`as` 綁定分段）。 */
+const CACHE_HIT_JQ_PATH =
+  '.context_window.current_usage as $u | ' +
+  'if ($u == null) or ($u.input_tokens == null) or ($u.cache_creation_input_tokens == null) or ($u.cache_read_input_tokens == null) then null ' +
+  'else (($u.input_tokens + $u.cache_creation_input_tokens + $u.cache_read_input_tokens) as $denom | ' +
+  'if $denom == 0 then 0 else (($u.cache_read_input_tokens * 100 / $denom) | floor) end) end'
+
+/** cache-hit ps1Path：`computeCacheHitPercentage` 的 ps1 鏡像（`$(...)` scriptblock，null 判定顯式 `$null -eq`）。 */
+const CACHE_HIT_PS1_PATH =
+  '$(' +
+  '$u = $d.context_window.current_usage; ' +
+  'if (($null -eq $u) -or ($null -eq $u.input_tokens) -or ($null -eq $u.cache_creation_input_tokens) -or ($null -eq $u.cache_read_input_tokens)) { $null } ' +
+  'else { $denom = $u.input_tokens + $u.cache_creation_input_tokens + $u.cache_read_input_tokens; ' +
+  'if ($denom -eq 0) { 0 } else { [math]::Floor($u.cache_read_input_tokens * 100 / $denom) } }' +
+  ')'
+
+// ── Segment 目錄（30 段；順序＝PLAN 目錄表序＝UI 清單序） ──
 
 function deepFreeze<T>(v: T): T {
   if (v !== null && (typeof v === 'object' || typeof v === 'function')) {
@@ -427,7 +545,7 @@ function deepFreeze<T>(v: T): T {
 }
 
 const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
-  // ── 永在（10） ──
+  // ── 永在（12） ──
   {
     id: 'model',
     label: '模型',
@@ -438,6 +556,12 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     format: 'text',
     icon: { glyph: 'model:', ariaText: '模型' },
     nullPolicy: 'empty',
+    // auto 配色承載欄（T3.2，欄位 inert；resolve/emit 消費屬 M4）：比對
+    // 來源＝.model.id（較 display_name 穩定）。
+    autoColor: {
+      palette: 'model',
+      key: { tsPath: (d) => d.model.id, jqPath: '.model.id', ps1Path: '$d.model.id' },
+    },
     provisional: false,
   },
   {
@@ -556,7 +680,37 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     nullPolicy: 'empty',
     provisional: false,
   },
-  // ── 百分比（4，可掛閾值；主值 null → '--' 不套閾值色） ──
+  {
+    id: 'token-in',
+    label: 'Tokens 輸入',
+    category: 'always',
+    // 主值＝current_usage.input_tokens（number|null）；current_usage 整包
+    // null 或缺席時 optional chaining 天然回 undefined（isValueDead 對
+    // undefined／null 一視同仁，dash 政策下皆顯 '--'，行為不受影響）。
+    tsPath: (d) => d.context_window.current_usage?.input_tokens,
+    jqPath: '.context_window.current_usage.input_tokens',
+    ps1Path: '$d.context_window.current_usage.input_tokens',
+    // FormatKind 'tokens'（T4.1，08-PLAN Rev 4 §4；k 縮寫真實作在
+    // resolve.ts formatTokens；bash/ps1 端同構已於 T4.3/T4.4 落地，走
+    // 各自專屬 jq/ps1 pipeline——見檔頭「占位聲明（T4.1 已解除）」節）。
+    format: 'tokens',
+    icon: { glyph: 'in:', ariaText: 'Tokens 輸入' },
+    nullPolicy: 'dash',
+    provisional: false,
+  },
+  {
+    id: 'token-out',
+    label: 'Tokens 輸出',
+    category: 'always',
+    tsPath: (d) => d.context_window.current_usage?.output_tokens,
+    jqPath: '.context_window.current_usage.output_tokens',
+    ps1Path: '$d.context_window.current_usage.output_tokens',
+    format: 'tokens', // 同 token-in（見上方註解；T4.1）。
+    icon: { glyph: 'out:', ariaText: 'Tokens 輸出' },
+    nullPolicy: 'dash',
+    provisional: false,
+  },
+  // ── 百分比（5，可掛閾值；主值 null → '--' 不套閾值色） ──
   {
     id: 'context-used',
     label: '上下文已用',
@@ -598,6 +752,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
       tsPath: (d) => d.rate_limits?.five_hour?.resets_at,
       jqPath: '.rate_limits.five_hour.resets_at',
       ps1Path: '$d.rate_limits.five_hour.resets_at',
+      countdown: 'reset-countdown-5h',
     },
     provisional: false,
   },
@@ -616,10 +771,26 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
       tsPath: (d) => d.rate_limits?.seven_day?.resets_at,
       jqPath: '.rate_limits.seven_day.resets_at',
       ps1Path: '$d.rate_limits.seven_day.resets_at',
+      countdown: 'reset-countdown-7d',
     },
     provisional: false,
   },
-  // ── 條件性（7；缺席 → 整段剔除） ──
+  {
+    id: 'cache-hit',
+    label: 'Cache 命中率',
+    category: 'percentage',
+    // 公式在取值層完成（computeCacheHitPercentage／CACHE_HIT_JQ_PATH／
+    // CACHE_HIT_PS1_PATH，見上方定義）：三式恆回 number | null、不取節點
+    // ——percentage 類主值型別契約（08-PLAN Rev4 §3 round 2 釘死）。
+    tsPath: (d) => computeCacheHitPercentage(d.context_window.current_usage),
+    jqPath: CACHE_HIT_JQ_PATH,
+    ps1Path: CACHE_HIT_PS1_PATH,
+    format: 'percentage',
+    icon: { glyph: 'cache:', ariaText: 'Cache 命中率' },
+    nullPolicy: 'dash',
+    provisional: false,
+  },
+  // ── 條件性（10；缺席 → 整段剔除） ──
   {
     id: 'session-name',
     label: '工作階段名稱',
@@ -642,6 +813,9 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     format: 'text',
     icon: { glyph: 'eff:', ariaText: '推理強度' },
     nullPolicy: 'hide',
+    // auto 配色承載欄（T3.2，欄位 inert；resolve/emit 消費屬 M4）：主值
+    // 即 .effort.level，直接複用免 key。
+    autoColor: { palette: 'effort' },
     provisional: false,
   },
   {
@@ -730,6 +904,48 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     nullPolicy: 'hide',
     provisional: false,
   },
+  {
+    id: 'reset-5h',
+    label: '5 小時限額重置倒數',
+    category: 'conditional',
+    // 主值＝resets_at epoch（number|null；rate_limits／five_hour 任一層
+    // 缺席時 optional chaining 天然回 undefined，hide 政策下 isValueDead
+    // 對 undefined／null 一視同仁，效果相同）。與 rate-5h 的 resetsAt
+    // 後綴通道讀同一底層欄位，但為獨立段（分工見 prefix-table.md）。
+    tsPath: (d) => d.rate_limits?.five_hour?.resets_at,
+    jqPath: '.rate_limits.five_hour.resets_at',
+    ps1Path: '$d.rate_limits.five_hour.resets_at',
+    // FormatKind 'reset-countdown-5h'（T4.1，08-PLAN Rev 4 §4）：
+    // 「↺ Xh/Xm (HH:MM)」兩階梯真實作在 resolve.ts formatResetCountdown5h
+    // （需 now）；shell 端已於 T4.3/T4.4 落地，走專屬 jq/ps1 倒數 pipeline。
+    format: 'reset-countdown-5h',
+    icon: { glyph: 'r5h:', ariaText: '5 小時限額重置倒數' },
+    nullPolicy: 'hide',
+    // 通用「過期即死值」標記（T4.1 起由 resolve 消費）：與主值同一底層欄位。
+    expiresAtPath: {
+      tsPath: (d) => d.rate_limits?.five_hour?.resets_at,
+      jqPath: '.rate_limits.five_hour.resets_at',
+      ps1Path: '$d.rate_limits.five_hour.resets_at',
+    },
+    provisional: false,
+  },
+  {
+    id: 'reset-7d',
+    label: '7 日限額重置倒數',
+    category: 'conditional',
+    tsPath: (d) => d.rate_limits?.seven_day?.resets_at,
+    jqPath: '.rate_limits.seven_day.resets_at',
+    ps1Path: '$d.rate_limits.seven_day.resets_at',
+    format: 'reset-countdown-7d', // 同 reset-5h（見上方註解；T4.1 兩套階梯之 7d 檔）。
+    icon: { glyph: 'r7d:', ariaText: '7 日限額重置倒數' },
+    nullPolicy: 'hide',
+    expiresAtPath: {
+      tsPath: (d) => d.rate_limits?.seven_day?.resets_at,
+      jqPath: '.rate_limits.seven_day.resets_at',
+      ps1Path: '$d.rate_limits.seven_day.resets_at',
+    },
+    provisional: false,
+  },
   // ── shell-out（3；值不出於 stdin JSON，見檔頭 idiom 節） ──
   {
     id: 'git-branch',
@@ -775,7 +991,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
 ]
 
-/** 全目錄（凍結；順序＝PLAN 目錄表序：永在 10→百分比 4→條件 7→shell-out 3）。 */
+/** 全目錄（凍結；順序＝PLAN 目錄表序：永在 12→百分比 5→條件 10→shell-out 3）。 */
 export const SEGMENT_DESCRIPTORS: readonly SegmentDescriptor[] = deepFreeze(SEGMENT_DESCRIPTOR_LIST)
 
 export const SEGMENT_IDS: readonly SegmentId[] = Object.freeze(
@@ -789,12 +1005,30 @@ export const DESCRIPTORS_BY_ID: Readonly<Record<SegmentId, SegmentDescriptor>> =
   >,
 )
 
-/** config.ts 注入面（{ids, variantsById}——型別由 config.ts 契約鎖定）。 */
+/**
+ * config.ts 注入面（{ids, variantsById, barEligibleIds, autoEligibleIds}
+ * ——型別由 config.ts 契約鎖定）。`barEligibleIds`／`autoEligibleIds`
+ * （T3.3，magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3；round 2
+ * 補閉）：導出依據——`barEligibleIds`＝`category === 'percentage'` 之段、
+ * `autoEligibleIds`＝有 `autoColor` 欄之段（T3.2 已為 model／effort 段掛
+ * `autoColor`）。兩集合由本檔目錄結構衍生、零硬編 id 清單，目錄擴充自動
+ * 跟進；`sanitizeSegment`（config.ts）對兩集合的實際清洗消費屬 T3.4。
+ */
 export const SEGMENT_CATALOG: SegmentCatalog = deepFreeze({
   ids: SEGMENT_IDS,
   variantsById: Object.fromEntries(
     SEGMENT_DESCRIPTORS.filter((descriptor) => descriptor.variants !== undefined).map(
       (descriptor) => [descriptor.id, descriptor.variants],
+    ),
+  ),
+  barEligibleIds: new Set(
+    SEGMENT_DESCRIPTORS.filter((descriptor) => descriptor.category === 'percentage').map(
+      (descriptor) => descriptor.id,
+    ),
+  ),
+  autoEligibleIds: new Set(
+    SEGMENT_DESCRIPTORS.filter((descriptor) => descriptor.autoColor !== undefined).map(
+      (descriptor) => descriptor.id,
     ),
   ),
 })

@@ -5,7 +5,7 @@
  * 真跑 bash＋jq／Windows PowerShell 5.1／（可選）pwsh 7，斷言與 TS 參考
  * （formatValue 經 resolve→toAnsi oracle）字面／byte-exact 相等。
  *
- * ── 五塊 ──
+ * ── 七塊 ──
  * 1. **比對函式正負自測**：hexEqual（byte-exact 比對輔助，本 sprint 無共用
  *    比對函式故建最小形）——正向（一致對→真）＋負向（不一致對→假）。
  * 2. **SP-7 格式化對等**：對抗值集（cost 補尾零／0.0029 float 下緣 Decimal
@@ -15,9 +15,9 @@
  * 3. **shell-out 等價**：真 git repo 諸態（乾淨／髒／detached HEAD／無 branch
  *    空 repo）——emit-bash 產腳本真跑 vs emit-ps1 產腳本真跑，git-branch／
  *    git-dirty 段輸出 byte-exact 等價。
- * 4. **skipIf meta**：蒐集各 real-exec leg 的 enable 狀態，斷言「至少一後端
- *    未 skip」＋「平台載重後端（win32→ps1 5.1、posix→bash+jq）present 卻
- *    skip＝skipIf 條件 bug」——某後端全 leg skip 即紅。
+ * 4. **D1 gating 真執行覆蓋**：powerline＋`powerlineArrow:false` 單列
+ *    config（threshold／dash-null／shell-out 三者共存）——bash／ps1 皆與
+ *    oracle byte-exact。
  * 5. **多列真執行場景（T3.3；magi/07-statusline-multirow-layout/PLAN.md
  *    §Verification 1）**：三列 config、其中一條**非末列**的段在
  *    `conditional-absent` 情境（mock-data.ts；條件欄鍵缺席）runtime 全滅
@@ -25,6 +25,20 @@
  *    另補「無空行、LF 數＝存活列−1」結構斷言（plain／powerline＋arrow
  *    gating true 各一）；含全列全滅退化為單一 SGR reset 一案（對齊
  *    `resolve()` 的 `[[]]` 退化與 `toAnsi([[]])==='\x1b[0m'` 不變量）。
+ * 6. **T4.6 整合收攏案（08-PLAN Rev 4 §5／TASKS.md T4.6）**：(a)
+ *    bar×倒數×auto 同列——單列內同時含 auto 配色段、bar 開啟段、倒數段，
+ *    置於雙列 config 內（`row` 分組，佐證「多列情境下同列多特徵共存」）；
+ *    plain／powerline（arrow=true）各一，倒數段以 `STATUSLINE_NOW_EPOCH`
+ *    顯式釘 now 對齊 oracle（同 emit-bash.test.ts／emit-ps1.test.ts 既有
+ *    idiom）。(b) auto×powerline arrow／noarrow 兩形——sp4/REPORT.md
+ *    verify.mjs 案 10/11 已驗證 auto 展開色參與 powerline 併元素／autoFg
+ *    對比的位元組配方，本節補三後端（bash＋ps1）對實際 auto 段
+ *    （model／effort）在 arrow=true／arrow=false 下的端到端覆蓋（先前
+ *    emit-bash.test.ts／emit-ps1.test.ts 的 auto 組合案恆為 arrow=true，
+ *    未含 noarrow）。
+ * 7. **skipIf meta**：蒐集各 real-exec leg 的 enable 狀態，斷言「至少一後端
+ *    未 skip」＋「平台載重後端（win32→ps1 5.1、posix→bash+jq）present 卻
+ *    skip＝skipIf 條件 bug」——某後端全 leg skip 即紅。
  *
  * ── 環境（.t23 §9／.t24／.t26）──
  * Git Bash scoop 路徑候選探測＋`SP5_BASH` 覆寫；jq＝sp5/tools 便攜版（win32
@@ -48,7 +62,7 @@ import { toAnsi } from './emit-ansi.js'
 import { emitBash, type SegmentDescriptorCatalog } from './emit-bash.js'
 import { emitPs1 } from './emit-ps1.js'
 import { MOCK_SCENARIOS_BY_ID } from './mock-data.js'
-import { resolve } from './resolve.js'
+import { POWERLINE_ARROW, resolve } from './resolve.js'
 import { DESCRIPTORS_BY_ID, type StatusData } from './segments.js'
 import { THRESHOLD_TEMPLATES } from './threshold.js'
 
@@ -188,12 +202,18 @@ function withPath(env: NodeJS.ProcessEnv, newPath: string): NodeJS.ProcessEnv {
   return env
 }
 
-function runBash(script: string, stdinJson: string, cwd?: string): RunResult {
+/**
+ * `extraEnv`（T4.6）：倒數段 STATUSLINE_NOW_EPOCH 顯式釘 now（S2 idiom 合法
+ * 整數分支；同機 oracle regime 下與 `oracle()` 的固定 `FULL.now` 對齊，見
+ * emit-bash.test.ts／emit-ps1.test.ts 既有「STATUSLINE_NOW_EPOCH 顯式釘
+ * now」慣例）——不傳則沿舊行為（同機現算）。
+ */
+function runBash(script: string, stdinJson: string, cwd?: string, extraEnv: Record<string, string> = {}): RunResult {
   if (!BASH.ok) throw new Error('runBash without bash')
   const scriptPath = join(bashScriptDir, `s-${seq++}.sh`)
   writeFileSync(scriptPath, script) // emitBash 已 LF、無 BOM
   // MSYS_NO_PATHCONV：擋 Git Bash 呼叫原生 exe 時的 MSYS 引數路徑轉換（.t24）。
-  let env: NodeJS.ProcessEnv = { ...process.env, MSYS_NO_PATHCONV: '1' }
+  let env: NodeJS.ProcessEnv = { ...process.env, MSYS_NO_PATHCONV: '1', ...extraEnv }
   if (BASH.jqDir !== undefined) env = withPath(env, BASH.jqDir + delimiter + (process.env.PATH ?? ''))
   const r = spawnSync(BASH.bash, [scriptPath], { input: Buffer.from(stdinJson, 'utf8'), env, cwd })
   return {
@@ -204,14 +224,20 @@ function runBash(script: string, stdinJson: string, cwd?: string): RunResult {
 }
 
 /** ps1 spawn＝settings 生產形逐字（`-NoProfile -ExecutionPolicy Bypass -File`）；檔案帶 BOM。 */
-function runPs1(exe: string, script: string, stdinJson: string, cwd?: string): RunResult {
+function runPs1(
+  exe: string,
+  script: string,
+  stdinJson: string,
+  cwd?: string,
+  extraEnv: Record<string, string> = {},
+): RunResult {
   const dir = mkdtempSync(join(tmpdir(), 'sl-ps-'))
   const file = join(dir, 'statusline.ps1')
   writeFileSync(file, Buffer.concat([BOM, Buffer.from(script, 'utf8')]))
   try {
     const r = spawnSync(exe, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
       input: Buffer.from(stdinJson, 'utf8'),
-      env: { ...process.env },
+      env: { ...process.env, ...extraEnv },
       cwd,
       maxBuffer: 1024 * 1024,
     })
@@ -225,9 +251,14 @@ function runPs1(exe: string, script: string, stdinJson: string, cwd?: string): R
   }
 }
 
+/** STATUSLINE_NOW_EPOCH 注入 env（倒數段真執行與 oracle 對齊；T4.6）。 */
+function nowEnv(now: number): Record<string, string> {
+  return { STATUSLINE_NOW_EPOCH: String(now) }
+}
+
 /** TS 參考 oracle：resolve→toAnsi（單段 default 色 → `ESC[0m<值>ESC[0m`）。 */
 function oracle(config: BuilderConfig, data: StatusData): Buffer {
-  return Buffer.from(toAnsi(resolve(config, { data, shell: FULL.shell, env: FULL.env })), 'utf8')
+  return Buffer.from(toAnsi(resolve(config, { data, shell: FULL.shell, env: FULL.env, now: FULL.now })), 'utf8')
 }
 
 /** 剝所有 SGR 序列 → 純顯示文字（單段 default 色時＝格式化值本身）。 */
@@ -348,32 +379,138 @@ describe.skipIf(!PWSH7.ok)('SP-7 格式化對等 — pwsh 7', () => {
 // ── resets 後綴三後端一致（Step 0 落地的統合驗證：oracle==bash==ps1） ──
 
 describe.skipIf(!(BASH.ok && PS1.ok))('resets 後綴 — bash==ps1==oracle（同機同 TZ byte-exact）', () => {
-  it('rate-5h percent-reset（plain 無閾值）：63% + " (HH:mm)"', () => {
+  it('rate-5h percent-reset（plain 無閾值）：63% + " ↺ 2h (HH:mm)"（M6 C3 倒數形）', () => {
     const config = cfgT('plain', [segT('rate-5h', { variant: 'percent-reset', color: A(99) })])
-    const data = clone(FULL.data) // five_hour.resets_at=1783497600（number）
+    const data = clone(FULL.data) // five_hour.resets_at=FULL_NOW+2h（number）
     const o = oracle(config, data)
+    const env = nowEnv(FULL.now) // C3 起 percent-reset 需 now（S2 idiom 注入，對齊 oracle 固定 now）。
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), undefined, env)
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data), undefined, env)
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    // 後綴形（diff 固定＝FULL.now 注入下決定論；HH:mm 本地時刻不寫死——spawn 當下 TZ）。
+    expect(strip(o)).toMatch(/^63% ↺ 2h \(\d\d:\d\d\)$/)
+  })
+
+  it("dash+後綴正交（used=null）：'(n/a) ↺ 2h (HH:mm)' 三後端一致（M6 C1 NA_TEXT＋C3 倒數形）", () => {
+    const config = cfgT('plain', [segT('rate-5h', { variant: 'percent-reset', color: A(99) })])
+    const data = clone(FULL.data)
+    data.rate_limits!.five_hour!.used_percentage = null
+    const o = oracle(config, data)
+    const env = nowEnv(FULL.now)
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), undefined, env)
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data), undefined, env)
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o)).toBe(true)
+    expect(hexEqual(p.stdout, o)).toBe(true)
+    expect(strip(o)).toMatch(/^\(n\/a\) ↺ 2h \(\d\d:\d\d\)$/)
+  })
+
+  // ── M6 C3 補案：percent-reset 倒數後綴 × {rate-5h, rate-7d} × {plain, powerline} ──
+  // 既有兩案已覆蓋 rate-5h×plain（含 dash 正交）；本節補齊剩餘三格
+  // （rate-5h×powerline、rate-7d×plain、rate-7d×powerline），湊滿 2×2 矩陣。
+
+  it('rate-5h percent-reset × powerline（noarrow）：後綴倒數形＋D1 尾隨 pad，三後端一致', () => {
+    const config = cfgT('powerline', [segT('rate-5h', { variant: 'percent-reset', color: A(99) })], false)
+    const data = clone(FULL.data)
+    const o = oracle(config, data)
+    const env = nowEnv(FULL.now)
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), undefined, env)
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data), undefined, env)
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    // D1 gating（powerlineArrow=false）：value 尾綴一格 pad，併入後綴之後。
+    expect(strip(o)).toMatch(/^63% ↺ 2h \(\d\d:\d\d\) $/)
+  })
+
+  it('rate-7d percent-reset × plain：後綴倒數形（Xd 階梯，MM/DD HH:mm），三後端一致', () => {
+    const config = cfgT('plain', [segT('rate-7d', { variant: 'percent-reset', color: A(129) })])
+    const data = clone(FULL.data) // seven_day.used_percentage=21、resets_at=FULL_NOW+114h→diff≥86400（4d 階梯）
+    const o = oracle(config, data)
+    const env = nowEnv(FULL.now)
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), undefined, env)
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data), undefined, env)
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(strip(o)).toMatch(/^21% ↺ 4d \(\d\d\/\d\d \d\d:\d\d\)$/)
+  })
+
+  it('rate-7d percent-reset × powerline（noarrow）：後綴倒數形＋D1 尾隨 pad，三後端一致', () => {
+    const config = cfgT('powerline', [segT('rate-7d', { variant: 'percent-reset', color: A(129) })], false)
+    const data = clone(FULL.data)
+    const o = oracle(config, data)
+    const env = nowEnv(FULL.now)
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), undefined, env)
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data), undefined, env)
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(strip(o)).toMatch(/^21% ↺ 4d \(\d\d\/\d\d \d\d:\d\d\) $/)
+  })
+
+  // ── M6 C3 死值規則補案：resets_at 已過期 → 後綴消失但 rate 段主值仍存活 ──
+  it('percent-reset 後綴已過期（now≥resets_at）→ 後綴消失、rate 段主值仍存活（只剔後綴，非整段死值）', () => {
+    const config = cfgT('plain', [segT('rate-5h', { variant: 'percent-reset', color: A(99) })])
+    const data = clone(FULL.data)
+    data.rate_limits!.five_hour!.resets_at = FULL.now - 3600 // 已過期（now ≥ resets_at）
+    const o = oracle(config, data)
+    // 前置自檢：後綴全消、主值 63% 原樣存活（非整段剔除）。
+    expect(strip(o), '前置自檢：oracle 顯示').toBe('63%')
+    const env = nowEnv(FULL.now)
+    const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), undefined, env)
+    const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data), undefined, env)
+    expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+    expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+  })
+})
+
+// ── M6 C2 補案：bar×null 恆 4-run（不再退單 run）× {plain, powerline} ──
+
+describe.skipIf(!(BASH.ok && PS1.ok))('bar×null（M6 C2；4-run 恆定形，NA_TEXT 值部）— bash==ps1==oracle', () => {
+  it('context-used bar×null（threshold 定義、桶退段主色）× plain：三後端 byte-exact', () => {
+    const config = cfgT('plain', [segT('context-used', { bar: true, threshold: TRAFFIC, color: A(240) })])
+    const data = clone(FULL.data)
+    data.context_window.used_percentage = null
+    const input = { data, shell: FULL.shell, env: FULL.env, now: FULL.now }
+    const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+    // 前置自檢：filled=0（20 empty）、value 部＝NA_TEXT（無 pad，plain 模式）。
+    expect(strip(o), '前置自檢：oracle 顯示').toBe('░'.repeat(20) + ' (n/a)')
     const b = runBash(emitBash(config, CATALOG), JSON.stringify(data))
     const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data))
     expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
     expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
     expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
     expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
-    // 後綴形（不寫死時刻——spawn 當下 TZ）。
-    expect(strip(o)).toMatch(/^63% \(\d\d:\d\d\)$/)
   })
 
-  it("dash+後綴正交（used=null）：'-- (HH:mm)' 三後端一致", () => {
-    const config = cfgT('plain', [segT('rate-5h', { variant: 'percent-reset', color: A(99) })])
+  it('context-used bar×null（threshold 定義、桶退段主色）× powerline（noarrow）：三後端 byte-exact', () => {
+    const config = cfgT(
+      'powerline',
+      [segT('context-used', { bar: true, threshold: TRAFFIC, color: A(240) })],
+      false,
+    )
     const data = clone(FULL.data)
-    data.rate_limits!.five_hour!.used_percentage = null
-    const o = oracle(config, data)
+    data.context_window.used_percentage = null
+    const input = { data, shell: FULL.shell, env: FULL.env, now: FULL.now }
+    const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+    // 前置自檢：D1 padding 併入 run4（尾綴一格）。
+    expect(strip(o), '前置自檢：oracle 顯示').toBe('░'.repeat(20) + ' (n/a) ')
     const b = runBash(emitBash(config, CATALOG), JSON.stringify(data))
     const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), JSON.stringify(data))
     expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
     expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
-    expect(hexEqual(b.stdout, o)).toBe(true)
-    expect(hexEqual(p.stdout, o)).toBe(true)
-    expect(strip(o)).toMatch(/^-- \(\d\d:\d\d\)$/)
+    expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
   })
 })
 
@@ -535,10 +672,12 @@ describe.skipIf(!(BASH.ok && PS1.ok))(
       // shell 通道釘住＝真 clean repo 狀態（branch='main'、無 dirty）——oracle
       // 與真執行環境同一態，byte-exact 才有意義（非決定論通道人工對齊）。
       const shell = { ...FULL.shell, 'git-branch': 'main', 'git-dirty': false }
-      const input = { data, shell, env: FULL.env }
+      const input = { data, shell, env: FULL.env, now: FULL.now }
       const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
       // 前置自檢：D1 padding（每段尾綴一格）＋無箭頭／無 cap 之顯示形。
-      expect(strip(o), '前置自檢：oracle 顯示').toBe('55% -- main ')
+      // M6 C1：rate-5h 無 threshold、無 percent-reset variant——dash-null
+      // 仍走百分比類 NA_TEXT（'(n/a)'，取代舊 '--'）。
+      expect(strip(o), '前置自檢：oracle 顯示').toBe('55% (n/a) main ')
 
       const dir = repoClean()
       const b = runBash(emitBash(config, CATALOG), JSON.stringify(data), dir)
@@ -561,7 +700,10 @@ describe.skipIf(!(BASH.ok && PS1.ok))(
 // （步驟 3，LF 數＝存活列−1）。emitBash／emitPs1 真跑 stdout 對
 // `toAnsi(resolve(...))` hex 比對；另含三列全數 hide 段皆死→退化單一 SGR
 // reset 一案（步驟 4，對齊 `resolve()` 的 `[[]]` 與 `toAnsi([[]])==='\x1b[0m'`
-// 不變量）。
+// 不變量）。另補（T1.3；magi/08 PLAN §前置加固）多列 × powerline ×
+// powerlineArrow:false（v2 預設）真執行案——三列皆全存活（FULL 情境），驗
+// D1 gating 語意（無箭頭／右 padding／lastArrowCap 無效）於多列場景列內
+// 獨立成立。
 
 const CONDITIONAL_ABSENT = MOCK_SCENARIOS_BY_ID['conditional-absent']
 
@@ -585,7 +727,7 @@ function assertRowLayout(stdout: Buffer, expectedRows: number, label: string): v
 describe.skipIf(!(BASH.ok && PS1.ok))(
   '多列真執行場景（T3.3；三列 config 非末列 row runtime 全滅／全列全滅退單一 reset）',
   () => {
-    const input = { data: CONDITIONAL_ABSENT.data, shell: CONDITIONAL_ABSENT.shell, env: CONDITIONAL_ABSENT.env }
+    const input = { data: CONDITIONAL_ABSENT.data, shell: CONDITIONAL_ABSENT.shell, env: CONDITIONAL_ABSENT.env, now: CONDITIONAL_ABSENT.now }
     const stdin = JSON.stringify(CONDITIONAL_ABSENT.data)
 
     it('plain 三列：row 1（非末列，session-name＋effort）runtime 全滅 → 存活 2 列（row 0／row 2），LF 數正確、無空行', () => {
@@ -651,10 +793,167 @@ describe.skipIf(!(BASH.ok && PS1.ok))(
       expect(b.stdout.toString('utf8'), 'bash 單一 reset 字面').toBe('\x1b[0m')
       expect(p.stdout.toString('utf8'), 'ps1 單一 reset 字面').toBe('\x1b[0m')
     })
+
+    // magi/08-statusline-catalog-expansion T1.3（PLAN §前置加固）：多列 ×
+    // powerline mode × powerlineArrow:false（v2 預設）真執行補位——先前僅
+    // 單列有此 gating 真執行覆蓋（見上方「D1 gating 真執行覆蓋」describe），
+    // 多列版本缺席；契約出處同 06 傘狀 PLAN §D1 gating 條件表。段組合與
+    // multirow-golden-configs.ts 之 multirow-powerline-noarrow 案同構（僅純
+    // emit 黃金比對，未真執行）：三列（row 0/1/2）皆全存活（FULL 情境，非
+    // conditional-absent，本案驗證重點非 row 死亡而是 D1 gating 語意本身）。
+    it('powerline 三列 × powerlineArrow:false（FULL 情境，三列皆全存活）：無箭頭／右 padding／lastArrowCap 無效／跨列獨立，bash/ps1 皆與 oracle byte-exact', () => {
+      const config = cfgT(
+        'powerline',
+        [
+          segT('model', { color: A(93), row: 0 }),
+          segT('cwd', { variant: 'basename', color: A(20), row: 0 }),
+          segT('cost', { color: A(202), row: 1 }),
+          segT('duration', { color: A(82), row: 1 }),
+          segT('context-used', { threshold: TRAFFIC, color: A(240), row: 2 }),
+          segT('rate-5h', { color: A(129), row: 2 }),
+        ],
+        false, // powerlineArrow=false（lastArrowCap 預設 true 但無效——D1 gating）
+      )
+      const fullInput = { data: FULL.data, shell: FULL.shell, env: FULL.env, now: FULL.now }
+      const fullStdin = JSON.stringify(FULL.data)
+      const o = Buffer.from(toAnsi(resolve(config, fullInput)), 'utf8')
+      assertRowLayout(o, 3, 'oracle 前置自檢')
+      // 前置自檢：無箭頭字面（段間僅 reset+色碼交接，無 powerline 箭頭
+      // glyph）＋每段 value 後右 padding 一空格＋列間單一 LF、無跨列殘留。
+      expect(strip(o), '前置自檢：oracle 顯示（無箭頭、右 padding）').toBe(
+        'Fable 5 eztools \n$3.3341 1h23m \n42% 63% ',
+      )
+
+      const b = runBash(emitBash(config, CATALOG), fullStdin)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), fullStdin)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      assertRowLayout(b.stdout, 3, 'bash')
+      assertRowLayout(p.stdout, 3, 'ps1')
+    })
   },
 )
 
-// ── 6. skipIf meta（CI 設定不變量；PLAN §CI 拓撲） ──
+// ── 6. T4.6 整合收攏案（08-PLAN Rev 4 §5／TASKS.md T4.6）──
+// (a) bar×倒數×auto 同列：置於雙列 config（row 0＝三特徵同列、row 1＝
+//     對照段），驗證「同列多特徵共存」於多列語意（分隔符／箭頭不跨列）下
+//     仍成立；倒數段需 STATUSLINE_NOW_EPOCH 顯式釘 now 對齊 oracle
+//     （FULL scenario：model.id='claude-fable-5'→auto 214、
+//     context_window.used_percentage=42.5→bar 填 8 格・桶索引 4（190）、
+//     five_hour.resets_at=now+7200s→"↺ 2h (HH:MM)"）。
+// (b) auto×powerline（arrow／noarrow 兩形）：sp4/REPORT.md verify.mjs
+//     案 10/11 已驗證 auto 展開色參與 powerline 併元素／autoFg 對比的
+//     位元組配方；既有 emit-bash.test.ts／emit-ps1.test.ts 的 auto 組合
+//     案恆為 arrow=true（cfgT 預設 `powerlineArrow: mode==='powerline'`
+//     無 override），從未真執行覆蓋 arrow=false——本節補齊。
+
+const AUTO_BAR_RESET_ROW: SegmentConfig[] = [
+  segT('model', { color: { kind: 'auto' } }),
+  segT('context-used', { prefix: 'ctx', bar: true, threshold: TRAFFIC, color: A(240) }),
+  segT('reset-5h', { color: A(99) }),
+]
+
+describe.skipIf(!(BASH.ok && PS1.ok))(
+  'T4.6 整合案：bar×倒數×auto 同列（雙列 config，row 0 三特徵同列）',
+  () => {
+    it('plain：row 0＝model(auto)+context-used(bar,threshold)+reset-5h(倒數)、row 1＝cost，byte-exact', () => {
+      const config = cfgT('plain', [
+        ...AUTO_BAR_RESET_ROW.map((s) => ({ ...s, row: 0 })),
+        segT('cost', { color: A(220), row: 1 }),
+      ])
+      const data = clone(FULL.data)
+      const input = { data, shell: FULL.shell, env: FULL.env, now: FULL.now }
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+      assertRowLayout(o, 2, 'oracle 前置自檢')
+
+      const stdin = JSON.stringify(data)
+      const env = nowEnv(FULL.now)
+      const b = runBash(emitBash(config, CATALOG), stdin, undefined, env)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin, undefined, env)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      assertRowLayout(b.stdout, 2, 'bash')
+      assertRowLayout(p.stdout, 2, 'ps1')
+    })
+
+    it('powerline（arrow=true, cap=true）：row 0＝同三特徵同列、row 1＝duration，byte-exact', () => {
+      const config = cfgT(
+        'powerline',
+        [
+          ...AUTO_BAR_RESET_ROW.map((s) => ({ ...s, row: 0 })),
+          segT('duration', { color: A(46), row: 1 }),
+        ],
+        true,
+      )
+      const data = clone(FULL.data)
+      const input = { data, shell: FULL.shell, env: FULL.env, now: FULL.now }
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+      assertRowLayout(o, 2, 'oracle 前置自檢')
+
+      const stdin = JSON.stringify(data)
+      const env = nowEnv(FULL.now)
+      const b = runBash(emitBash(config, CATALOG), stdin, undefined, env)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin, undefined, env)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      assertRowLayout(b.stdout, 2, 'bash')
+      assertRowLayout(p.stdout, 2, 'ps1')
+    })
+  },
+)
+
+describe.skipIf(!(BASH.ok && PS1.ok))(
+  'T4.6 整合案：auto × powerline（arrow／noarrow 兩形；sp4 已驗配方）',
+  () => {
+    it('arrow=true：model(explicit A226)→effort(auto) 箭頭交接，byte-exact', () => {
+      const config = cfgT(
+        'powerline',
+        [segT('model', { color: A(226) }), segT('effort', { color: { kind: 'auto' } })],
+        true,
+      )
+      const data = clone(FULL.data) // effort.level='high' → auto 索引 4
+      const input = { data, shell: FULL.shell, env: FULL.env, now: FULL.now }
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+
+      const stdin = JSON.stringify(data)
+      const b = runBash(emitBash(config, CATALOG), stdin)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    })
+
+    it('arrow=false（noarrow）：effort(auto)+model(explicit A226)，右 padding＋auto byte-exact', () => {
+      const config = cfgT(
+        'powerline',
+        [segT('effort', { color: { kind: 'auto' } }), segT('model', { color: A(226) })],
+        false,
+      )
+      const data = clone(FULL.data) // effort.level='high' → auto 索引 4
+      const input = { data, shell: FULL.shell, env: FULL.env, now: FULL.now }
+      const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+      // 前置自檢：無箭頭字面（powerlineArrow:false）。
+      expect(o.toString('utf8')).not.toContain(POWERLINE_ARROW)
+
+      const stdin = JSON.stringify(data)
+      const b = runBash(emitBash(config, CATALOG), stdin)
+      const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin)
+      expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+      expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+      expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+      expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+    })
+  },
+)
+
+// ── 7. skipIf meta（CI 設定不變量；PLAN §CI 拓撲） ──
 
 describe('skipIf meta（每後端至少一 leg 未 skip；present 卻 skip＝bug）', () => {
   it('環境自述（各後端 enable／reason）', () => {

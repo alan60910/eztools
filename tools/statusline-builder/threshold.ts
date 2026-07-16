@@ -46,14 +46,22 @@ export function bucketIndex(p: number): number {
 // 路徑；11–12 點的完整路徑砍至 10 點時捨去點已註明。
 
 /** 模板 id 聯合型別。 */
-export type ThresholdTemplateId = 'traffic' | 'traffic-inv' | 'cool-warm' | 'mono-fade'
+export type ThresholdTemplateId =
+  | 'traffic'
+  | 'traffic-inv'
+  | 'cool-warm'
+  | 'mono-fade'
+  | 'limit-gradient'
+  | 'remaining-gradient'
 
-/** 模板 id 一覽（UI select 選項序）。 */
+/** 模板 id 一覽（UI select 選項序；08 T3.5：新兩套尾插，既有 4 套順序不動）。 */
 export const THRESHOLD_TEMPLATE_IDS: readonly ThresholdTemplateId[] = Object.freeze([
   'traffic',
   'traffic-inv',
   'cool-warm',
   'mono-fade',
+  'limit-gradient',
+  'remaining-gradient',
 ])
 
 /** 恰 10 個 ansi256 索引（型別級長度檢查）。 */
@@ -91,6 +99,23 @@ const COOL_WARM: BucketIndices10 = [21, 57, 93, 129, 165, 200, 199, 198, 197, 19
  */
 const MONO_FADE: BucketIndices10 = [232, 235, 237, 240, 242, 245, 247, 250, 252, 255]
 
+// ── 08-statusline-catalog-expansion T3.5：limit-gradient／remaining-gradient
+// （出處 magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3 round 2 修訂）──
+
+/**
+ * limit-gradient（低好高壞，用量類段如 context-used；PLAN Rev 4 §3）：
+ * 走法：0–49% 灰階等距取樣 244→250（5 桶：244/246/247/249/250），
+ * 50–79% 綠三桶同色（34），80–89% 黃（220），90–100% 紅（196）；
+ * 綠黃紅取色立方（round 2 修訂），對齊既有 4 套模板「只用色立方／
+ * 灰階、避開可被主題覆寫的 0–15」值域慣例。
+ * hex：#808080 #949494 #9e9e9e #b2b2b2 #bcbcbc #00af00 #00af00
+ *      #00af00 #ffd700 #ff0000
+ */
+const LIMIT_GRADIENT: BucketIndices10 = [244, 246, 247, 249, 250, 34, 34, 34, 220, 196]
+
+/** remaining-gradient（低壞高好，剩餘類段如 context-remaining）＝limit-gradient 逆序。 */
+const REMAINING_GRADIENT: BucketIndices10 = [196, 220, 34, 34, 34, 250, 249, 247, 246, 244]
+
 function frozenAnsiBuckets(indices: BucketIndices10): ThresholdBuckets {
   const buckets = indices.map((index) => Object.freeze({ kind: 'ansi256', index } as const))
   return Object.freeze(buckets) as unknown as ThresholdBuckets
@@ -106,6 +131,8 @@ export const THRESHOLD_TEMPLATES: Readonly<Record<ThresholdTemplateId, Threshold
     'traffic-inv': Object.freeze({ buckets: frozenAnsiBuckets(TRAFFIC_INV) }),
     'cool-warm': Object.freeze({ buckets: frozenAnsiBuckets(COOL_WARM) }),
     'mono-fade': Object.freeze({ buckets: frozenAnsiBuckets(MONO_FADE) }),
+    'limit-gradient': Object.freeze({ buckets: frozenAnsiBuckets(LIMIT_GRADIENT) }),
+    'remaining-gradient': Object.freeze({ buckets: frozenAnsiBuckets(REMAINING_GRADIENT) }),
   })
 
 /**

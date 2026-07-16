@@ -21,6 +21,13 @@
  * - `env`：格式化環境通道（tilde 縮寫的 home——bash `$HOME`／ps1
  *   `$env:USERPROFILE` 的 mock 對應）。
  *
+ * ── T4.5（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3）──
+ * 情境增固定 `now` 欄（決定論 mock 時鐘；消費屬 T4.1），`resets_at`
+ * 改以 now 相對式表述（絕對值維持不變，見下方 *_NOW 註解）；
+ * `current_usage` 各情境補 cache 兩欄——full 四欄齊備（cache-hit 存活）、
+ * conditional-absent 四欄全 0（除零 → 0）、windows-cjk cache_read null
+ * （partial-null 代表點 → null）、early-null 整包 null 如故。
+ *
  * ── 欄位多樣性不變量（D1）──
  * 每個 descriptor 的來源欄位在本情境集中：值至少兩相異、且至少一情境
  * 非 null——使 §3 真執行對每條 jqPath/ps1Path 可觀測（打錯 path 不得
@@ -56,6 +63,13 @@ export interface MockScenario {
   note: string
   /** provisional 體制：F1 轉述 schema 派生、未經真機 fixture 驗證。 */
   provisional: true
+  /**
+   * T4.5（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3）：情境
+   * 固定「現在」（epoch 秒）——預覽倒數／過期判定的決定論 mock 時鐘
+   * （resolve／expiresAtPath 消費屬 T4.1，本欄先落資料層）。情境內
+   * `resets_at` 一律以本欄相對值表述（now+Δ）→ 相對倒數決定論、永不過期。
+   */
+  now: number
   /** 真 stdin JSON 的 1:1 形（JSON.stringify 直餵腳本 stdin）。 */
   data: StatusData
   shell: MockShellChannel
@@ -74,12 +88,24 @@ function deepFreeze<T>(v: T): T {
   return v
 }
 
+// ── 情境固定 now（T4.5，08-PLAN Rev 4 §3） ──
+// 各情境自帶決定論 epoch「現在」；resets_at 改以 now 相對式表述（now+Δ）。
+// 值的挑選：full／windows-cjk 的 five_hour.resets_at 維持原絕對字面
+// （1783497600／1783501200＝各自 now+2h）不變——消費端註解
+// （pipeline.integration.test.ts、emit-bash.test.ts）引用該字面值，且
+// oracle 同機現算下值保持可免既有 byte-exact 案任何位移。
+const FULL_NOW = 1783490400 // 2026-07-08T06:00:00Z
+const EARLY_NOW = 1783468800 // 2026-07-08T00:00:00Z
+const COND_NOW = 1783512000 // 2026-07-08T12:00:00Z
+const WIN_NOW = 1783494000 // 2026-07-08T07:00:00Z
+
 const MOCK_SCENARIO_LIST: MockScenario[] = [
   {
     id: 'full',
     label: '滿血（全欄位齊備）',
-    note: '全 25 段存活：條件欄全在、百分比非 null、rate_limits 雙視窗、git 髒。worktree 名稱段走 git_worktree 優先（top-level worktree 物件並存，供 worktree-branch）。',
+    note: '全 30 段存活：條件欄全在、百分比非 null、rate_limits 雙視窗、current_usage 四欄齊備（cache-hit 有值）、git 髒。worktree 名稱段走 git_worktree 優先（top-level worktree 物件並存，供 worktree-branch）。',
     provisional: true,
+    now: FULL_NOW,
     data: {
       cwd: '/home/alan/projects/eztools',
       session_id: 'sess-full-0001',
@@ -107,8 +133,14 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
         context_window_size: 200000,
         used_percentage: 42.5,
         remaining_percentage: 57.5,
-        // 形狀未經真檔驗證（CurrentUsage＝Record<string, unknown>）。
-        current_usage: { input_tokens: 52341, output_tokens: 8123 },
+        // T4.5（08-PLAN Rev 4 §3）：cache 兩欄補齊——四欄皆非 null，
+        // cache-hit 存活：floor(45000*100/(52341+2659+45000))＝45。
+        current_usage: {
+          input_tokens: 52341,
+          output_tokens: 8123,
+          cache_creation_input_tokens: 2659,
+          cache_read_input_tokens: 45000,
+        },
       },
       exceeds_200k_tokens: false,
       thinking: { enabled: true },
@@ -123,8 +155,10 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
         review_state: 'APPROVED',
       },
       rate_limits: {
-        five_hour: { used_percentage: 63.2, resets_at: 1783497600 },
-        seven_day: { used_percentage: 21, resets_at: 1783900800 },
+        // T4.5：resets_at＝now 相對式；絕對值不變（five_hour＝1783497600、
+        // seven_day＝1783900800，見上方 FULL_NOW 註解）。
+        five_hour: { used_percentage: 63.2, resets_at: FULL_NOW + 2 * 3600 },
+        seven_day: { used_percentage: 21, resets_at: FULL_NOW + (4 * 24 + 18) * 3600 },
       },
       // SP-0 L22：worktree 物件與 workspace.git_worktree 並存（名稱同值；
       // 此段另供 branch）；名稱段仍走 git_worktree 優先路徑。
@@ -144,6 +178,7 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
     label: 'session 早期（可 null 欄全 null）',
     note: '首次 API 回應前：used/remaining/current_usage 為 null（dash 段顯 "--"）、rate_limits 未出現、條件欄全缺、cost 全零。',
     provisional: true,
+    now: EARLY_NOW,
     data: {
       cwd: '/home/alan',
       session_id: 'sess-early-0002',
@@ -180,8 +215,9 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
   {
     id: 'conditional-absent',
     label: '條件欄位全缺席',
-    note: '條件 7 段全剔（鍵缺席）＋非 git 目錄（git-branch ""／git-dirty false）；百分比取 9.99/90.01 邊界值；current_dir 刻意 ≠ cwd。',
+    note: '條件段全剔（鍵缺席）＋非 git 目錄（git-branch ""／git-dirty false）；百分比取 9.99/90.01 邊界值；current_usage 四欄全 0（cache-hit 除零守門 → 0）；current_dir 刻意 ≠ cwd。',
     provisional: true,
+    now: COND_NOW,
     data: {
       cwd: '/tmp/demo-project',
       session_id: 'sess-cond-0003',
@@ -207,7 +243,14 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
         context_window_size: 200000,
         used_percentage: 9.99,
         remaining_percentage: 90.01,
-        current_usage: null,
+        // T4.5（08-PLAN Rev 4 §3）：「四欄全 0」除零情境資料點——cache-hit
+        // 公式分母 0 → 0（非 null）；token-in/out 顯 0（dash 政策下存活）。
+        current_usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
       },
       exceeds_200k_tokens: false,
       thinking: { enabled: false },
@@ -218,8 +261,9 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
   {
     id: 'windows-cjk',
     label: 'Windows 長路徑＋CJK',
-    note: '反斜線長路徑＋CJK 值（路徑／repo／agent／worktree 名稱＋分支）；worktree 名稱段走 top-level worktree.name fallback、worktree-branch 取 worktree.branch（CJK）；seven_day.resets_at null；exceeds_200k true。',
+    note: '反斜線長路徑＋CJK 值（路徑／repo／agent／worktree 名稱＋分支）；worktree 名稱段走 top-level worktree.name fallback、worktree-branch 取 worktree.branch（CJK）；seven_day.resets_at null；cache_read null（partial-null 代表點 → cache-hit "--"）；exceeds_200k true。',
     provisional: true,
+    now: WIN_NOW,
     data: {
       cwd: 'D:\\個人檔案\\專案\\極長路徑測試\\由多層目錄組成用來檢驗預覽與 basename 邏輯\\eztools 工作區',
       session_id: 'sess-win-0004',
@@ -247,7 +291,15 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
         context_window_size: 1000000,
         used_percentage: 87.3,
         remaining_percentage: 12.7,
-        current_usage: { input_tokens: 998000, output_tokens: 152000 },
+        // T4.5（08-PLAN Rev 4 §3）：partial-null 代表點——cache_read 為
+        // null（欄位在、值 null）→ cache-hit 公式回 null（dash '--'）；
+        // 矩陣其餘 null／缺席組合為 test-only 資料（mock-data.test.ts）。
+        current_usage: {
+          input_tokens: 998000,
+          output_tokens: 152000,
+          cache_creation_input_tokens: 240000,
+          cache_read_input_tokens: null,
+        },
       },
       exceeds_200k_tokens: true,
       thinking: { enabled: true },
@@ -262,7 +314,9 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
         review_state: 'CHANGES_REQUESTED',
       },
       rate_limits: {
-        five_hour: { used_percentage: 12.07, resets_at: 1783501200 },
+        // T4.5：five_hour resets_at＝now+2h（絕對值 1783501200 不變）；
+        // seven_day 維持「視窗在、resets_at null」的後綴剔除情境。
+        five_hour: { used_percentage: 12.07, resets_at: WIN_NOW + 2 * 3600 },
         seven_day: { used_percentage: 88.8, resets_at: null },
       },
       worktree: { name: 'hotfix-字型', branch: '分支-字型修正' },

@@ -63,6 +63,12 @@ export interface MultirowGoldenCase {
  * powerline（含 arrow gating true）各一——與原 `MULTIROW_CASES`（bash）
  * ／`CANONICAL_CONFIGS` multirow 兩案（ps1）逐欄比對後確認等價，逐字
  * 移植於此。
+ *
+ * 第三案 `multirow-powerline-noarrow`（magi/08-statusline-catalog-expansion
+ * T1.3；PLAN §前置加固補位）：多列 × powerline mode × `powerlineArrow:
+ * false`（v2 預設）組合——先前僅單列（powerline-noarrow，
+ * scripts/statusline-golden-configs.ts）有此 gating 真執行覆蓋，多列版本
+ * 缺席，見該案自身註解之驗證重點列舉。
  */
 export const MULTIROW_GOLDEN_CASES: readonly MultirowGoldenCase[] = [
   {
@@ -98,6 +104,43 @@ export const MULTIROW_GOLDEN_CASES: readonly MultirowGoldenCase[] = [
         seg('duration', { color: A(46), row: 1 }),
         seg('context-used', { threshold: TRAFFIC, color: A(240), row: 2 }),
         seg('rate-5h', { color: A(99), row: 2 }),
+      ],
+    }),
+  },
+  {
+    name: 'multirow-powerline-noarrow',
+    // 多列 × powerline mode × powerlineArrow:false（v2 預設模式；magi/08
+    // PLAN §前置加固；契約出處同 06 傘狀 PLAN §D1 gating 條件表——本案為
+    // 該表「多列」列的補位，先前僅單列有 powerline-noarrow 真執行覆蓋，見
+    // scripts/statusline-golden-configs.ts 與 pipeline.integration.test.ts
+    // 既有「D1 gating 真執行覆蓋」單列案）。cfg('powerline') helper 預設
+    // `powerlineArrow: mode==='powerline'`＝true，此處**顯式 override 為
+    // false**（不可省略，否則退化為與 multirow-powerline 案同義）。驗證
+    // 重點（四項，皆列內獨立，row 0/1/2 各自成立）：
+    //   1. 無箭頭——powerlineArrow:false 時段間交接不 emit ARROW（bash 側
+    //      甚至不宣告 ARROW 變數；ps1 側恆不寫箭頭字面），對照
+    //      multirow-powerline 案逐段皆有交接箭頭。
+    //   2. lastArrowCap 無效——lastArrowCap:true 顯式設但 powerlineArrow:
+    //      false 時收尾箭頭區塊恆不 emit（cap 值本身不影響輸出，證兩欄
+    //      正交、cap 非獨立生效條件）。
+    //   3. 右 padding——每段 value 後補一空格（`head + value + ' '`），非
+    //      交接箭頭產生的視覺留白；bash/ps1 兩後端 texts 陣列元素皆帶尾隨
+    //      空格。
+    //   4. 跨列獨立——row 0/1/2 各自套用上述語意，互不影響（分隔符與
+    //      padding 不跨列）。
+    // 段選擇比照 multirow-powerline 案（model/cwd/cost/duration/
+    // context-used(threshold)/rate-5h），配色微調以資區辨（非既有案的複製
+    // 貼上巧合）。
+    config: cfg('powerline', {
+      powerlineArrow: false,
+      lastArrowCap: true,
+      segments: [
+        seg('model', { color: A(93), row: 0 }),
+        seg('cwd', { variant: 'basename', color: A(20), row: 0 }),
+        seg('cost', { color: A(202), row: 1 }),
+        seg('duration', { color: A(82), row: 1 }),
+        seg('context-used', { threshold: TRAFFIC, color: A(240), row: 2 }),
+        seg('rate-5h', { color: A(129), row: 2 }),
       ],
     }),
   },

@@ -39,8 +39,12 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   位於 `tools/video-converter/`
 - Claude Code statusline 產生器 — segment 目錄（tri-path 描述子）／閾值變色／
   執行期 join／三後端產生器（bash／ps1／settings.json 片段）＋emit-ansi oracle，
-  零 runtime 依賴；圖示改為通用 emoji（不再簽入任何字型資產，預覽以系統
-  monospace＋原生 emoji 渲染）；powerline 段間箭頭（``）由 config schema
+  零 runtime 依賴；圖示改為英文短 token 前綴（07 M1.5 裁決，推翻 emoji
+  定案）；30 段目錄（tokens 三段＋雙倒數）、百分比段 bar 正交欄（靜態
+  4-run、null 退單 run）、model/effort auto 配色（resolve 期展開為具體
+  ColorSpec、比對 model.id）、閾值雙模板、`STATUSLINE_NOW_EPOCH` 注入；
+  config 相容性：auto／bar 為 v2 內選填擴充，舊碼讀取為有損降級、不
+  bump；powerline 段間箭頭（``）由 config schema
   `powerlineArrow` 欄位條件化，新建 config 預設關閉（色塊直接相接＋每段
   右側 padding），既有 v1 存檔依原 `mode` 自動遷移續用箭頭觀感；**多列
   輸出**：`SegmentConfig.row?: number`（選填、缺欄視同 0，CONFIG_VERSION
@@ -123,7 +127,9 @@ video-converter 之「上線」宣告以 GPL 授權聲明落地（README License
 sprint 06a（statusline-builder UI refresh 第一段）已交付：segment 圖示
 全面改為通用 emoji（不再要求終端安裝字型，簽入字型資產與其建置工序、
 verify-dist 的字型把關斷言皆已移除，改為「字型資產不得回歸」的負向
-斷言）；powerline 段間箭頭（``）改由 config schema `powerlineArrow`
+斷言；此 emoji 定案已被 07 M1.5 使用者裁決推翻，圖示現改為英文短
+token 前綴，見上方 Components 段與下方 sprint 06c 段）；powerline 段間
+箭頭（``）改由 config schema `powerlineArrow`
 欄位條件化，新建 config 恆預設關閉，config schema 隨之升版至
 CONFIG_VERSION 2（v1→v2 自動遷移，既有 v1 powerline 存檔續用原箭頭
 觀感）；全站（入口頁＋四個工具頁）新增深／淺主題切換（跟隨系統／手動
@@ -140,6 +146,18 @@ sticky），斷點 3→2→1 欄退化；排序語意重構為「依渲染列分
 上／下移＝同列內交換、跨列移動走「顯示於第 N 列」select 與拖曳插入；
 列可暫存為 UI 空列（位置制、可居中間；純顯示態、不入存檔——config
 恆無空列，跨列移動搬空來源列時原地保留為空列）；
-CONFIG_VERSION 維持 2（`row` 為既有版本內選填欄，不 bump）。06c（目錄
-擴充 25→30 段、bar 正交欄、重置倒數、tokens 三段、auto 配色等）待其
-交付時再更新本段。
+CONFIG_VERSION 維持 2（`row` 為既有版本內選填欄，不 bump）。
+
+sprint 06c（statusline-builder 目錄擴充＋前置加固）已交付：目錄
+25→30 段（新增 token-in／token-out／cache-hit／reset-5h／reset-7d，
+icon 沿用英文短 token 前綴體制）；百分比段新增 bar 正交欄
+（`SegmentConfig.bar?: boolean`，靜態 4-run、null 值退化單 run）；
+閾值雙模板（限額漸層／剩餘漸層逆序版，`context-remaining` 預設套
+逆序版）；model／effort auto 配色（`SegmentColor` 新增
+`{ kind: 'auto' }`，resolve 期展開為具體 ColorSpec、比對
+`model.id`）；倒數段三後端實作＋ `now` 注入（`ResolveInput.now`，
+產出腳本可選環境變數 `STATUSLINE_NOW_EPOCH`，缺席回落腳本端真時鐘）；
+前置加固（引擎邊界補測、jsdom UI 回歸網、CDP 整合案重建）；新增
+`scripts/e2e-statusline.mjs`＋`npm run test:e2e`（本機限定，不進
+CI）。CONFIG_VERSION 維持 2（`bar`／`autoColor`／`expiresAtPath` 為
+既有版本內選填擴充，不 bump）。

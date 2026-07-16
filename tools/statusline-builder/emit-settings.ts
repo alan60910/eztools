@@ -11,9 +11,11 @@
  * 路徑由 opts 傳入（UI 提供）；缺省用 DEFAULT_*_SCRIPT_PATH。
  *
  * ── refreshInterval（契約 11；F4 最小 1 秒）──
- * config 含**啟用**之 clock 段、或啟用之 rate 段用 `percent-reset` variant
- * （resets_at 倒數）→ 附 refreshInterval（秒，clock 建議 60）；否則省略。
- * 只計啟用段（停用段不 emit、輸出不隨時間變動、無需刷新）。
+ * config 含**啟用**之 clock 段、啟用之 rate 段用 `percent-reset` variant
+ * （resets_at 倒數）、或啟用之 reset-5h／reset-7d 倒數段（T4.5 補列，
+ * magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §4：倒數段輸出隨
+ * 時間變動，需 statusline 週期刷新）→ 附 refreshInterval（秒，clock 建議
+ * 60）；否則省略。只計啟用段（停用段不 emit、輸出不隨時間變動、無需刷新）。
  *
  * ── hideVimModeIndicator（契約 11）──
  * config 含**啟用**之 vim-mode 段 → 附 `hideVimModeIndicator: true`
@@ -96,9 +98,21 @@ function hasResetsCountdown(config: BuilderConfig): boolean {
   )
 }
 
-/** clock（時鐘）或 resets_at 倒數 → 輸出隨時間變動 → 需 refreshInterval。 */
+/** 啟用之 reset-5h／reset-7d 獨立倒數段（08-PLAN Rev 4 §4 補列）。 */
+function hasResetCountdownSegment(config: BuilderConfig): boolean {
+  return hasEnabled(config, 'reset-5h') || hasEnabled(config, 'reset-7d')
+}
+
+// M6 C6（magi/08-statusline-catalog-expansion/TASKS.md T6.4；使用者
+// 2026-07-14 拍板契約）：percent-reset 後綴自 C3 起升級為倒數形（隨 now
+// 變動、需週期刷新畫面）。`hasResetsCountdown` 早於 T4.5 已無條件依
+// variant 名判定（不看 resets_at 是否實際存活），故本契約條件已由既有
+// `needsRefreshInterval` 涵蓋——C6 落地時零生產碼變更，僅補 emit-settings.
+// test.ts 正反兩向釘住（見該檔「C6」節）與本節說明作為單一事實來源對帳點。
+
+/** clock（時鐘）、rate 段 resets_at 後綴倒數、或 reset-5h／reset-7d 倒數段 → 輸出隨時間變動 → 需 refreshInterval。 */
 function needsRefreshInterval(config: BuilderConfig): boolean {
-  return hasEnabled(config, 'clock') || hasResetsCountdown(config)
+  return hasEnabled(config, 'clock') || hasResetsCountdown(config) || hasResetCountdownSegment(config)
 }
 
 // ── 主入口 ──

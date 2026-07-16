@@ -15,6 +15,15 @@
  * 真機實測：Claude Code statusline 不接受 emoji，25 段 icon.glyph 改為
  * 英文短 token＋冒號前綴（如 'cwd:'）；推翻 06a emoji 對照表定案。下方
  * icon describe 區塊的對照表斷言隨之改為前綴字面（非 PUA 斷言不受影響）。
+ *
+ * ── T3.2（magi/08-statusline-catalog-expansion/PLAN.md Rev4 §3；
+ * TASKS.md T3.2）追補 ──
+ * 目錄 25→30 段：新增 token-in／token-out／cache-hit／reset-5h／
+ * reset-7d（前綴表核可見 prefix-table.md「06c 新 5 段增列」節）。目錄級
+ * 斷言（段數／category 分佈／nullPolicy 對應／icon 對照表）隨之更新；
+ * 新增 cache-hit 公式 partial-null 矩陣（tsPath 層直測）、token-in/out
+ * null 穿透、autoColor／expiresAtPath 新通道欄位形狀斷言，見下方對應
+ * describe 區塊。
  */
 import { describe, expect, it } from 'vitest'
 import { defaultConfig, deserializeConfig, serializeConfig } from './config.js'
@@ -34,10 +43,10 @@ import {
   formatValue,
   isValueDead,
   RATE_VARIANTS,
-  resetsAtSuffix,
   SEGMENT_CATALOG,
   SEGMENT_DESCRIPTORS,
   SEGMENT_IDS,
+  type CurrentUsage,
   type SegmentId,
   type StatusData,
 } from './segments.js'
@@ -82,29 +91,30 @@ const tsValue = (id: SegmentId, d: StatusData): unknown => DESCRIPTORS_BY_ID[id]
 // ── 目錄結構不變量 ──
 
 describe('segment 目錄結構', () => {
-  it('25 段、順序＝PLAN 目錄表序（永在 10→百分比 4→條件 8→shell-out 3）', () => {
+  it('30 段、順序＝PLAN 目錄表序（永在 12→百分比 5→條件 10→shell-out 3）', () => {
     expect(SEGMENT_IDS).toEqual([
       'model', 'cwd', 'project-dir', 'output-style', 'version',
       'cost', 'duration', 'lines-changed', 'context-size', 'thinking',
-      'context-used', 'context-remaining', 'rate-5h', 'rate-7d',
+      'token-in', 'token-out',
+      'context-used', 'context-remaining', 'rate-5h', 'rate-7d', 'cache-hit',
       'session-name', 'effort', 'vim-mode', 'agent-name', 'pr', 'repo',
-      'worktree', 'worktree-branch',
+      'worktree', 'worktree-branch', 'reset-5h', 'reset-7d',
       'git-branch', 'git-dirty', 'clock',
     ])
   })
 
-  it('category 分佈：always×10／percentage×4／conditional×8／shell-out×3，且同類連續', () => {
+  it('category 分佈：always×12／percentage×5／conditional×10／shell-out×3，且同類連續', () => {
     const categories = SEGMENT_DESCRIPTORS.map((d) => d.category)
     expect(categories).toEqual([
-      ...Array<string>(10).fill('always'),
-      ...Array<string>(4).fill('percentage'),
-      ...Array<string>(8).fill('conditional'),
+      ...Array<string>(12).fill('always'),
+      ...Array<string>(5).fill('percentage'),
+      ...Array<string>(10).fill('conditional'),
       ...Array<string>(3).fill('shell-out'),
     ])
   })
 
   it('id 唯一且 DESCRIPTORS_BY_ID 與清單一致', () => {
-    expect(new Set(SEGMENT_IDS).size).toBe(25)
+    expect(new Set(SEGMENT_IDS).size).toBe(30)
     for (const descriptor of SEGMENT_DESCRIPTORS) {
       expect(DESCRIPTORS_BY_ID[descriptor.id]).toBe(descriptor)
     }
@@ -154,13 +164,13 @@ describe('icon（T1.5.2 ASCII 前綴化；magi/07-statusline-multirow-layout/pre
     }
   })
 
-  it('25 段 glyph 皆非 PUA（Nerd Font 碼位已全數移除，containsPua 全 false）', () => {
+  it('30 段 glyph 皆非 PUA（Nerd Font 碼位已全數移除，containsPua 全 false）', () => {
     for (const d of SEGMENT_DESCRIPTORS) {
       expect(containsPua(d.icon.glyph), d.id).toBe(false)
     }
   })
 
-  it('25 段逐一對應 T1.5.2 核可前綴對照表（prefix-table.md，字面照抄）', () => {
+  it('30 段逐一對應 T1.5.2／T3.2 核可前綴對照表（prefix-table.md，字面照抄）', () => {
     const expected: Record<SegmentId, string> = {
       model: 'model:',
       cwd: 'cwd:',
@@ -172,10 +182,13 @@ describe('icon（T1.5.2 ASCII 前綴化；magi/07-statusline-multirow-layout/pre
       'lines-changed': 'diff:',
       'context-size': 'ctx:',
       thinking: 'think:',
+      'token-in': 'in:',
+      'token-out': 'out:',
       'context-used': 'used:',
       'context-remaining': 'left:',
       'rate-5h': '5h:',
       'rate-7d': '7d:',
+      'cache-hit': 'cache:',
       'session-name': 'sess:',
       effort: 'eff:',
       'vim-mode': 'vim:',
@@ -184,12 +197,20 @@ describe('icon（T1.5.2 ASCII 前綴化；magi/07-statusline-multirow-layout/pre
       repo: 'repo:',
       worktree: 'wt:',
       'worktree-branch': 'wtbr:',
+      'reset-5h': 'r5h:',
+      'reset-7d': 'r7d:',
       'git-branch': 'git:',
       'git-dirty': 'dirty:',
       clock: 'time:',
     }
     const actual = Object.fromEntries(SEGMENT_DESCRIPTORS.map((d) => [d.id, d.icon.glyph]))
     expect(actual).toEqual(expected)
+  })
+
+  it('30 前綴彼此唯一（prefix-table.md「唯一性檢查」節機械化）', () => {
+    const glyphs = SEGMENT_DESCRIPTORS.map((d) => d.icon.glyph)
+    expect(new Set(glyphs).size).toBe(glyphs.length)
+    expect(glyphs.length).toBe(30)
   })
 })
 
@@ -208,12 +229,18 @@ describe('tri-path idiom 不變量', () => {
     }
   })
 
-  it('worktree 以外的 stdin 段：ps1Path === "$d" + jqPath（機械同構）', () => {
+  it('worktree／cache-hit 以外的 stdin 段：ps1Path === "$d" + jqPath（機械同構）', () => {
+    // cache-hit 例外（T3.2）：公式在取值層完成（CACHE_HIT_JQ_PATH／
+    // CACHE_HIT_PS1_PATH），非單純屬性鏈，形狀不套用本機械同構規則，
+    // 同 worktree 的 fallback 鏈例外（下方獨立測試釘死其字面）。
     for (const d of SEGMENT_DESCRIPTORS) {
-      if (d.category === 'shell-out' || d.id === 'worktree') continue
+      if (d.category === 'shell-out' || d.id === 'worktree' || d.id === 'cache-hit') continue
       expect(d.ps1Path, d.id).toBe(`$d${d.jqPath}`)
       if (d.resetsAt !== undefined) {
         expect(d.resetsAt.ps1Path, `${d.id} resetsAt`).toBe(`$d${d.resetsAt.jqPath}`)
+      }
+      if (d.expiresAtPath !== undefined) {
+        expect(d.expiresAtPath.ps1Path, `${d.id} expiresAtPath`).toBe(`$d${d.expiresAtPath.jqPath}`)
       }
     }
   })
@@ -241,14 +268,45 @@ describe('tri-path idiom 不變量', () => {
     })
   })
 
-  it('resetsAt 僅 rate 兩段有', () => {
+  it('resetsAt 僅 rate 兩段有；countdown 欄目錄驅動（M6 C3，零 id 特判）', () => {
     const withResetsAt = SEGMENT_DESCRIPTORS.filter((d) => d.resetsAt !== undefined).map((d) => d.id)
     expect(withResetsAt).toEqual(['rate-5h', 'rate-7d'])
+    expect(DESCRIPTORS_BY_ID['rate-5h'].resetsAt?.countdown).toBe('reset-countdown-5h')
+    expect(DESCRIPTORS_BY_ID['rate-7d'].resetsAt?.countdown).toBe('reset-countdown-7d')
+  })
+
+  it('T3.2：expiresAtPath 僅 reset 兩段有，三式非空', () => {
+    const withExpiresAt = SEGMENT_DESCRIPTORS.filter((d) => d.expiresAtPath !== undefined).map(
+      (d) => d.id,
+    )
+    expect(withExpiresAt).toEqual(['reset-5h', 'reset-7d'])
+    for (const id of ['reset-5h', 'reset-7d'] as const) {
+      const { expiresAtPath } = DESCRIPTORS_BY_ID[id]
+      expect(expiresAtPath, id).toBeDefined()
+      expect(expiresAtPath!.jqPath.length, id).toBeGreaterThan(0)
+      expect(expiresAtPath!.ps1Path.length, id).toBeGreaterThan(0)
+      expect(typeof expiresAtPath!.tsPath, id).toBe('function')
+    }
+  })
+
+  it('T3.2：autoColor 僅 model／effort 兩段有，形狀正確（model 帶 key、effort 免 key）', () => {
+    const withAutoColor = SEGMENT_DESCRIPTORS.filter((d) => d.autoColor !== undefined).map((d) => d.id)
+    expect(withAutoColor).toEqual(['model', 'effort'])
+
+    const model = DESCRIPTORS_BY_ID['model'].autoColor
+    expect(model?.palette).toBe('model')
+    expect(model?.key?.jqPath).toBe('.model.id')
+    expect(model?.key?.ps1Path).toBe('$d.model.id')
+    expect(model?.key?.tsPath(makeStatusData())).toBe('claude-fable-5')
+
+    const effort = DESCRIPTORS_BY_ID['effort'].autoColor
+    expect(effort?.palette).toBe('effort')
+    expect(effort?.key).toBeUndefined()
   })
 })
 
 describe('nullPolicy 對應（產生器契約 3）', () => {
-  it('全 25 段逐一釘死：percentage=dash、conditional=hide、thinking/clock=empty、git 兩段=hide', () => {
+  it('全 30 段逐一釘死：percentage/token 兩段=dash、conditional=hide、thinking/clock=empty、git 兩段=hide', () => {
     const actual = Object.fromEntries(SEGMENT_DESCRIPTORS.map((d) => [d.id, d.nullPolicy]))
     expect(actual).toEqual({
       model: 'empty',
@@ -261,10 +319,13 @@ describe('nullPolicy 對應（產生器契約 3）', () => {
       'lines-changed': 'empty',
       'context-size': 'empty',
       thinking: 'empty',
+      'token-in': 'dash',
+      'token-out': 'dash',
       'context-used': 'dash',
       'context-remaining': 'dash',
       'rate-5h': 'dash',
       'rate-7d': 'dash',
+      'cache-hit': 'dash',
       'session-name': 'hide',
       effort: 'hide',
       'vim-mode': 'hide',
@@ -273,6 +334,8 @@ describe('nullPolicy 對應（產生器契約 3）', () => {
       repo: 'hide',
       worktree: 'hide',
       'worktree-branch': 'hide',
+      'reset-5h': 'hide',
+      'reset-7d': 'hide',
       'git-branch': 'hide',
       'git-dirty': 'hide',
       clock: 'empty',
@@ -404,6 +467,137 @@ describe('tsPath spot-check', () => {
   })
 })
 
+// ── cache-hit 公式（tsPath 層直測；partial-null 矩陣，T3.2，08-PLAN Rev4 §3） ──
+
+describe('cache-hit 公式（partial-null 矩陣）', () => {
+  const base = makeStatusData()
+  const withUsage = (usage: CurrentUsage | null): StatusData =>
+    makeStatusData({ context_window: { ...base.context_window, current_usage: usage } })
+  /** 三輸入欄齊備的基準值（read=500, in=300, creation=200）；覆寫個別欄位驗證矩陣。 */
+  const usage = (overrides: Partial<CurrentUsage> = {}): CurrentUsage => ({
+    input_tokens: 300,
+    output_tokens: 100,
+    cache_creation_input_tokens: 200,
+    cache_read_input_tokens: 500,
+    ...overrides,
+  })
+
+  it('current_usage 整包 null → null', () => {
+    expect(tsValue('cache-hit', withUsage(null))).toBeNull()
+  })
+
+  it('current_usage 整包缺席（key 不存在，非顯式 null；真 stdin 省略此 key 時的實況）→ null（不 throw）', () => {
+    // 型別上 current_usage 為必填 `CurrentUsage | null`，此處故意繞過型別
+    // 檢查構造「key 缺席」的 StatusData，模擬真 stdin context_window 省略
+    // current_usage 的情境（見檔頭 T3.2 節）。回歸案：頂層守衛須用 `== null`
+    // （涵蓋 undefined），否則會在下方解構賦值處 TypeError。
+    const { current_usage: _omit, ...contextWindowWithoutCurrentUsage } = base.context_window
+    const withoutCurrentUsage = {
+      ...base,
+      context_window: contextWindowWithoutCurrentUsage,
+    } as unknown as StatusData
+    expect(() => tsValue('cache-hit', withoutCurrentUsage)).not.toThrow()
+    expect(tsValue('cache-hit', withoutCurrentUsage)).toBeNull()
+  })
+
+  it('任一輸入欄 null → null：(null,*,*)／(*,null,*)／(*,*,null)／(null,null,null) 四案', () => {
+    expect(tsValue('cache-hit', withUsage(usage({ input_tokens: null })))).toBeNull()
+    expect(tsValue('cache-hit', withUsage(usage({ cache_creation_input_tokens: null })))).toBeNull()
+    expect(tsValue('cache-hit', withUsage(usage({ cache_read_input_tokens: null })))).toBeNull()
+    expect(
+      tsValue(
+        'cache-hit',
+        withUsage(
+          usage({ input_tokens: null, cache_creation_input_tokens: null, cache_read_input_tokens: null }),
+        ),
+      ),
+    ).toBeNull()
+  })
+
+  it('輸入欄選填缺席（非顯式 null，對齊 mock-data.ts 現形）亦視為 null', () => {
+    const partial: CurrentUsage = { input_tokens: 300, output_tokens: 100 }
+    expect(tsValue('cache-hit', withUsage(partial))).toBeNull()
+  })
+
+  it('分母 0（三輸入欄全 0）→ 0', () => {
+    expect(
+      tsValue(
+        'cache-hit',
+        withUsage(usage({ input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 })),
+      ),
+    ).toBe(0)
+  })
+
+  it('正常值案：read=500, in=300, creation=200 → floor(500×100/1000)=50', () => {
+    expect(tsValue('cache-hit', withUsage(usage()))).toBe(50)
+  })
+})
+
+// ── token-in／token-out（T3.2）：null 穿透、正常值直通 ──
+
+describe('token-in／token-out', () => {
+  const base = makeStatusData()
+
+  it('current_usage null → tsPath undefined（isValueDead 視同死值，dash 顯示層一致）', () => {
+    expect(tsValue('token-in', base)).toBeUndefined()
+    expect(tsValue('token-out', base)).toBeUndefined()
+  })
+
+  it('current_usage 在、欄位顯式 null → null', () => {
+    const withNulls = makeStatusData({
+      context_window: {
+        ...base.context_window,
+        current_usage: { input_tokens: null, output_tokens: null },
+      },
+    })
+    expect(tsValue('token-in', withNulls)).toBeNull()
+    expect(tsValue('token-out', withNulls)).toBeNull()
+  })
+
+  it('正常值直通', () => {
+    const withValues = makeStatusData({
+      context_window: {
+        ...base.context_window,
+        current_usage: { input_tokens: 52341, output_tokens: 8123 },
+      },
+    })
+    expect(tsValue('token-in', withValues)).toBe(52341)
+    expect(tsValue('token-out', withValues)).toBe(8123)
+  })
+})
+
+// ── reset-5h／reset-7d（T3.2）：缺席→undefined、null→null、齊備→epoch ──
+
+describe('reset-5h／reset-7d', () => {
+  const base = makeStatusData()
+
+  it('rate_limits 整包缺席 → undefined', () => {
+    expect(tsValue('reset-5h', base)).toBeUndefined()
+    expect(tsValue('reset-7d', base)).toBeUndefined()
+  })
+
+  it('視窗在、resets_at null → null', () => {
+    const partial = makeStatusData({
+      rate_limits: { five_hour: { used_percentage: 10, resets_at: null } },
+    })
+    expect(tsValue('reset-5h', partial)).toBeNull()
+    expect(tsValue('reset-7d', partial)).toBeUndefined()
+  })
+
+  it('齊備 → epoch 值；expiresAtPath 與主值讀同一底層欄位', () => {
+    const rated = makeStatusData({
+      rate_limits: {
+        five_hour: { used_percentage: 63.2, resets_at: 1783497600 },
+        seven_day: { used_percentage: 21, resets_at: 1783900800 },
+      },
+    })
+    expect(tsValue('reset-5h', rated)).toBe(1783497600)
+    expect(tsValue('reset-7d', rated)).toBe(1783900800)
+    expect(DESCRIPTORS_BY_ID['reset-5h'].expiresAtPath!.tsPath(rated)).toBe(1783497600)
+    expect(DESCRIPTORS_BY_ID['reset-7d'].expiresAtPath!.tsPath(rated)).toBe(1783900800)
+  })
+})
+
 // ── 存活語意 ──
 
 describe('isValueDead', () => {
@@ -510,7 +704,10 @@ describe('formatLinesChanged／formatClockHM', () => {
   })
 })
 
-describe('formatResetsAt／resetsAtSuffix', () => {
+// resetsAtSuffix（rate 段 percent-reset 後綴格式化）已於 M6 T6.1 遷至
+// resolve.ts（升級為倒數形需 now；直測見 resolve.test.ts「resetsAtSuffix」
+// describe）——本檔僅保留 formatResetsAt（HH:mm 渲染，clock／resets_at 共用）。
+describe('formatResetsAt', () => {
   /** 以本地時間建 epoch（測試不依賴時區）。 */
   const epochAtLocal = (h: number, m: number): number =>
     new Date(2026, 6, 8, h, m, 0, 0).getTime() / 1000
@@ -518,17 +715,6 @@ describe('formatResetsAt／resetsAtSuffix', () => {
   it('epoch 秒→本地 HH:mm（零填補）', () => {
     expect(formatResetsAt(epochAtLocal(14, 30))).toBe('14:30')
     expect(formatResetsAt(epochAtLocal(0, 5))).toBe('00:05')
-  })
-
-  it('後綴形：null/undefined→無後綴、epoch→" (HH:mm)"', () => {
-    expect(resetsAtSuffix(null)).toBe('')
-    expect(resetsAtSuffix(undefined)).toBe('')
-    expect(resetsAtSuffix(epochAtLocal(9, 5))).toBe(' (09:05)')
-  })
-
-  it('非 number 非 null＝epoch 假設破產→TypeError（SP-0 對帳點）', () => {
-    expect(() => resetsAtSuffix('soon')).toThrow(TypeError)
-    expect(() => resetsAtSuffix(Number.NaN)).toThrow(TypeError)
   })
 })
 
@@ -613,14 +799,28 @@ describe('formatValue（FormatKind 派發）', () => {
 // ── catalog × config integration（真目錄餵清洗） ──
 
 describe('SEGMENT_CATALOG × config.deserializeConfig', () => {
-  it('catalog 注入面形狀：ids＝目錄序全 25、variantsById 僅三鍵', () => {
+  it('catalog 注入面形狀：ids＝目錄序全 30、variantsById 僅三鍵', () => {
     expect(SEGMENT_CATALOG.ids).toEqual(SEGMENT_IDS)
     expect(Object.keys(SEGMENT_CATALOG.variantsById).sort()).toEqual(['cwd', 'rate-5h', 'rate-7d'])
     expect(SEGMENT_CATALOG.variantsById['cwd']).toEqual(CWD_VARIANTS)
     expect(SEGMENT_CATALOG.variantsById['rate-5h']).toEqual(RATE_VARIANTS)
   })
 
-  it('defaultConfig(真 catalog)：25 列目錄序全停用；serialize→deserialize 冪等', () => {
+  // T3.3（magi/08-statusline-catalog-expansion/PLAN.md Rev 4 §3；round 2
+  // 補閉）：barEligibleIds＝category==='percentage' 之段、autoEligibleIds＝
+  // 有 autoColor 欄之段（T3.2 已為 model／effort 掛 autoColor）。清洗消費
+  // （sanitizeSegment 據此執行 bar／auto 限段）屬 T3.4，本測試只驗導出。
+  it('barEligibleIds 恰含 5 個百分比段', () => {
+    expect(new Set(SEGMENT_CATALOG.barEligibleIds)).toEqual(
+      new Set(['context-used', 'context-remaining', 'rate-5h', 'rate-7d', 'cache-hit']),
+    )
+  })
+
+  it('autoEligibleIds 恰含 model／effort（有 autoColor 欄之段）', () => {
+    expect(new Set(SEGMENT_CATALOG.autoEligibleIds)).toEqual(new Set(['model', 'effort']))
+  })
+
+  it('defaultConfig(真 catalog)：30 列目錄序全停用；serialize→deserialize 冪等', () => {
     const config = defaultConfig(SEGMENT_CATALOG)
     expect(config.segments.map((s) => s.id)).toEqual([...SEGMENT_IDS])
     expect(config.segments.every((s) => !s.enabled)).toBe(true)

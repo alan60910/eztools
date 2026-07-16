@@ -239,7 +239,7 @@
         <!--
           T5.9（magi/07-statusline-multirow-layout/PLAN.md §D3-R4
           「transfer-list 互動（灰化留位）」，依賴 T5.8）：四類 landmark
-          （§Segment 目錄：永在10／百分比4／條件8／shell-out3＝25 段
+          （§Segment 目錄：永在12／百分比5／條件10／shell-out3＝30 段
           四類）維持不變；但每 <section> 的 <ol> 內容由「完整控件列」
           改為**輕量常駐項**（catalog.ts buildCatalogGroups 純函式計算
           view-model，main.ts 依 SEGMENT_DESCRIPTORS 目錄定義序 clone
@@ -588,12 +588,22 @@
          移位鈕／色選群組等無可見文字者由 main.ts 設 aria-label 全名。
       5. 依 descriptor 裁剪：無 variants → 移除 .segment-row__variant-field；
          category!=='percentage' → 移除 .segment-row__threshold-mount；
-         plain 模式 → 隱藏 .segment-row__fg-mount（powerline 才顯示）。
+         plain 模式 → 隱藏 .segment-row__fg-mount（powerline 才顯示）；
+         id ∉ SEGMENT_CATALOG.barEligibleIds → 移除 .segment-row__bar-field
+         （見 14.）；id ∉ SEGMENT_CATALOG.autoEligibleIds → 主色 picker 移除
+         「自動配色」radio（見色選範本契約與 6.，T5.2）。
       6. 色選：clone #color-picker-template 進 .segment-row__color-mount
-         （base）與 .segment-row__fg-mount（fg-override）。
+         （base）與 .segment-row__fg-mount（fg-override）。T5.2（08-PLAN
+         §5）：base 色選僅 autoEligibleIds（model／effort）成員段以
+         allowAuto=true 建立（seg.color 可能為 {kind:'auto'}）；
+         fg-override 恆 allowAuto=false（不得出現 auto 態）。
       7. 閾值：category==='percentage' → clone #threshold-editor-template
-         進 .segment-row__threshold-mount。
+         進 .segment-row__threshold-mount（桶色選皆 allowAuto=false）。
       8. variant：有 variants → 以 descriptor.variants 填 <select> options。
+         T5.2：rate-5h／rate-7d 改選 'percent-reset' 時，main.ts
+         commitConfig → checkDuplicateResetHints 判定是否與對映 reset
+         獨立段（reset-5h／reset-7d）同列並開，是則經
+         #global-live-status 播報重複提示（見下方 11. 與 main.ts 文件）。
       9. 啟用態：main.ts 依 seg.enabled 於 <li> 加/移除 .segment-row--enabled
          （CSS 據此展開 .segment-row__controls）——T5.9 起由左欄目錄
          checkbox 的 change handler 觸發，非本列自身控件。
@@ -614,6 +624,8 @@
           computeRowSelectOptionOps 原地更新（枚舉含暫存列，見 T5.9
           頂部「新增一列」按鈕），不重建 select 節點。T5.4 每段獨立
           「新增一列」按鈕（.segment-row__add-row）已於 T5.9 移除。
+          T5.2：改列（本 select／拖曳／上下移鈕）皆經 commitConfig 收斂，
+          亦觸發 checkDuplicateResetHints 重新判定（見 8.）。
       12. T5.11（PLAN §排序與列指派 UX Rev 6「中欄每段『移除』鈕」）：
           .segment-row__remove——與左欄目錄取消走同一路徑
           （main.ts setSegmentEnabled(id, false)）；顯隱同上/下移鈕（僅
@@ -628,6 +640,19 @@
           .segment-row__enable-field 整體 CSS user-select:none 消除段名
           文字選取干擾（.segment-row__controls 內控件不受影響，前綴輸入
           框等仍可選字）。
+      14. T5.1（magi/08-statusline-catalog-expansion/PLAN.md §5）：
+          .segment-row__bar——長條圖正交開關，限 barEligibleIds（見 5.）；
+          checked＝seg.bar===true。切開（false→true）時 main.ts
+          setSegmentBar：`seg.threshold===undefined` → 寫入該段預設模板
+          （context-remaining＝剩餘漸層、其餘百分比段＝限額漸層，見
+          threshold-editor-template 契約）＋同步該段 .threshold__template
+          之 value 為對應模板 id（避免面板顯示「（自訂）」與心智模型脫
+          節）；`seg.threshold` 已有值 → 保留不動。兩情形皆經
+          #global-live-status 播報。關閉（true→false）：threshold 不動
+          （bar 與 threshold 正交）。powerline 模式下 seg.bar===true 之段
+          （resolve.ts 停用 fgOverride 之同一判定範圍——僅該段，非全段）
+          main.ts 停用其 .segment-row__fg-mount 色選＋播報，切回 plain 或
+          該段 bar 關閉時恢復。
     -->
     <template id="segment-row-template">
       <li class="segment-row" data-segment-id="">
@@ -698,6 +723,17 @@
 
           <!-- powerline 前景覆寫（auto-fg override）；plain 模式 CSS 隱藏；main.ts clone 色選進此 -->
           <div class="segment-row__field segment-row__fg-mount" data-color-role="fg-override"></div>
+
+          <!--
+            T5.1（08-PLAN §5）：長條圖（bar）正交開關，限 barEligibleIds
+            （見上方模板契約 5./14.）；非合格段由 main.ts 整組移除。
+          -->
+          <div class="segment-row__field segment-row__bar-field">
+            <label class="inline-choice">
+              <input type="checkbox" class="segment-row__bar" id="__ID__-bar" />
+              <span class="control-name-context sr-only"></span>顯示長條圖
+            </label>
+          </div>
 
           <!-- 百分比段的閾值編輯器掛載點；非百分比段由 main.ts 移除 -->
           <div class="segment-row__threshold-mount" data-threshold-mount></div>
@@ -792,6 +828,12 @@
       - 三態 mode radio（default／ansi256／truecolor）＝終端預設有自身可及
         名稱「終端預設」；選 default 隱藏兩 panel、選 ansi256／truecolor
         顯示對應 panel（hidden 屬性切換即可，非 live region）。
+      - T5.2（08-PLAN §5）：第四態 .color-picker__mode-auto-field（value=
+        "auto"，可及名稱「自動配色」）——僅 autoEligibleIds 成員段的主色
+        picker 保留（main.ts 依 allowAuto 旗標移除非合格 picker 的本節
+        點，見下方 main.ts 生成契約與其自身文件）；選中回呼
+        {kind:'auto'}（SegmentColor 第四態，非 ColorSpec 三態封閉），無
+        對應面板（不著色、不 hidden 切換）。
       - ANSI 面板（pattern B）：main.ts 於 [data-swatch-container] 生成 16
         個基本色 radio（name=__PID__-swatch，accessible name＝color.ts
         ansi256SwatchName(i)＝「ANSI n #hex」，swatch ≥24×24）；spinbutton
@@ -816,6 +858,17 @@
           <label class="inline-choice">
             <input type="radio" name="__PID__-mode" class="color-picker__mode" value="truecolor" />
             自訂顏色
+          </label>
+          <!--
+            T5.2（magi/08-statusline-catalog-expansion/PLAN.md §5「auto 配色
+            選項」）：第四態，恆存在於本範本；main.ts createColorPicker 依
+            呼叫端 allowAuto 旗標決定去留——僅 autoEligibleIds（model／
+            effort）段的主色 picker 保留（其餘 picker，含全部段 fgOverride
+            與閾值桶色選，一律於實例化時移除本節點，見其文件）。
+          -->
+          <label class="inline-choice color-picker__mode-auto-field">
+            <input type="radio" name="__PID__-mode" class="color-picker__mode color-picker__mode--auto" value="auto" />
+            自動配色
           </label>
         </div>
 
@@ -867,9 +920,11 @@
       - disclosure：.threshold__toggle 為 <button aria-expanded>＋
         aria-controls 指向 .threshold__panel；預設收合（aria-expanded
         false、panel hidden），展開才進 tab 序；展開/收合須播報＋焦點管理。
-      - 模板 <select>：選項已列（含「（自訂）」空值＋4 模板）；套用＝批次
-        操作，main.ts 經 #global-live-status 播報「已套用 <模板>，10 段
-        顏色已更新」；套用後逐桶改 → select 回「（自訂）」。
+      - 模板 <select>：選項已列（含「（自訂）」空值＋6 模板，T3.5／T5.1
+        增「限額漸層」／「剩餘漸層」）；套用＝批次操作，main.ts 經
+        #global-live-status 播報「已套用 <模板>，10 段顏色已更新」；套用後
+        逐桶改 → select 回「（自訂）」。長條圖（bar）切開時 main.ts 亦可能
+        程式化套用其一並同步本 select（見 segment-row-template 契約 14.）。
       - 10 桶：main.ts 於 [data-bucket-container] 生成 10 列，每列
         label（文字「0–9%」…「90–100%」，以 .control-name-context 承載
         「<段名> 閾值 」識別前綴）＋ clone #color-picker-template（桶色）。
@@ -894,6 +949,11 @@
               <option value="traffic-inv">反向交通號誌（紅→綠）</option>
               <option value="cool-warm">冷暖（藍→紅）</option>
               <option value="mono-fade">單色漸亮</option>
+              <!-- T3.5／T5.1（magi/08-statusline-catalog-expansion/PLAN.md §3／§5）：
+                   長條圖 bar 切開時的兩套預設模板（main.ts pickDefaultThresholdTemplateId：
+                   context-remaining 用剩餘漸層、其餘百分比段用限額漸層）；亦可手動套用。 -->
+              <option value="limit-gradient">限額漸層（按用量）</option>
+              <option value="remaining-gradient">剩餘漸層（逆序）</option>
             </select>
           </div>
           <!-- main.ts 生成 10 桶（label「0–9%」…「90–100%」＋色選 clone）；初始空 -->

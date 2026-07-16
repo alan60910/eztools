@@ -37,8 +37,10 @@ import {
   defaultConfig,
   deserializeConfig,
   normalizeRows,
+  segmentColorPlaceholder,
   serializeConfig,
   type BuilderConfig,
+  type SegmentColor,
   type SegmentConfig,
   type SeparatorPresetValue,
 } from './config.js'
@@ -125,6 +127,22 @@ const VARIANT_LABELS: Readonly<Record<string, string>> = {
   'percent-reset': '百分比＋重置時間',
 }
 
+/**
+ * 閾值模板 id → 可讀顯示名（T5.1，08-PLAN §5）：與 index.html
+ * threshold-editor-template 內 <option> 文字保持一致（同
+ * VARIANT_LABELS 慣例——main.ts 播報文字需要模板可讀名時查表，不重新
+ * 讀 DOM select 的 option textContent，因 setSegmentBar 觸發時該 select
+ * 可能尚未同步完成）。
+ */
+const THRESHOLD_TEMPLATE_LABELS: Readonly<Record<ThresholdTemplateId, string>> = {
+  traffic: '交通號誌（綠→黃→紅）',
+  'traffic-inv': '反向交通號誌（紅→綠）',
+  'cool-warm': '冷暖（藍→紅）',
+  'mono-fade': '單色漸亮',
+  'limit-gradient': '限額漸層（按用量）',
+  'remaining-gradient': '剩餘漸層（逆序）',
+}
+
 /** 拒收集 R（validate.ts，含 PUA）reason → role=alert 文案。 */
 const REJECT_MESSAGES: Readonly<Record<CustomTextRejectReason, string>> = {
   newline: '不可包含換行字元',
@@ -136,13 +154,23 @@ const REJECT_MESSAGES: Readonly<Record<CustomTextRejectReason, string>> = {
 }
 const PUA_REJECT_MESSAGE = REJECT_MESSAGES.pua
 
-/** 色選三態（對齊 ColorSpec.kind）。 */
-type ColorMode = 'default' | 'ansi256' | 'truecolor'
+/**
+ * 色選態（對齊 ColorSpec.kind，T5.2 追加 'auto' 對齊 SegmentColor 第四態
+ * ——僅 allowAuto=true 的 picker 實例可達此態，見 createColorPicker）。
+ */
+type ColorMode = 'default' | 'ansi256' | 'truecolor' | 'auto'
 
 interface ColorPickerHandle {
   element: HTMLElement
   /** 程式化設值（初始化／閾值模板套用）；**不觸發 onChange**。 */
   setValue(spec: ColorSpec): void
+  /**
+   * T5.1（08-PLAN §5）：整組停用／恢復（`<fieldset disabled>`——原生語意
+   * 連帶停用內部全部 radio／spinbutton／原生 color input，一行覆蓋三態
+   * 全部子控件，無需逐一枚舉）。供 powerline 下 bar 段 fgOverride 停用
+   * 使用（見 syncFgOverrideDisabled）；**不**觸發 onChange。
+   */
+  setDisabled(disabled: boolean): void
 }
 
 // ── 模組狀態 ──
@@ -260,6 +288,30 @@ const rowSelectElements = new Map<string, HTMLSelectElement>()
  * 維持可見）。
  */
 const moveButtonElements = new Map<string, { up: HTMLButtonElement; down: HTMLButtonElement }>()
+
+/**
+ * T5.1（08-PLAN §5）：segment id → 其前景覆寫色選 handle（於 buildSegmentRow
+ * 建立一次，所有段皆有——見 index.html segment-row-template 契約 5.，
+ * fg-mount 對全段存在、僅 CSS 依 mode 顯隱）。供 syncFgOverrideDisabled
+ * 依 `mode==='powerline' && seg.bar===true` 整組停用／恢復（見其文件）。
+ */
+const fgPickerElements = new Map<string, ColorPickerHandle>()
+
+/**
+ * T5.1（08-PLAN §5）：segment id → 其閾值編輯器 handle（僅 category
+ * ==='percentage' 之段建立，見 buildThresholdEditor）。供 setSegmentBar
+ * 於 bar 切開且 `seg.threshold===undefined` 時呼叫 `applyTemplate` 寫入
+ * 預設模板＋同步 templateSelect.value＋10 桶色選（見其文件）。
+ */
+const thresholdEditorElements = new Map<string, ThresholdEditorHandle>()
+
+/**
+ * T5.1（08-PLAN §5）：目前因「powerline 模式＋該段 bar 開啟」而停用中的
+ * fgOverride 色選段 id 集合（syncFgOverrideDisabled 維護）。僅用於偵測
+ * 「本次呼叫新停用」（供播報一次性提示，避免同一狀態重複播報 live
+ * region——SPEC「live region 不得 spam」不變量），非任何渲染依據。
+ */
+const fgOverrideDisabledIds = new Set<string>()
 
 /**
  * T5.3：目前的列群組容器（索引＝渲染列序，0-index、恆連續——由
@@ -437,24 +489,49 @@ function validateUserText(value: string): { ok: true } | { ok: false; message: s
 
 // ── 色選元件（SP-6 pattern B：16 swatch＋0–255 spinbutton＋原生 color） ──
 
-function specToMode(spec: ColorSpec): ColorMode {
+function specToMode(spec: ColorSpec | SegmentColor): ColorMode {
+  if (spec.kind === 'auto') return 'auto'
   return spec.kind === 'default' ? 'default' : spec.kind === 'ansi256' ? 'ansi256' : 'truecolor'
 }
 
+/** createColorPickerCore 內部統一 onChange 型別（涵蓋三態封閉與 auto 第四態兩種呼叫端）。 */
+type ColorPickerOnChange = (spec: ColorSpec | SegmentColor) => void
+
 /**
- * 生成一個色選實例（clone #color-picker-template）。nameContext＝群組可及
- * 名稱（legend），initial＝起始 ColorSpec，onChange＝使用者實際變更時回呼
- * （程式化 setValue 不回呼）。
+ * 色選實例核心建構（clone #color-picker-template）。nameContext＝群組可及
+ * 名稱（legend），initial＝起始色，onChange＝使用者實際變更時回呼（程式化
+ * setValue 不回呼），allowAuto＝是否保留「自動配色」第四態（見下方兩個
+ * 公開包裝函式）。
+ *
+ * T5.2（08-PLAN §5「auto 配色選項（model／effort 段限定 UI）」）：模板內
+ * 第四顆 `.color-picker__mode-auto-field` radio 恆存在於 DOM（見
+ * index.html color-picker-template），`allowAuto` 為假時本函式**移除**
+ * 該節點（比照 variantField／barField 之「非合格整組移除」既有慣例）——
+ * 故 `modeRadios` 查詢結果與 UI 呈現天然一致，非合格段的 UI 完全不出現
+ * 「自動」選項。
+ *
+ * 不直接對外開放本函式：本函式 `onChange` 參數型別統一收最寬的
+ * `ColorPickerOnChange`（`ColorSpec | SegmentColor` 聯集，因 `allowAuto`
+ * 為執行期布林值，TS 無法據其字面值窄化 `currentSpec()` 的靜態回傳型
+ * 別）。改由下方 `createColorPicker`／`createSegmentColorPicker` 兩個
+ * 各自窄化簽章的包裝函式對外開放——「三態封閉」與「auto 第四態」兩種呼叫
+ * 端各自收到型別系統保證正確的 onChange 參數型別，`allowAuto` 引數則由
+ * 包裝函式本身的呼叫固定寫死（非使用者可誤傳的獨立引數），兩者天然同步
+ * 不會契約失準。
  */
-function createColorPicker(
+function createColorPickerCore(
   nameContext: string,
-  initial: ColorSpec,
-  onChange: (spec: ColorSpec) => void,
+  initial: ColorSpec | SegmentColor,
+  onChange: ColorPickerOnChange,
+  allowAuto: boolean,
 ): ColorPickerHandle {
   const pid = `sb-pick-${(pickerCounter += 1)}`
   const root = instantiateTemplate('color-picker-template', '__PID__', pid)
 
   contextSpan(root.querySelector('.color-picker__legend')!).textContent = nameContext
+  // T5.2：非 auto 合格 picker——整組移除「自動」radio 節點，下方 modeRadios
+  // 查詢結果天然不含它，UI 完全不出現此態。
+  if (!allowAuto) root.querySelector('.color-picker__mode-auto-field')?.remove()
 
   const modeRadios = Array.from(root.querySelectorAll<HTMLInputElement>('.color-picker__mode'))
   const ansiPanel = root.querySelector<HTMLElement>('[data-mode-panel="ansi256"]')!
@@ -514,7 +591,8 @@ function createColorPicker(
     updateAnsiUi()
   }
 
-  function currentSpec(): ColorSpec {
+  function currentSpec(): ColorSpec | SegmentColor {
+    if (mode === 'auto') return { kind: 'auto' }
     if (mode === 'ansi256') return { kind: 'ansi256', index: ansiIndex }
     if (mode === 'truecolor') return { kind: 'truecolor', hex }
     return { kind: 'default' }
@@ -581,7 +659,7 @@ function createColorPicker(
     report()
   })
 
-  function setValue(spec: ColorSpec): void {
+  function setValue(spec: ColorSpec | SegmentColor): void {
     if (spec.kind === 'ansi256') ansiIndex = clampAnsi256Index(spec.index)
     if (spec.kind === 'truecolor') {
       hex = spec.hex
@@ -591,18 +669,61 @@ function createColorPicker(
     updateAnsiUi()
   }
 
+  function setDisabled(disabled: boolean): void {
+    ;(root as HTMLFieldSetElement).disabled = disabled
+  }
+
   setValue(initial)
 
-  return { element: root, setValue }
+  return { element: root, setValue, setDisabled }
+}
+
+/**
+ * 三態封閉版本（fgOverride／閾值桶色選使用）：`allowAuto` 恆假、模板第四
+ * 態「自動配色」radio 恆移除——onChange 型別鎖 `ColorSpec`，滿足「fgOverride
+ * picker 不得出現 auto 態」（T5.2）。
+ */
+function createColorPicker(
+  nameContext: string,
+  initial: ColorSpec,
+  onChange: (spec: ColorSpec) => void,
+): ColorPickerHandle {
+  return createColorPickerCore(nameContext, initial, onChange as ColorPickerOnChange, false)
+}
+
+/**
+ * T5.2（08-PLAN §5「auto 配色選項（model／effort 段限定 UI）」）：auto 第
+ * 四態開放版本——僅 `SEGMENT_CATALOG.autoEligibleIds` 成員段的主色 picker
+ * 呼叫（見 buildSegmentRow）。`allowAuto` 恆真、模板第四態「自動配色」
+ * radio 保留；onChange 型別為 `SegmentColor`（多 `{kind:'auto'}`）。
+ */
+function createSegmentColorPicker(
+  nameContext: string,
+  initial: SegmentColor,
+  onChange: (spec: SegmentColor) => void,
+): ColorPickerHandle {
+  return createColorPickerCore(nameContext, initial, onChange as ColorPickerOnChange, true)
 }
 
 // ── 閾值編輯器（disclosure；10 桶各一色選；模板批次套用） ──
+
+interface ThresholdEditorHandle {
+  /**
+   * T5.1（08-PLAN §5）：材料化 `seg.threshold` 為指定模板的 10 桶＋同步
+   * 10 桶色選＋`templateSelect.value` 設為該模板 id（避免面板顯示「（自
+   * 訂）」與心智模型脫節）。供 setSegmentBar 於 bar 切開且
+   * `seg.threshold===undefined` 時呼叫——**不** commitConfig、**不**
+   * announce（呼叫端統一處理，與 templateSelect 自身 change handler 的
+   * 播報文字故意不同，見 setSegmentBar 文件）。
+   */
+  applyTemplate(templateId: ThresholdTemplateId): void
+}
 
 function buildThresholdEditor(
   mount: HTMLElement,
   seg: SegmentConfig,
   descriptor: SegmentDescriptor,
-): void {
+): ThresholdEditorHandle {
   const tid = `sb-th-${(thresholdCounter += 1)}`
   const root = instantiateTemplate('threshold-editor-template', '__TID__', tid)
 
@@ -639,20 +760,27 @@ function buildThresholdEditor(
     bucketHandles.push(handle)
   }
 
+  // T5.1：材料化 buckets（模板套用 change handler 與 setSegmentBar 共用）。
+  function applyTemplate(templateId: ThresholdTemplateId): void {
+    const template = THRESHOLD_TEMPLATES[templateId]
+    const buckets = [...template.buckets] as ColorSpec[]
+    seg.threshold = { buckets: buckets as unknown as ThresholdBuckets }
+    for (let i = 0; i < THRESHOLD_BUCKET_COUNT; i++) bucketHandles[i].setValue(buckets[i])
+    templateSelect.value = templateId
+  }
+
   // 模板套用＝批次寫 10 桶＋更新 10 色選＋常駐 live region 播報。
   templateSelect.addEventListener('change', () => {
     const value = templateSelect.value
     if (value === '') return // 「（自訂）」為狀態標記、非動作。
-    const template = THRESHOLD_TEMPLATES[value as ThresholdTemplateId]
-    const buckets = [...template.buckets] as ColorSpec[]
-    seg.threshold = { buckets: buckets as unknown as ThresholdBuckets }
-    for (let i = 0; i < THRESHOLD_BUCKET_COUNT; i++) bucketHandles[i].setValue(buckets[i])
+    applyTemplate(value as ThresholdTemplateId)
     const label = templateSelect.options[templateSelect.selectedIndex]?.textContent ?? value
     announceGlobal(`已套用${label}，10 段顏色已更新`)
     commitConfig()
   })
 
   mount.appendChild(root)
+  return { applyTemplate }
 }
 
 /** 逐桶寫入（材料化 threshold 為恰 10 桶不可變 tuple）。 */
@@ -756,8 +884,9 @@ function syncSegmentEnabledUi(id: string, enabled: boolean): void {
  * 「正確性關鍵」註解——既有控件閉包握著同一物件參照）；啟用時比照原邏輯
  * 先套用 clampReenableRow（見其文件，須在 commitConfig 的 normalizeRows
  * 升冪壓縮介入前完成）；接著呼叫 syncSegmentEnabledUi 原地同步視覺；
- * 最後 commitConfig 並顯式回焦左欄 checkbox（連續勾選 N 段時焦點不跳失
- * ——PLAN 驗收語意）。
+ * commitConfig 之後再呼叫 syncFgOverrideDisabled（棄用回傳值、不播報，
+ * 見其呼叫處註解「I4b 回歸修復」）收斂 fgOverride picker 停用態；最後
+ * 顯式回焦左欄 checkbox（連續勾選 N 段時焦點不跳失——PLAN 驗收語意）。
  *
  * T5.11（PLAN §排序與列指派 UX Rev 6「中欄每段『移除』鈕」）：移除鈕
  * （removeSegment）與左欄目錄取消勾選走**同一路徑**——皆呼叫本函式
@@ -809,6 +938,18 @@ function setSegmentEnabled(id: string, enabled: boolean, preventScroll = false):
   syncSegmentEnabledUi(id, enabled)
 
   commitConfig()
+  // I4b 回歸修復（協調者續 T7.4，2026-07-15）：syncFgOverrideDisabled 的
+  // shouldDisable 判定式（I4 修復新增）現依賴 seg.enabled，但本函式從未
+  // 呼叫過它——導致 powerline 下「停用一個開了 bar 的百分比段→再重新
+  // 啟用」時，其 fgOverride picker 停在停用當下同步的 disabled=false
+  // 過期狀態，直到下次使用者切 bar／mode 才會收斂，UI 顯示（可互動）與
+  // 實質（resolve 對 bar 段本就忽略 fgOverride）不一致。此處補一次呼叫
+  // 使其隨每次啟停即時收斂。純 UI 附帶收斂、非本次啟停操作的播報主體，
+  // 故顯式棄用回傳值——不 announceGlobal（比照 syncGlobalControls 呼叫
+  // applyModeConstraints 棄用回傳值的既有慣例／I5 duplicateResetPairIds
+  // 的「seed 不播」精神），避免蓋掉或多播一句與「啟停」本身無關的訊息
+  // （announceGlobal 為單一 live region、後寫覆寫前寫，見其文件）。
+  syncFgOverrideDisabled()
   catalogCheckboxElements.get(id)?.focus(preventScroll ? { preventScroll: true } : undefined)
 }
 
@@ -828,6 +969,121 @@ function removeSegment(id: string, preventScroll: boolean): void {
   const descriptor = DESCRIPTORS_BY_ID[id as SegmentId]
   setSegmentEnabled(id, false, preventScroll)
   announceMove(`${descriptor.label} 已從清單移除`)
+}
+
+// ── 長條圖（bar）正交開關（T5.1，08-PLAN §5） ──
+
+/**
+ * bar 切開（false→true）且 `seg.threshold===undefined` 時的預設模板判定
+ * （PLAN §In-scope line 62-63 釘死，不可更動）：`context-remaining`（剩餘
+ * 類，數值越高越好）用逆序版「剩餘漸層」；其餘百分比段（用量類，數值越
+ * 高越壞）一律用「限額漸層」。純函式、零 DOM——與 hasNoBoundaryRisk 同
+ * 慣例（main.ts 內既有純函式先例，見其文件）。
+ */
+function pickDefaultThresholdTemplateId(id: string): ThresholdTemplateId {
+  return id === 'context-remaining' ? 'remaining-gradient' : 'limit-gradient'
+}
+
+/**
+ * powerline 下 bar 段 fgOverride 停用提示句（T5.1）：單一段名版本，供
+ * syncFgOverrideDisabled 回傳的「新停用」段清單逐一套用組句（mode 切換
+ * 可能一次牽動多段，見 handleModeChange；bar 切開一次僅牽動自身一段，見
+ * setSegmentBar）。純字串組句，無副作用。
+ */
+function fgOverrideDisabledMessage(label: string): string {
+  return `「${label}」的前景覆寫色因長條圖已停用，改由主色自動決定`
+}
+
+/**
+ * T5.1（08-PLAN §5）：powerline 模式下 bar 段 fgOverride 停用同步——判定
+ * 範圍依 resolve.ts 實際引擎語意鏡射（resolveSegment 內的 `bar` 分支，見
+ * `const bar = seg.bar === true && descriptor.category === 'percentage'`
+ * 判定式——以符號引用取代 file:line，避免行號隨編輯漂移；code review N7）：
+ * **僅 `seg.bar===true` 之段**（bar 4-run 路徑與其 null 退單 run 路徑皆
+ * 停用 fgOverride、恆用 autoFg(段主色)），非 bar 段或 plain 模式一律不受
+ * 影響——不可擴大停用範圍至全段或全部百分比段。
+ *
+ * 逐段同步 fgPickerElements 的 `<fieldset disabled>`；以模組層級
+ * `fgOverrideDisabledIds` 追蹤「目前停用中」集合，回傳本次呼叫「由可用
+ * 變停用」的段名清單——供呼叫端組 live region 播報（僅狀態實際變動時提
+ * 示一次，避免重複呼叫〔如逐次 commitConfig〕造成 live region spam）。
+ * 呼叫時機：applyModeConstraints（mode 切換／初始化）、setSegmentBar
+ * （bar 切開/關閉）。
+ */
+function syncFgOverrideDisabled(): string[] {
+  const powerline = config.mode === 'powerline'
+  const newlyDisabledLabels: string[] = []
+  for (const seg of config.segments) {
+    const picker = fgPickerElements.get(seg.id)
+    if (picker === undefined) continue
+    // I4 回歸修復（code review I4）：加 seg.enabled 閘——已停用（左欄取消
+    // 勾選、退隱藏池）的段即使 seg.bar 仍為 true（bar 與 enabled 正交，
+    // 停用不清 seg.bar），也不應被算進「新停用」清單、不應對螢幕閱讀器
+    // 播報一個使用者已從清單移除的段的停用提示。比照本檔
+    // checkDuplicateResetHints 既有的 rate.enabled && reset.enabled 閘。
+    const shouldDisable = powerline && seg.enabled && seg.bar === true
+    picker.setDisabled(shouldDisable)
+    if (shouldDisable) {
+      if (!fgOverrideDisabledIds.has(seg.id)) {
+        newlyDisabledLabels.push(DESCRIPTORS_BY_ID[seg.id as SegmentId].label)
+      }
+      fgOverrideDisabledIds.add(seg.id)
+    } else {
+      fgOverrideDisabledIds.delete(seg.id)
+    }
+  }
+  return newlyDisabledLabels
+}
+
+/**
+ * 長條圖（bar）checkbox 的唯一入口（T5.1，08-PLAN §5）：`checked` 反映
+ * `<input class="segment-row__bar">` 的新狀態，僅 barEligibleIds 成員段
+ * 的控件存在（見 buildSegmentRow）。
+ *
+ * 切開（false→true）：`seg.threshold===undefined` → 呼叫
+ * `thresholdEditorElements` 的 `applyTemplate`
+ * （pickDefaultThresholdTemplateId 判定模板）材料化預設閾值＋同步 10 桶
+ * 色選與 templateSelect.value（避免面板顯示「（自訂）」與心智模型脫
+ * 節）；`seg.threshold` 已有值（自訂桶或既有模板） → **保留不動**。兩情
+ * 形皆組一句播報。
+ *
+ * 關閉（true→false）：`seg.threshold` 不動（bar 與 threshold 正交，見
+ * config.ts SegmentConfig.bar 文件「長條圖正交欄」）——僅 `delete
+ * seg.bar`（比照 prefix／fgOverride 等既有選填欄「不搬運 false」慣例，
+ * 與 config.ts sanitizeSegment 的清洗結果一致）。
+ *
+ * 兩種切態後皆呼叫 syncFgOverrideDisabled 同步 fgOverride 停用態——若
+ * 目前為 powerline 模式，切開會使本段新停用（回傳含本段名），該句併入
+ * 同一次 announceGlobal（多句以「；」相接，一次 live region 呼叫，避免
+ * 覆寫）；關閉則使本段解除停用，不另播報（PLAN 僅要求「停用＋提示」，
+ * 未要求對稱的「恢復」提示——且 plain 模式下 fg-mount 本身 CSS 隱藏，恢
+ * 復可用一般伴隨 mode 切回 plain 之情形，已由 handleModeChange 的既有
+ * 色彩語意翻轉播報涵蓋語境）。
+ */
+function setSegmentBar(id: string, checked: boolean): void {
+  const seg = segmentConfigById.get(id)
+  if (seg === undefined) return
+  const descriptor = DESCRIPTORS_BY_ID[id as SegmentId]
+  const messages: string[] = []
+
+  if (checked) {
+    seg.bar = true
+    if (seg.threshold === undefined) {
+      const templateId = pickDefaultThresholdTemplateId(id)
+      thresholdEditorElements.get(id)?.applyTemplate(templateId)
+      messages.push(
+        `「${descriptor.label}」已開啟長條圖，套用預設閾值模板「${THRESHOLD_TEMPLATE_LABELS[templateId]}」`,
+      )
+    } else {
+      messages.push(`「${descriptor.label}」已開啟長條圖，既有自訂閾值顏色已保留`)
+    }
+  } else {
+    delete seg.bar
+  }
+
+  for (const label of syncFgOverrideDisabled()) messages.push(fgOverrideDisabledMessage(label))
+  if (messages.length > 0) announceGlobal(messages.join('；'))
+  commitConfig()
 }
 
 // ── segment 列（複合控件） ──
@@ -955,11 +1211,24 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   }
 
   // base 色（plain=前景／powerline=背景；mode 切換值不重映射）。
+  // T5.2（08-PLAN §5）：autoEligibleIds 成員段（model／effort）主色 picker
+  // 走 createSegmentColorPicker——直接以 seg.color（SegmentColor，可能為
+  // {kind:'auto'}）為初值／回呼型別，不經 segmentColorPlaceholder（該函式
+  // 會把 auto 塌陷成 default，若用於此處寫回會遺失使用者選的 auto 態）。
+  // 非合格段維持既有三態封閉路徑（createColorPicker＋segmentColorPlaceholder
+  // 佔位轉換；該類段 seg.color 本就不可能為 auto，見 config.ts
+  // sanitizeSegmentColor 之 allowAuto 限制，此處轉換恆為 no-op，僅滿足
+  // 型別）。
   const baseMount = li.querySelector<HTMLElement>('.segment-row__color-mount')!
-  const basePicker = createColorPicker(`${descriptor.label} — 顏色`, seg.color, (spec) => {
-    seg.color = spec
-    commitConfig()
-  })
+  const basePicker = SEGMENT_CATALOG.autoEligibleIds.has(descriptor.id)
+    ? createSegmentColorPicker(`${descriptor.label} — 顏色`, seg.color, (spec) => {
+        seg.color = spec
+        commitConfig()
+      })
+    : createColorPicker(`${descriptor.label} — 顏色`, segmentColorPlaceholder(seg.color), (spec) => {
+        seg.color = spec
+        commitConfig()
+      })
   baseMount.appendChild(basePicker.element)
 
   // powerline 前景覆寫（「終端預設」態＝清除覆寫→回 auto-fg）。
@@ -973,13 +1242,29 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
     },
   )
   fgMount.appendChild(fgPicker.element)
+  // T5.1：全段皆註冊（fg-mount 對全段存在，僅 CSS 依 mode 顯隱，見上方
+  // fgPickerElements 宣告文件）——供 syncFgOverrideDisabled 統一巡走。
+  fgPickerElements.set(descriptor.id, fgPicker)
 
   // 閾值（僅百分比段）。
   const thresholdMount = li.querySelector<HTMLElement>('.segment-row__threshold-mount')!
   if (descriptor.category === 'percentage') {
-    buildThresholdEditor(thresholdMount, seg, descriptor)
+    thresholdEditorElements.set(descriptor.id, buildThresholdEditor(thresholdMount, seg, descriptor))
   } else {
     thresholdMount.remove()
+  }
+
+  // T5.1（08-PLAN §5）：長條圖（bar）正交開關，限 barEligibleIds（一律吃
+  // catalog set，不硬編 category==='percentage'——與 config.ts sanitizeSegment
+  // 同一份判準）。
+  const barField = li.querySelector<HTMLElement>('.segment-row__bar-field')!
+  if (SEGMENT_CATALOG.barEligibleIds.has(descriptor.id)) {
+    const barInput = li.querySelector<HTMLInputElement>('.segment-row__bar')!
+    contextSpan(barField).textContent = `${descriptor.label} — `
+    barInput.checked = seg.bar === true
+    barInput.addEventListener('change', () => setSegmentBar(descriptor.id, barInput.checked))
+  } else {
+    barField.remove()
   }
 
   wireDragAndDrop(li, descriptor)
@@ -1532,6 +1817,17 @@ function resetRowGroupDeleteConfirmStates(): void {
  * → 播報「第 N 列已刪除，M 個段已回到目錄」→ 焦點移至「新增一列」鈕
  * （#add-pending-row，恆存在；該列容器本身已隨 commitConfig 銷毀，無
  * 穩定的「前一列標題」可回焦，故選定此為落點——不落 body）。
+ *
+ * I4c 回歸修復（協調者續 T7.4，2026-07-15，I4 家族最後一個停用進入點——
+ * grep 已證 main.ts 內僅 setSegmentEnabled／本函式兩處會停用段）：本函式
+ * 逐段 mutate `enabled=false` 後與 setSegmentEnabled 同樣繞過
+ * syncFgOverrideDisabled（見其呼叫處 I4b 註解）——批次刪除一列含
+ * 「powerline 下已開 bar 的百分比段」時，該段進隱藏池後 fgOverride
+ * picker 會停在刪除前（仍啟用時）同步的過期停用態。commitConfig 之後補
+ * 一次 syncFgOverrideDisabled()（棄用回傳值、不 announceGlobal），與
+ * setSegmentEnabled 的補法同構；置於 announceMove 之前或之後皆可（不同
+ * live region，互不干擾），此處選擇之後、緊接 commitConfig，與
+ * setSegmentEnabled 內的呼叫順序一致，便於對照閱讀。
  */
 function performRowDeletion(rowIndex: number): void {
   const groups = computeRowGroups(config.segments)
@@ -1550,6 +1846,7 @@ function performRowDeletion(rowIndex: number): void {
     syncSegmentEnabledUi(id, false)
   }
   commitConfig()
+  syncFgOverrideDisabled() // I4c：批次停用後收斂 fgOverride picker 停用態；棄用回傳值，不播報。
   announceMove(`第 ${displayRow} 列已刪除，${info.segmentIds.length} 個段已回到目錄`)
   addPendingRowEl.focus()
 }
@@ -1608,6 +1905,85 @@ function persist(): void {
   }
 }
 
+// ── 重複提示（percent-reset variant × reset 獨立段同列，T5.2） ──
+
+/**
+ * T5.2（08-PLAN §5「`percent-reset` variant × reset 段同列並開重複
+ * 提示」）：rate 段（`variant==='percent-reset'`）與其對映 reset 獨立段
+ * （分工見 prefix-table.md：前者僅於百分比後方附註時刻 `(14:30)`，後者
+ * 為獨立完整倒數 `↺2h (14:30)`）——兩者若同列並開，對使用者觀感即「同列
+ * 出現兩次重置時間」，故提示告知（純告知性：不阻擋操作、不改寫
+ * config）。
+ */
+const RESET_DUPLICATE_PAIRS: readonly { rateId: SegmentId; resetId: SegmentId }[] = [
+  { rateId: 'rate-5h', resetId: 'reset-5h' },
+  { rateId: 'rate-7d', resetId: 'reset-7d' },
+]
+
+/**
+ * 目前判定為「重複中」的 pair 集合（以 rateId 為鍵）——供
+ * checkDuplicateResetHints 判斷「本次是否為新出現」，避免每次
+ * commitConfig 皆重播（同一 pair 狀態未變時 live region 不重複騷擾；同
+ * fgOverrideDisabledIds 慣例，見其文件）。
+ */
+const duplicateResetPairIds = new Set<SegmentId>()
+
+/** 重複提示句：分工說明語意（variant＝rate 段內附時刻；獨立段＝完整倒數）。 */
+function duplicateResetHintMessage(rateLabel: string, resetLabel: string): string {
+  const variantLabel = VARIANT_LABELS['percent-reset']
+  return (
+    `「${rateLabel}」已選「${variantLabel}」樣式，與「${resetLabel}」同列並開，` +
+    '重置時間將重複顯示：前者僅於百分比後方附註時刻（如 (14:30)），' +
+    '後者為獨立完整倒數（如 ↺2h (14:30)）'
+  )
+}
+
+/**
+ * 逐 pair 判定＋去重播報：僅由「非重複變重複」的轉場才推播提示句；持續
+ * 重複或持續不重複皆不重播；重複→解除→再重複因 duplicateResetPairIds
+ * 已移除鍵，會視為新出現而再次提示。由 commitConfig 統一呼叫——本 sprint
+ * 內一切造成此狀態成立的操作（啟用段、改 variant、改列，含拖曳／
+ * select／上下移鈕）終皆呼叫 commitConfig，單一收斂點即涵蓋全部觸發
+ * 時機，不需逐一操作點各自判斷。
+ *
+ * I5 回歸修復（code review I5，T7.4）：`{ silent: true }`——僅更新
+ * duplicateResetPairIds（判定＋seed），**不**推播訊息。供 init() 於載入
+ * 存檔後呼叫一次：duplicateResetPairIds 為模組層級 Set，reload 後恆空，
+ * 若不預先 seed，既有（reload 前即成立）的重複狀態會在「之後第一次任意
+ * commitConfig」（可能與重複條件完全無關，如切某段顯示文字 checkbox）時
+ * 才被誤判為「新出現」而播報——與使用者當下操作脫節。init() 本身不呼叫
+ * commitConfig，故此處需獨立呼叫一次靜默版本；之後所有 commitConfig 觸發
+ * 的呼叫（不傳 options，預設 silent=false）維持原播報語意不變。
+ */
+function checkDuplicateResetHints(options?: { silent?: boolean }): void {
+  const silent = options?.silent === true
+  const messages: string[] = []
+  for (const pair of RESET_DUPLICATE_PAIRS) {
+    const rate = segmentConfigById.get(pair.rateId)
+    const reset = segmentConfigById.get(pair.resetId)
+    const isDuplicate =
+      rate !== undefined &&
+      reset !== undefined &&
+      rate.enabled &&
+      reset.enabled &&
+      rate.variant === 'percent-reset' &&
+      (rate.row ?? 0) === (reset.row ?? 0)
+    if (isDuplicate) {
+      if (!duplicateResetPairIds.has(pair.rateId)) {
+        duplicateResetPairIds.add(pair.rateId)
+        if (!silent) {
+          messages.push(
+            duplicateResetHintMessage(DESCRIPTORS_BY_ID[pair.rateId].label, DESCRIPTORS_BY_ID[pair.resetId].label),
+          )
+        }
+      }
+    } else {
+      duplicateResetPairIds.delete(pair.rateId)
+    }
+  }
+  if (messages.length > 0) announceGlobal(messages.join('；'))
+}
+
 /**
  * 任何 config 變動的統一收束：正規化列＋（僅分組實際變動時）同步列群組
  * UI →存檔＋刷預覽（controller 內部 resolve）＋刷三產物。
@@ -1651,6 +2027,7 @@ function commitConfig(): void {
     showError(`產生輸出時發生非預期錯誤：${error instanceof Error ? error.message : String(error)}`)
   }
   updateNoBoundaryHint() // segment 色／啟用態亦可能改變 D1 無邊界提示條件，逐次收束時一併重算。
+  checkDuplicateResetHints() // T5.2：percent-reset variant × reset 段同列並開重複提示，逐次收束時一併判定。
 }
 
 // ── 全域控制 ──
@@ -1676,12 +2053,19 @@ function updateNoBoundaryHint(): void {
   setHidden(powerlineNoBoundaryHintEl, !hasNoBoundaryRisk(config))
 }
 
-function applyModeConstraints(): void {
+/**
+ * 回傳值（T5.1，08-PLAN §5）：syncFgOverrideDisabled 本次呼叫「新停用」
+ * 的段名清單——呼叫端（handleModeChange）用於併入 mode 切換播報；
+ * syncGlobalControls（init／存檔載入路徑）呼叫時刻意棄用回傳值，因該
+ * 路徑非使用者觸發的「切換」動作，不應播報。
+ */
+function applyModeConstraints(): string[] {
   const powerline = config.mode === 'powerline'
   powerlineArrowEl.disabled = !powerline // 箭頭選項僅 powerline 有意義。
   lastArrowCapEl.disabled = !powerline || !config.powerlineArrow // D1 gating：false 時 cap 本身無效，一併停用。
   separatorCustomEl.disabled = powerline // powerline 以箭頭轉場，停用自訂分隔符（D3）。
   updateNoBoundaryHint()
+  return syncFgOverrideDisabled()
 }
 
 function syncGlobalControls(): void {
@@ -1707,13 +2091,19 @@ function syncGlobalControls(): void {
 function handleModeChange(nextMode: 'plain' | 'powerline'): void {
   config.mode = nextMode
   document.body.dataset.mode = nextMode
-  applyModeConstraints()
+  // T5.1：切至 powerline 時，既有 bar 開啟中的段一併新停用 fgOverride
+  // （syncFgOverrideDisabled 判定範圍，見其文件）——併入同一次
+  // announceGlobal（多句以「；」相接）；切回 plain 時回傳恆空陣列（plain
+  // 下 syncFgOverrideDisabled 之 shouldDisable 恆假，見其邏輯）。
+  const newlyDisabledFg = applyModeConstraints()
   commitConfig()
-  announceGlobal(
+  const messages = [
     nextMode === 'powerline'
       ? '已切換至 Powerline 模式；顏色語意已翻轉（原前景色現作為背景色），自訂分隔符已停用，請檢視預覽。'
       : '已切換至純文字模式；顏色語意已翻轉（原背景色現作為前景色），請檢視預覽。',
-  )
+    ...newlyDisabledFg.map(fgOverrideDisabledMessage),
+  ]
+  announceGlobal(messages.join('；'))
   // 視圖切換：焦點移至變動的控件群（segment 清單，powerline 下新增前景覆寫色選）。
   segmentListsEl.setAttribute('tabindex', '-1')
   segmentListsEl.focus()
@@ -2208,6 +2598,14 @@ function init(): void {
   wirePreviewControls()
   wireOutputActions()
   refreshOutputs()
+  // I5 回歸修復（code review I5，T7.4）：init() 不呼叫 commitConfig，故
+  // duplicateResetPairIds 不會如常途經 checkDuplicateResetHints 收斂——
+  // 靜默 seed 一次，讓存檔內既有的重複狀態於載入當下即被記為「已知」，
+  // 之後只有真正的轉場（新形成的重複）才播報（見 checkDuplicateResetHints
+  // 文件「I5 回歸修復」段）。刻意置於 refreshOutputs() 之後：與非 init
+  // 路徑下 commitConfig 呼叫 checkDuplicateResetHints 的順序（產物刷新後）
+  // 一致，僅播報行為不同。
+  checkDuplicateResetHints({ silent: true })
 }
 
 // deferred module 執行時 DOM 已解析；仍以 readyState 守衛使初始化嚴格於

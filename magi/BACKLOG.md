@@ -6,6 +6,39 @@ one into a new sprint.
 
 ## Pending
 <!-- /magi:commit appends C-class drift items here -->
+- [ ] **statusline-builder UX 重構（真機回饋批，可獨立成一個 sprint）**——使用者 2026-07-14 真機驗收後提出，第 2–6 點（第 1 點「無資料 `(n/a)`」已於 08 M6 當場修）：
+  - 分隔符改**逐列**設定（每列預設套用全域分隔符，但每列可各自覆寫）——現為全域單一設定
+  - segment 每個欄位後標示**預設值**，一看即知未改動處
+  - segment 上列改**拖移**（現為打勾；段數一多時打勾後不知落到哪一列）
+  - **即時預覽移到最上方且不被捲動遮蔽**（sticky）；「產出腳本」收斂為單一按鈕
+  - **i18n 語言切換**（新增英文）
+  > from 使用者真機驗收回報 `magi/08-statusline-catalog-expansion/WORKS.md` (2026-07-14)
+- [ ] statusline-builder：配置**匯入／匯出 UI**（現無檔案匯入，fixture 只能靠 localStorage 灌入——見 T5.4-CHECKLIST A 區）
+  > from `magi/08-statusline-catalog-expansion/` T5.4 (2026-07-14)
+- [ ] statusline-builder：`(n/a)`（百分比段）與 `--`（token 段）兩種無資料標記並存（使用者拍板）——留背景註解或未來統一
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：非整數 `STATUSLINE_NOW_EPOCH`／`resets_at` 三後端分岔（不可達，真資料恆整數）——補固定案鎖「一致」或文件化 backend-defined
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：bar 百分比路徑缺 `type=="number"` 閘（字串型主值三向分歧，不可達）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：CI 跨後端 byte-exact 等價案以 `(BASH.ok && PS1.ok)` gate 在 CI 拓撲恆假、全靜默跳過，meta 斷言查不到共存缺失——補守衛或 PLAN 文件化 CI gate 矩陣
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：git shell-out 段執行期輸出在 CI 零有效真執行覆蓋（既有盲區）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：倒數階梯邏輯 3 後端 × 2 視窗手抄 6+ 份——抽 `jqResetLadder(...)`／ps1 同理參數化（技術債）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：`toAriaLabel` 機械 enforcement 只覆蓋 PUA、不覆蓋 `█`/`░`（健壯性缺口）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：預覽固定 mock `now` vs 產出腳本真時鐘，倒數／重置段誤導性高——加常駐說明（可併 UX 重構 sprint）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：`MOTW_HINT`/`CHMOD_HINT`/`GPO` 提示常數有測試卻未接進 UI（S5 既有缺口）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：bash 取值 jq 未抑 stderr，畸形 stdin 噴多行 parse error（既有架構）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder a11y 三 note：`announceGlobal` 先於 `commitConfig` 組句順序脆弱、`handleModeChange` 焦點落點 `.segment-lists` 無可及名稱、powerline 關 bar 無對稱恢復播報
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
+- [ ] statusline-builder：golden 由同一 emitter 重生、`golden:update` 後把關力受限——貢獻指南註明；e2e 未覆蓋新輸出能力（合理分工）
+  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
 - [ ] statusline-builder 拖曳清理加固：drop handler 對 `is-segment-dragging`／rAF 取消單點依賴 dragend（抽 endDragCleanup 冪等共用），防「drop 發但 dragend 未發」邊際案 class 卡死
   > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
 - [ ] statusline-builder 位置制三小件加固：`lastRenderedSlots` 改淺拷貝快照、`reconcileRealSlots` 需實際增刪時 dev-warn 可觀測化、`seg.row` 直當 render-index 的正規化耦合補註解
@@ -16,11 +49,7 @@ one into a new sprint.
   > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
 - [ ] 評估 Chromium 133+ `Element.moveBefore()` progressive enhancement——原生保焦點搬移節點，可整族解決「relayout 即失焦」（含現靠顯式回焦的 select／移位鈕路徑）
   > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
-- [ ] statusline 引擎邊界補測：`toAnsi([])` 零列文件性測試（不變量現僅靠 resolve 恆 `[[]]` 維繫）＋多列 × `powerlineArrow=false` 真執行案
-  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
 - [ ] `dragOrigin` 死狀態移除；相同播報文案 SR 不重讀（live region 尾端零寬變異等通用強化）
-  > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
-- [ ] 補 jsdom 測試覆蓋 `renderRuns` spec→DOM；把 CDP 驗證腳本（多列拖曳／slots 九情境等）收編為可重跑整合案，取代每輪人工 CDP 複驗
   > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
 - [ ] 決定 `_probe` 的長期去留（保留為活範本，或於掃描時排除底線資料夾，避免探針頁長期公開於正式站）
   > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
@@ -76,5 +105,7 @@ one into a new sprint.
 ## Promoted to sprints
 <!-- /magi:plan moves consumed items here -->
 - ~~APNG → GIF 轉換功能~~ → `magi/02-apng-to-gif/` (2026-07-03)
+- ~~statusline 引擎邊界補測：`toAnsi([])` 零列文件性測試＋多列 × `powerlineArrow=false` 真執行案~~ → `magi/08-statusline-catalog-expansion/`（06c 前置加固）(2026-07-12)
+- ~~補 jsdom 測試覆蓋 `renderRuns` spec→DOM；CDP 驗證腳本收編為可重跑整合案~~ → `magi/08-statusline-catalog-expansion/`（06c 前置加固）(2026-07-12)
 - ~~GIF 編輯功能（頁數編輯、時間停留等基礎功能）~~ → `magi/03-gif-editor/` (2026-07-03)
 - ~~影片格式轉換功能（如 MKV → MP4）~~ → `magi/04-video-converter/` (2026-07-04)

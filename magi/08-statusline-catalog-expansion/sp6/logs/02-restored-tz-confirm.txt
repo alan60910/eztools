@@ -1,0 +1,10 @@
+npm warn Unknown user config "msvs_version". This will stop working in the next major version of npm.
+
+ RUN  v4.1.9 E:/program/git/eztools
+
+
+ Test Files  1 passed (1)
+      Tests  75 passed (75)
+   Start at  21:56:21
+   Duration  59.01s (transform 126ms, setup 0ms, import 1.18s, tests 57.63s, environment 0ms)
+
