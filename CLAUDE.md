@@ -26,6 +26,9 @@ npm run test:e2e # CDP 整合案（本機限定，需 Edge/Chromium，不進 CI�
 ## Workflow rules
 - Don't commit on the user's behalf without explicit confirmation.
 - Use Conventional Commits.
+- MAGI review 採專案級政策：**角度制審議**（非模組制）＋**票數隨改動
+  規模浮動**（3／5／7 票），詳見 `magi/MAGI_REVIEW_POLICY.md` ——
+  跑 `/magi:review-plan`／`/magi:review-code` 前必讀並照此執行。
 - Use `/magi:commit` to commit (sprint mode for feature work, standalone
   mode for chore/docs/small fixes).
 - push/merge 到 main 會自動部署至 GitHub Pages；日常開發在 DEV 分支。
