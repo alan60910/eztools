@@ -22,6 +22,13 @@
 // 這裡只需接上 toggle 鈕的 wiring 與 aria-pressed 同步，故在檔案最上方、
 // 其餘功能邏輯（含下方 init() 的實際渲染）之前完成。
 import { initThemeToggle } from '../../src/theme.js'
+// T5.4（magi/09-statusline-ux-refactor/PLAN.md §D5 A-3／A-4）：i18n
+// DOM-facing 套用器——同上，於檔案最上方接上語言鈕 wiring；`applyI18n`／
+// `currentLocale` 供下方 clone 點（buildSegmentRow／createColorPickerCore／
+// buildThresholdEditor／createRowGroupContainer）與閾值模板名查表消費。
+// T5.6（09-PLAN §D5 A-4 五步序）：`syncHtmlLang` 供語言切換五步序第 (4)
+// 步（見 handleLocaleSwitch）；`initLangToggle` 第二參數（callback）新增。
+import { applyI18n, currentLocale, initLangToggle, syncHtmlLang } from './i18n-dom.js'
 
 import '../../src/style.css'
 import './style.css'
@@ -42,12 +49,14 @@ import {
   type BuilderConfig,
   type SegmentColor,
   type SegmentConfig,
+  type SeparatorConfig,
   type SeparatorPresetValue,
 } from './config.js'
 import {
   DESCRIPTORS_BY_ID,
   SEGMENT_CATALOG,
   SEGMENT_DESCRIPTORS,
+  segmentLabel,
   type SegmentCategory,
   type SegmentDescriptor,
   type SegmentId,
@@ -94,7 +103,19 @@ import {
   type DropTarget,
   type RowSlot,
 } from './row-slots.js'
+import { insertNullAtReal, padToLength, removeRealAt, type RowSeparator } from './row-separators.js'
+import { planEnableIntoTarget } from './enable-into-target.js'
 import { buildCatalogGroups } from './catalog.js'
+import {
+  computeSegmentFieldDefaults,
+  isSegmentFieldAtDefault,
+  type SegmentFieldDefaultDescriptor,
+  type SegmentFieldDefaultInfo,
+  type SegmentFieldKey,
+} from './segment-defaults.js'
+// T5.4：`thresholdTemplateLabel` 查表——取代原本地 THRESHOLD_TEMPLATE_LABELS
+// 常數表（見其原定義處刪除註記），單一事實來源收斂至 messages.ts。
+import { t, type Locale, type Messages } from './messages.js'
 
 // T5.14（PLAN Rev 11「列耗盡保留＋暫存列位置制」）：統一移動入口
 // commitSegmentMove 的落點型別＝`DropTarget`（見 row-slots.ts：`real`＝
@@ -118,41 +139,17 @@ const UTF8_BOM = String.fromCharCode(0xfeff)
 /** 分區顯示順序＝目錄類別序（永在→百分比→條件→shell-out）；DOM order 亦此序。 */
 const SECTION_ORDER: readonly SegmentCategory[] = ['always', 'percentage', 'conditional', 'shell-out']
 
-/** variant 值 → 可讀顯示名（select option 文字；缺表則原值）。 */
-const VARIANT_LABELS: Readonly<Record<string, string>> = {
-  full: '完整路徑',
-  basename: '僅目錄名',
-  tilde: '以 ~ 縮寫家目錄',
-  percent: '僅百分比',
-  'percent-reset': '百分比＋重置時間',
-}
-
 /**
- * 閾值模板 id → 可讀顯示名（T5.1，08-PLAN §5）：與 index.html
- * threshold-editor-template 內 <option> 文字保持一致（同
- * VARIANT_LABELS 慣例——main.ts 播報文字需要模板可讀名時查表，不重新
- * 讀 DOM select 的 option textContent，因 setSegmentBar 觸發時該 select
- * 可能尚未同步完成）。
+ * T5.5（magi/09-statusline-ux-refactor/PLAN.md §D5 D5「全量文案遷移」）：
+ * 原本檔三張硬編中文常數表——`VARIANT_LABELS`（variant 值→顯示名）、
+ * `PREVIEW_MOCK_CLOCK_HINT_TEXT`（mock 時鐘常駐說明）、`REJECT_MESSAGES`
+ * ／`PUA_REJECT_MESSAGE`（驗證拒收文案）——全數收進 messages.ts 字典
+ * （`variantLabel`／`ui.mockClockHint`／`validation.fieldReject`），呼叫點
+ * 改即時查 `t(currentLocale())`（見 `msg()` 助手）。mock 時鐘說明改走
+ * index.html 的 `data-i18n="ui.mockClockHint"`（靜態、開機 applyI18n 套用），
+ * 不再由 main.ts 寫入，故 `initPreviewMockClockHint` 一併移除。
+ * `THRESHOLD_TEMPLATE_LABELS` 早於 T5.4 收斂為 `thresholdTemplateLabel`。
  */
-const THRESHOLD_TEMPLATE_LABELS: Readonly<Record<ThresholdTemplateId, string>> = {
-  traffic: '交通號誌（綠→黃→紅）',
-  'traffic-inv': '反向交通號誌（紅→綠）',
-  'cool-warm': '冷暖（藍→紅）',
-  'mono-fade': '單色漸亮',
-  'limit-gradient': '限額漸層（按用量）',
-  'remaining-gradient': '剩餘漸層（逆序）',
-}
-
-/** 拒收集 R（validate.ts，含 PUA）reason → role=alert 文案。 */
-const REJECT_MESSAGES: Readonly<Record<CustomTextRejectReason, string>> = {
-  newline: '不可包含換行字元',
-  control: '不可包含控制字元',
-  'bidi-format': '不可包含雙向文字格式控制字元',
-  'lone-surrogate': '不可包含不成對的代理字元（無效的 Unicode）',
-  pua: '不可包含私用區（PUA）字元',
-  'too-long': '長度不可超過 8 個字元',
-}
-const PUA_REJECT_MESSAGE = REJECT_MESSAGES.pua
 
 /**
  * 色選態（對齊 ColorSpec.kind，T5.2 追加 'auto' 對齊 SegmentColor 第四態
@@ -192,6 +189,18 @@ let draggingId: string | null = null
  * 誤觸發非預期搬移，仍有原始位置可供追查／擴充復位邏輯）。
  */
 let dragOrigin: { id: string; parent: HTMLElement | null; nextSibling: Element | null } | null = null
+/**
+ * T3.3（09-PLAN §D3 A-2「來源感知的視覺與清理」）：本次拖曳手勢的起手
+ * 來源——`'row'`＝中欄已啟用段完整控件列（`li.segment-row`，既有
+ * `wireDragAndDrop`）；`'catalog'`＝左欄目錄項（`li.catalog-item`，本
+ * 任務新增第二個 dragstart 來源，見 `wireCatalogDragAndDrop`）。與
+ * `draggingId` 同步生滅（dragstart 設值、`endDragCleanup` 歸零）。存在
+ * 理由：兩種來源的 li 以相同 segment id 分別存放於 `rowElements`／
+ * `catalogItemElements` 兩個不同 Map——`endDragCleanup` 復原 opacity 時
+ * 須依本欄位分派查對的 Map，查錯 Map 會清錯節點（沿用中欄節點清錯，
+ * 目錄項卡在半透明）。
+ */
+let dragSource: 'row' | 'catalog' | null = null
 /**
  * T5.11（PLAN §排序與列指派 UX Rev 6「插入點挪空間視覺」）：dragover 期間
  * 顯示的 placeholder gap 節點——純 UI 態，絕不進 config、絕不承載任何段
@@ -306,6 +315,17 @@ const fgPickerElements = new Map<string, ColorPickerHandle>()
 const thresholdEditorElements = new Map<string, ThresholdEditorHandle>()
 
 /**
+ * T2.2（magi/09-statusline-ux-refactor/PLAN.md §D2「預設值標示」）：
+ * segment id → 其八欄位（SegmentFieldKey）「（預設：X）」提示 span（於
+ * buildSegmentRow 建立，僅該段實際 applicable 的欄位有 entry——不適用
+ * 欄位如非 variants 段的 variant、非百分比段的 threshold／bar，其鍵不
+ * 存在於內層 record，比照 fgPickerElements 等既有 id→元素 map 慣例）。
+ * 供 syncDefaultHintDims 逐段逐欄位同步「現值＝預設」淡化 class（PLAN
+ * §D2 選項 C）。
+ */
+const defaultHintElements = new Map<string, Partial<Record<SegmentFieldKey, HTMLElement>>>()
+
+/**
  * T5.1（08-PLAN §5）：目前因「powerline 模式＋該段 bar 開啟」而停用中的
  * fgOverride 色選段 id 集合（syncFgOverrideDisabled 維護）。僅用於偵測
  * 「本次呼叫新停用」（供播報一次性提示，避免同一狀態重複播報 live
@@ -324,7 +344,20 @@ const fgOverrideDisabledIds = new Set<string>()
  * 「刪除此列」鈕，見 wireRowDeleteButton）之 click handler 於建立時以
  * 該索引為閉包，故無需在容器存活期間重新綁定。
  */
-const rowGroupContainers: { section: HTMLElement; ol: HTMLOListElement; deleteTrigger: HTMLButtonElement }[] = []
+const rowGroupContainers: {
+  section: HTMLElement
+  ol: HTMLOListElement
+  deleteTrigger: HTMLButtonElement
+  /**
+   * T1.7（magi/09-statusline-ux-refactor/PLAN.md §D1「UI」）：本列逐列
+   * 分隔符控件（preset select＋custom 子欄），與 `deleteTrigger` 同構——
+   * 建立時以容器索引（＝real index，見上方文件「容器一經建立…索引終生
+   * 穩定」）為閉包，存活期間無需重新綁定。
+   */
+  separatorPresetEl: HTMLSelectElement
+  separatorCustomFieldEl: HTMLElement
+  separatorCustomEl: HTMLInputElement
+}[] = []
 
 /**
  * 上次已同步至 DOM 的分組結果（純函式 computeRowGroups 輸出）；commitConfig
@@ -371,6 +404,70 @@ function contextSpan(scope: Element): HTMLElement {
 }
 
 /**
+ * T2.2（09-PLAN §D2「預設值標示」選項 A）：欄位「（預設：X）」提示——
+ * 純視覺（`aria-hidden`，不入 accessible name），追加為 `container` 的
+ * 最後一個子節點。`container` 依欄位結構而異：row／icon／prefix／
+ * variant／bar 五欄傳其 `<label>`（緊接既有可見文字後）；color／
+ * fgOverride 兩欄傳其 mount div（該欄位無獨立可見 label，legend 本身即
+ * 承載 accessible name，見 createColorPickerCore／.color-picker__legend，
+ * 提示故置於 fieldset 外層 mount，不擾動 legend 內容）；threshold 傳其
+ * disclosure `.threshold__toggle` 鈕（緊接「閾值變色設定」文字後）。
+ * a11y 取捨見本檔 buildSegmentRow 呼叫處與 .t22-report.md。回傳建立的
+ * span，供呼叫端存進 `defaultHintElements`（syncDefaultHintDims 之後據
+ * 此同步「現值＝預設」淡化 class，PLAN 選項 C）。
+ */
+/**
+ * T5.6（09-PLAN §D5 D5 收口；default-hint 結構化改造，收 T5.5-report
+ * 「混語形」已知限制）：segment-defaults.ts 回傳的結構化描述子 → 目前
+ * 語言的可讀字串——render 層以 `t(currentLocale())` 解讀（segment-
+ * defaults.ts 本身零 messages.ts import，維持純描述子模組定位，見其檔頭）。
+ * 多數 kind 直接複用既有域，避免與 `messages.defaultDescriptor` 重複：
+ * `firstRow`→`rowGroup.heading(1)`（與列群組標題同一份「第 N 列」字面，
+ * 單一事實來源）、`variant`→`variantLabel[value]`（缺表退原值，同 main.ts
+ * 既有 VARIANT_LABELS 缺表慣例）、`colorDefault`/`colorAuto`→
+ * `colorPicker.modeDefault`/`modeAuto`。`literalPrefix`／`colorLiteral`
+ * 為使用者可見原值本身（前綴字面／ansi256 swatch 名或 hex），locale-
+ * invariant，兩語言原樣顯示。窮盡 switch，無 default 分支（TS 覆蓋新增
+ * kind 時強制此處補齊）。
+ */
+function defaultDescriptorLabel(descriptor: SegmentFieldDefaultDescriptor): string {
+  const m = msg()
+  switch (descriptor.kind) {
+    case 'firstRow':
+      return m.rowGroup.heading(1)
+    case 'iconState':
+      return descriptor.on ? m.defaultDescriptor.iconOn : m.defaultDescriptor.iconOff
+    case 'emptyPrefix':
+      return m.defaultDescriptor.emptyPrefix
+    case 'literalPrefix':
+      return descriptor.value
+    case 'variant':
+      return m.variantLabel[descriptor.value] ?? descriptor.value
+    case 'colorDefault':
+      return m.colorPicker.modeDefault
+    case 'colorAuto':
+      return m.colorPicker.modeAuto
+    case 'colorLiteral':
+      return descriptor.value
+    case 'noFgOverride':
+      return m.defaultDescriptor.noFgOverride
+    case 'noThreshold':
+      return m.defaultDescriptor.noThreshold
+    case 'barState':
+      return descriptor.on ? m.defaultDescriptor.barOn : m.defaultDescriptor.barOff
+  }
+}
+
+function appendDefaultHint(container: Element, info: SegmentFieldDefaultInfo): HTMLElement {
+  const hint = document.createElement('span')
+  hint.className = 'segment-row__default-hint'
+  hint.setAttribute('aria-hidden', 'true')
+  hint.textContent = msg().defaultHint(info.descriptor === null ? '' : defaultDescriptorLabel(info.descriptor))
+  container.appendChild(hint)
+  return hint
+}
+
+/**
  * 顯隱切換：只切 `hidden` 屬性（同時移除 a11y tree ＋視覺隱藏）。src/style.css
  * reset 的 `[hidden]{display:none!important}` 已根治「作者 display:flex／
  * inline-block 蓋過 UA `[hidden]{display:none}`」的舊坑（CR3 裁定根治），故不再
@@ -398,7 +495,20 @@ const segmentMoveStatusEl = byId('segment-move-status')
 const previewBgDarkEl = byId<HTMLInputElement>('preview-bg-dark')
 const previewBgLightEl = byId<HTMLInputElement>('preview-bg-light')
 const previewTerminalEl = byId('preview-terminal')
+// T5.5：頂帶預覽區常駐 mock 時鐘說明改由 index.html 的
+// `data-i18n="ui.mockClockHint"` 承載（開機 applyI18n 套用，切換自動翻轉），
+// 不再由 main.ts 寫入 textContent，故原 previewMockClockHintEl 節點取得與
+// initPreviewMockClockHint() 一併移除。
 const outputStatusEl = byId('output-status')
+// T4.2：產出腳本收斂為單一按鈕開啟的 <dialog>（見 index.html 該節點
+// 註解）——開鈕／dialog 本體／顯式「關閉」鈕三個掛點。
+const outputDialogEl = byId<HTMLDialogElement>('output-dialog')
+const outputDialogOpenEl = byId<HTMLButtonElement>('output-dialog-open')
+const outputDialogCloseEl = byId<HTMLButtonElement>('output-dialog-close')
+// T4.3：skip-nav「跳至產出腳本」錨點（見 index.html 該節點註解）——原
+// `href="#output-section"` 隨 T4.2 dialog 化消失，click 改由
+// wireSkipToOutput() 攔截，聚焦此鈕本身而非開啟 dialog。
+const skipToOutputEl = queryOne<HTMLAnchorElement>('[data-testid="skip-to-output"]')
 const copyBashEl = byId<HTMLButtonElement>('copy-bash')
 const copyPs1El = byId<HTMLButtonElement>('copy-ps1')
 const copySettingsEl = byId<HTMLButtonElement>('copy-settings')
@@ -425,6 +535,21 @@ const segmentHiddenPoolEl = byId('segment-hidden-pool')
 // 立即跑或掛在 DOMContentLoaded，這行都先執行——見上方 import 註解）。
 initThemeToggle(queryOne<HTMLButtonElement>('.theme-toggle'))
 
+// T5.4（09-PLAN §D5 A-4）：語言啟動同步——依已持久化的語言（預設
+// DEFAULT_LOCALE＝zh-Hant）同步 <html lang> 並對整份主文件樹套用一次
+// applyI18n（此刻僅 header 語言鈕本身掛 data-i18n；zh-Hant 為 no-op，
+// 因靜態 HTML 字面本就對齊 zh-Hant 字典之值）。語言鈕 wiring（click →
+// 取反→setLocale→重跑 applyI18n）委由 initLangToggle 封裝，比照上一行
+// initThemeToggle 慣例於模組層級立即執行。
+const bootLocale = currentLocale()
+syncHtmlLang(bootLocale)
+applyI18n(document, bootLocale)
+// T5.6（09-PLAN §D5 A-4 五步序）：`handleLocaleSwitch`（定義於下方「語言
+// 切換」節，函式宣告故此處提前參照有效）接續 initLangToggle 完成第 (1)
+// 步後的第 (2)-(5) 步；本檔依賴方向不變（handleLocaleSwitch 定義於
+// main.ts 內，i18n-dom.ts 僅收 callback 型別，不 import main.ts）。
+initLangToggle(queryOne<HTMLButtonElement>('.lang-toggle'), handleLocaleSwitch)
+
 const SEGMENT_LIST_BY_CATEGORY: Record<SegmentCategory, HTMLOListElement> = {
   always: byId<HTMLOListElement>('segment-list-always'),
   percentage: byId<HTMLOListElement>('segment-list-percentage'),
@@ -449,6 +574,20 @@ function instantiateTemplate(templateId: string, token: string, key: string): HT
 
 // ── 訊息／播報 ──
 
+/**
+ * T5.5：目前語言的訊息字典（即時求值）——播報／組句／aria-label 一律經此
+ * 取值，故新產生的文字自然跟隨呼叫當下的 `currentLocale()`（先前已寫入
+ * DOM 的舊語言文字之追溯翻轉屬 T5.6 五步序）。
+ */
+function msg(): Messages {
+  return t(currentLocale())
+}
+
+/** T5.5：目前語言的段 label（取代直讀 `descriptor.label`／`DESCRIPTORS_BY_ID[id].label`）。 */
+function segLabel(id: SegmentId): string {
+  return segmentLabel(id, currentLocale())
+}
+
 function showError(message: string): void {
   errorMessageEl.classList.remove('is-empty')
   errorMessageEl.textContent = message
@@ -469,6 +608,36 @@ function announceMove(text: string): void {
   segmentMoveStatusEl.textContent = text
 }
 
+/**
+ * T3.4（09-PLAN §D3 A-3「播報語意」）：落列播報的 origin 感知組句——
+ * `'move'` 沿用既有 `formatMoveAnnouncement`（row-groups.ts「移至」模板，
+ * 本 sprint 該檔禁改）；`'catalog-add'` 為本任務新增的「已加入」模板。
+ * 集中於此供**兩個**呼叫點共用同一份文案常數（G5 i18n 抽離時的單一
+ * 落點；M5 前僅集中常數，非完整 i18n，故仍是硬編中文字面）：
+ * 1. `performCrossRowMove`（經其 origin 參數）——目錄拖入停用段
+ *    （`commitEnableIntoTarget`）傳 `'catalog-add'`；其餘既有呼叫點
+ *    （中欄拖曳／select 指派／已啟用目錄項拖入）沿用預設 `'move'`，
+ *    行為零變。
+ * 2. `setSegmentEnabled` 啟用分支（checkbox 勾選，非拖曳、無
+ *    `performCrossRowMove` 可套，故此處直接呼叫）——checkbox 勾選語意
+ *    同為「把段加入某列」，與目錄拖入啟用一致，故亦用「已加入」模板。
+ *
+ * 顯示編號定案（PLAN「所有落列播報一律採視覺顯示編號」）由呼叫端負責
+ * ——`info.row` 須已由呼叫端以 `slotIndexOfRealRow` 映射，本函式僅組句
+ * ／播報，不做任何 row 值轉換。
+ */
+function announceSegmentLanded(
+  origin: 'move' | 'catalog-add',
+  label: string,
+  info: Pick<RowSwapResult, 'row' | 'position' | 'rowSize'>,
+): void {
+  announceMove(
+    origin === 'catalog-add'
+      ? msg().announce.catalogAdd(label, info.row, info.position, info.rowSize)
+      : formatMoveAnnouncement(label, info, currentLocale()),
+  )
+}
+
 /** 複製／下載成功回饋。 */
 function announceOutput(text: string): void {
   outputStatusEl.classList.remove('is-empty')
@@ -477,13 +646,16 @@ function announceOutput(text: string): void {
 
 // ── 輸入驗證（validate.ts 拒收集 R，含 PUA 單一咽喉） ──
 
-function validateUserText(value: string): { ok: true } | { ok: false; message: string } {
+function validateUserText(value: string): { ok: true } | { ok: false; reason: CustomTextRejectReason } {
   const result = validateCustomText(value)
-  if (!result.ok) return { ok: false, message: REJECT_MESSAGES[result.reason] }
+  // T5.5：回傳機器可判 `reason`（非成品文案）——呼叫端以
+  // `msg().validation.fieldReject(field, reason)` 組出「欄位名＋原因」的當下
+  // 語言訊息（欄位名前綴由呼叫端傳入，見各 showError 呼叫點）。
+  if (!result.ok) return { ok: false, reason: result.reason }
   // PUA 已併入 validateCustomText（reason 'pua'）為主防線——config 清洗與此
   // UI 驗證單一咽喉共擋。resolve.containsPua 於此保留為第二道（防未來 validate
-  // 回歸；命中回同一 pua 文案），正常情況下 value 已無 PUA、此支不觸發。
-  if (containsPua(value)) return { ok: false, message: PUA_REJECT_MESSAGE }
+  // 回歸；命中回同一 pua reason），正常情況下 value 已無 PUA、此支不觸發。
+  if (containsPua(value)) return { ok: false, reason: 'pua' }
   return { ok: true }
 }
 
@@ -527,6 +699,10 @@ function createColorPickerCore(
 ): ColorPickerHandle {
   const pid = `sb-pick-${(pickerCounter += 1)}`
   const root = instantiateTemplate('color-picker-template', '__PID__', pid)
+  // T5.4（09-PLAN §D5 A-3 clone 時序）：clone 後立即對子樹套用目前語言
+  // （本模板目前僅 ANSI 索引 label／索引加減鈕 aria-label 掛 data-i18n，
+  // 其餘靜態文案留 T5.5）。
+  applyI18n(root, currentLocale())
 
   contextSpan(root.querySelector('.color-picker__legend')!).textContent = nameContext
   // T5.2：非 auto 合格 picker——整組移除「自動」radio 節點，下方 modeRadios
@@ -726,21 +902,27 @@ function buildThresholdEditor(
 ): ThresholdEditorHandle {
   const tid = `sb-th-${(thresholdCounter += 1)}`
   const root = instantiateTemplate('threshold-editor-template', '__TID__', tid)
+  // T5.4（09-PLAN §D5 A-3 clone 時序）：clone 後立即套用目前語言——本模板
+  // 6 個模板 `<option>` 掛 data-i18n（見 index.html），此處翻正確語言後
+  // 下方 templateSelect.value 設值等既有邏輯不受影響（依 value 非
+  // textContent 判斷）。
+  applyI18n(root, currentLocale())
 
   const toggle = root.querySelector<HTMLButtonElement>('.threshold__toggle')!
   const panel = root.querySelector<HTMLElement>('.threshold__panel')!
   const templateSelect = root.querySelector<HTMLSelectElement>('.threshold__template')!
   const bucketContainer = root.querySelector<HTMLElement>('[data-bucket-container]')!
 
-  contextSpan(toggle).textContent = `${descriptor.label} 閾值 `
-  contextSpan(templateSelect.closest('.threshold__template-field')!).textContent = `${descriptor.label} 閾值 `
+  contextSpan(toggle).textContent = msg().segmentControl.thresholdContext(segLabel(descriptor.id))
+  contextSpan(templateSelect.closest('.threshold__template-field')!).textContent =
+    msg().segmentControl.thresholdContext(segLabel(descriptor.id))
 
   // disclosure：展開才進 tab 序；播報＋展開時焦點移入面板首控件。
   toggle.addEventListener('click', () => {
     const next = toggle.getAttribute('aria-expanded') !== 'true'
     toggle.setAttribute('aria-expanded', String(next))
     setHidden(panel, !next)
-    announceGlobal(`${descriptor.label} 閾值設定已${next ? '展開' : '收合'}`)
+    announceGlobal(msg().announce.thresholdToggle(segLabel(descriptor.id), next))
     if (next) templateSelect.focus()
   })
 
@@ -751,7 +933,7 @@ function buildThresholdEditor(
     const high = i === THRESHOLD_BUCKET_COUNT - 1 ? 100 : i * 10 + 9
     const range = `${low}–${high}%`
     const initial = seg.threshold?.buckets[i] ?? { kind: 'default' }
-    const handle = createColorPicker(`${descriptor.label} 閾值 ${range}`, initial, (spec) => {
+    const handle = createColorPicker(msg().segmentControl.thresholdBucketName(segLabel(descriptor.id), range), initial, (spec) => {
       // 逐桶手改 → 材料化 threshold（若尚無）並回填；模板標記回「（自訂）」。
       updateBucket(seg, i, spec)
       templateSelect.value = ''
@@ -775,7 +957,7 @@ function buildThresholdEditor(
     if (value === '') return // 「（自訂）」為狀態標記、非動作。
     applyTemplate(value as ThresholdTemplateId)
     const label = templateSelect.options[templateSelect.selectedIndex]?.textContent ?? value
-    announceGlobal(`已套用${label}，10 段顏色已更新`)
+    announceGlobal(msg().announce.thresholdApplied(label))
     commitConfig()
   })
 
@@ -802,6 +984,11 @@ function updateBucket(seg: SegmentConfig, index: number, spec: ColorSpec): void 
  * checked／灰化態——由呼叫端 buildCatalogItems 依 catalog.ts 之
  * buildCatalogGroups 計算結果統一設定（單一事實來源，避免兩處各自
  * 判斷 enabled 而漂移）。
+ *
+ * T3.3（09-PLAN §D3 A-1／A-2）：目錄項本身終生不重排（見 buildCatalogItems
+ * 文件），但現可拖曳入中欄目標列——`wireCatalogDragAndDrop` 接線
+ * dragstart／dragend（checkbox 命中區豁免），落點側沿用中欄既有 drop
+ * handler（皆只依賴模組層級 draggingId，不分辨來源），無需另接。
  */
 function buildCatalogItem(id: string, label: string): HTMLLIElement {
   const li = instantiateTemplate('catalog-item-template', '__CID__', id) as HTMLLIElement
@@ -811,6 +998,7 @@ function buildCatalogItem(id: string, label: string): HTMLLIElement {
   checkbox.addEventListener('change', () => setSegmentEnabled(id, checkbox.checked))
   catalogCheckboxElements.set(id, checkbox)
   catalogItemElements.set(id, li)
+  wireCatalogDragAndDrop(li, id)
   return li
 }
 
@@ -828,12 +1016,28 @@ function buildCatalogItems(): void {
   const groups = buildCatalogGroups(SEGMENT_DESCRIPTORS, config.segments, SECTION_ORDER)
   for (const category of SECTION_ORDER) {
     for (const item of groups[category]) {
-      const li = buildCatalogItem(item.id, item.label)
+      const li = buildCatalogItem(item.id, segLabel(item.id as SegmentId))
       catalogCheckboxElements.get(item.id)!.checked = item.enabled
       li.classList.toggle('catalog-item--enabled', item.enabled)
       setHidden(li.querySelector<HTMLElement>('.catalog-item__badge')!, !item.enabled)
       SEGMENT_LIST_BY_CATEGORY[category].appendChild(li)
     }
+  }
+}
+
+/**
+ * T5.6（09-PLAN §D5 D5 交接「catalog 項名」）：語言切換用——
+ * `.catalog-item__name` 為 `buildCatalogItem` clone 時的一次性 textContent
+ * 賦值（依段 id 逐一查 `segLabel(id)`，非固定鍵，故不掛 `data-i18n`），
+ * 切換時不會被 `applyI18n` 追溯翻轉，須顯式重新賦值一次。純文字原地
+ * 更新、不重建／不搬移節點——目錄項「終生不重建、不重排」不變量（見
+ * `buildCatalogItems` 文件）不受影響，亦不影響 checkbox 勾選態／drag
+ * wiring。
+ */
+function refreshCatalogNames(): void {
+  for (const [id, li] of catalogItemElements) {
+    const nameEl = li.querySelector<HTMLElement>('.catalog-item__name')
+    if (nameEl !== null) nameEl.textContent = segLabel(id as SegmentId)
   }
 }
 
@@ -906,6 +1110,18 @@ function syncSegmentEnabledUi(id: string, enabled: boolean): void {
  * change handler）呼叫本函式時不傳第三參數＝ false——該路徑的回焦
  * 目標與觸發元素相同（checkbox 取消勾選當下已持有焦點），不會捲動，
  * 故不需模態區分。
+ *
+ * T3.4（09-PLAN §D3 A-3「鍵盤 checkbox 啟用路徑補落列播報」）：啟用分支
+ * 先前完全不播報（新增工作，非既有行為復用）——commitConfig 之後、回焦
+ * 之前補一次 announceSegmentLanded('catalog-add', …)，語意同「目錄拖入
+ * 啟用」（checkbox 勾選同為「把段加入某列」，非「移動既有段」，故非
+ * 'move' 模板）。落列位置＝上方 clampReenableRow 決定的 `seg.row`（含
+ * BACKLOG:37「舊 row 值越界被 clamp」情境）；position／rowSize 取
+ * commitConfig 後最新分組（`computeRowGroups`——本分支無跨列移動語意可
+ * 套用 `performCrossRowMove`，故直接查分組，非復用它）；顯示編號依 PLAN
+ * 定案一律 `slotIndexOfRealRow` 映射（`rowSlots` 已於上方 real-slot 插入
+ * 分支同步更新，此刻映射正確）。停用分支（!enabled）維持既有零播報
+ * ——removeSegment／checkbox 取消勾選的既有播報路徑不變。
  */
 function setSegmentEnabled(id: string, enabled: boolean, preventScroll = false): void {
   const seg = segmentConfigById.get(id)
@@ -921,7 +1137,14 @@ function setSegmentEnabled(id: string, enabled: boolean, preventScroll = false):
     const drains = !config.segments.some(
       (other) => other.id !== id && other.enabled && (other.row ?? 0) === row,
     )
-    if (drains) rowSlots = removeSlotAt(rowSlots, slotIndexOfRealRow(rowSlots, row))
+    if (drains) {
+      rowSlots = removeSlotAt(rowSlots, slotIndexOfRealRow(rowSlots, row))
+      // T1.7（09-PLAN §D1 A-3）：該真實列消失＋其 rowSeparators 覆寫一併
+      // 消滅（real-slot 集合縮減，non-null 尾巴需重新修剪，見
+      // normalizeRowSeparatorsField）。`row` 於此刻仍為停用前的 dense
+      // real index（與 rowSeparators 索引基準同源），直接對應。
+      config.rowSeparators = normalizeRowSeparatorsField(removeRealAt(config.rowSeparators ?? [], row))
+    }
   }
 
   seg.enabled = enabled
@@ -950,7 +1173,56 @@ function setSegmentEnabled(id: string, enabled: boolean, preventScroll = false):
   // 的「seed 不播」精神），避免蓋掉或多播一句與「啟停」本身無關的訊息
   // （announceGlobal 為單一 live region、後寫覆寫前寫，見其文件）。
   syncFgOverrideDisabled()
+
+  if (enabled) {
+    const landedRow = seg.row ?? 0
+    const group = computeRowGroups(config.segments).find((g) => g.row === landedRow)
+    announceSegmentLanded('catalog-add', segLabel(id as SegmentId), {
+      row: slotIndexOfRealRow(rowSlots, landedRow) + 1,
+      position: group === undefined ? 1 : group.segmentIds.indexOf(id) + 1,
+      rowSize: group === undefined ? 1 : group.segmentIds.length,
+    })
+  }
+
   catalogCheckboxElements.get(id)?.focus(preventScroll ? { preventScroll: true } : undefined)
+}
+
+/**
+ * T3.1（09-PLAN §D3 A-1「defer-commit 旗標」）：`commitSegmentMove`
+ * 專用的積木——拖曳一個**停用中**的目錄項落到某個列/暫存列時，落點的
+ * row/slots 由 T3.2 的 target 決策（`planSegmentMove` 既有落點運算）
+ * 唯一決定，`setSegmentEnabled` 內建的 `clampReenableRow`（落回
+ * `lastRowGroups.length` 範圍內既有列）會與該決策衝突、產生中間態
+ * （PLAN C1 明文禁止的 clamp 中間態——「先 clamp 進舊列、再搬到新列」
+ * 這種使用者不曾要求、亦不應可觀察到的過渡狀態）。故本函式**只** mutate
+ * `seg.enabled = true`，刻意跳過 `setSegmentEnabled` 其餘全部步驟：
+ * 不動 `seg.row`（不 clamp）、不動 `rowSlots`／`config.rowSeparators`、
+ * 不 `syncSegmentEnabledUi`（左欄/中欄視覺不同步）、不 `commitConfig`
+ * （不 persist、不觸發 `layoutSegmentContainers`）、不
+ * `syncFgOverrideDisabled`、不回焦。row/slots 落點、視覺同步、**唯一
+ * 一次** commit＋播報，全部交由呼叫端（T3.2 的 `commitSegmentMove`）
+ * 在 target 定案後才補跑（見 `commitSegmentMove` 文件；補跑須含
+ * `syncSegmentEnabledUi`＋`syncFgOverrideDisabled`，否則拖入啟用中的
+ * powerline+bar 百分比段會重演 I4b 過期態回歸）。
+ *
+ * 僅支援「啟用」方向——語意上就是「先標記這段即將被啟用」，故簽章上
+ * 不收 `enabled` 參數（非 `setSegmentEnabled` 疊加 `defer` 旗標的
+ * 選項物件形），從根本避免「defer+停用」這個無意義組合的存在，毋須
+ * 額外註解／斷言把關。對已啟用段呼叫是安全的 no-op 疊寫（冪等：
+ * `seg.enabled = true` 疊加一次仍是 `true`），呼叫端毋須自行判斷目標
+ * 段目前是否已啟用。
+ *
+ * 回傳查得的 `SegmentConfig` 物件參照（`segmentConfigById` 內部持有的
+ * 同一參照，非拷貝——同檔既有「直接 mutate 既有物件參照」慣例，見
+ * `setSegmentEnabled` 文件），供呼叫端／測試檢視 mutate 後狀態（如
+ * `.row` 確未被 clamp 改寫）；查無該 id（防禦，理論上不會發生——目錄
+ * 項來源必為 `segmentConfigById` 已知 id）回傳 `undefined`。
+ */
+export function markSegmentEnabledDeferred(id: string): SegmentConfig | undefined {
+  const seg = segmentConfigById.get(id)
+  if (seg === undefined) return undefined
+  seg.enabled = true
+  return seg
 }
 
 /**
@@ -966,9 +1238,8 @@ function setSegmentEnabled(id: string, enabled: boolean, preventScroll = false):
  * 本函式只原樣透傳，不自行判斷。
  */
 function removeSegment(id: string, preventScroll: boolean): void {
-  const descriptor = DESCRIPTORS_BY_ID[id as SegmentId]
   setSegmentEnabled(id, false, preventScroll)
-  announceMove(`${descriptor.label} 已從清單移除`)
+  announceMove(msg().announce.removed(segLabel(id as SegmentId)))
 }
 
 // ── 長條圖（bar）正交開關（T5.1，08-PLAN §5） ──
@@ -991,7 +1262,36 @@ function pickDefaultThresholdTemplateId(id: string): ThresholdTemplateId {
  * setSegmentBar）。純字串組句，無副作用。
  */
 function fgOverrideDisabledMessage(label: string): string {
-  return `「${label}」的前景覆寫色因長條圖已停用，改由主色自動決定`
+  return msg().announce.fgOverrideDisabled(label)
+}
+
+/**
+ * T2.2（09-PLAN §D2「預設值標示」選項 C）：現值＝預設時淡化各欄位
+ * 「（預設：X）」提示（凸顯偏離預設之欄位；反之現值≠預設時恢復正常樣式）
+ * ——與 `computeSegmentFieldDefaults` 同一權威來源比對（`isSegmentFieldAt
+ * Default`，見 segment-defaults.ts）。
+ *
+ * 呼叫時機＝ `commitConfig` 尾端＋`buildSegmentRows` 尾端（初始渲染，
+ * `commitConfig` 依 T7.4/I5 慣例不在 init() 內呼叫，見其文件），比照
+ * `updateNoBoundaryHint`／`checkDuplicateResetHints` 既有「commitConfig
+ * 統一收束」慣例——欄位變動路徑眾多（逐欄位 change handler、拖曳／上下
+ * 移、閾值模板批次套用等皆各自呼叫 commitConfig，唯獨部分路徑〔如列指
+ * 派〕不逐一掛淡化同步），單一進入點可避免掛一漏萬，不需逐一補呼叫。
+ */
+function syncDefaultHintDims(): void {
+  for (const [id, hints] of defaultHintElements) {
+    const seg = segmentConfigById.get(id)
+    const descriptor = DESCRIPTORS_BY_ID[id as SegmentId] as SegmentDescriptor | undefined
+    if (seg === undefined || descriptor === undefined) continue
+    for (const key of Object.keys(hints) as SegmentFieldKey[]) {
+      const hintEl = hints[key]
+      if (hintEl === undefined) continue
+      hintEl.classList.toggle(
+        'segment-row__default-hint--at-default',
+        isSegmentFieldAtDefault(seg, descriptor, key),
+      )
+    }
+  }
 }
 
 /**
@@ -1025,7 +1325,7 @@ function syncFgOverrideDisabled(): string[] {
     picker.setDisabled(shouldDisable)
     if (shouldDisable) {
       if (!fgOverrideDisabledIds.has(seg.id)) {
-        newlyDisabledLabels.push(DESCRIPTORS_BY_ID[seg.id as SegmentId].label)
+        newlyDisabledLabels.push(segLabel(seg.id as SegmentId))
       }
       fgOverrideDisabledIds.add(seg.id)
     } else {
@@ -1071,18 +1371,16 @@ function setSegmentBar(id: string, checked: boolean): void {
     if (seg.threshold === undefined) {
       const templateId = pickDefaultThresholdTemplateId(id)
       thresholdEditorElements.get(id)?.applyTemplate(templateId)
-      messages.push(
-        `「${descriptor.label}」已開啟長條圖，套用預設閾值模板「${THRESHOLD_TEMPLATE_LABELS[templateId]}」`,
-      )
+      messages.push(msg().announce.barOnWithTemplate(segLabel(descriptor.id), msg().thresholdTemplateLabel[templateId]))
     } else {
-      messages.push(`「${descriptor.label}」已開啟長條圖，既有自訂閾值顏色已保留`)
+      messages.push(msg().announce.barOnKeepCustom(segLabel(descriptor.id)))
     }
   } else {
     delete seg.bar
   }
 
   for (const label of syncFgOverrideDisabled()) messages.push(fgOverrideDisabledMessage(label))
-  if (messages.length > 0) announceGlobal(messages.join('；'))
+  if (messages.length > 0) announceGlobal(msg().announce.join(messages))
   commitConfig()
 }
 
@@ -1090,12 +1388,23 @@ function setSegmentBar(id: string, checked: boolean): void {
 
 function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTMLLIElement {
   const li = instantiateTemplate('segment-row-template', '__ID__', descriptor.id) as HTMLLIElement
+  // T5.4（09-PLAN §D5 A-3 clone 時序）：clone 後立即套用目前語言——本模板
+  // 尚無 data-i18n 標記（本任務示範面未含此模板，全量遷移留 T5.5），現階段
+  // 為 no-op，屆時新增標記即自動生效、不需再動本呼叫點。
+  applyI18n(li, currentLocale())
   li.dataset.segmentId = descriptor.id
+
+  // T2.2（09-PLAN §D2「預設值標示」）：本段八欄位的預設值描述，一次查表
+  // 供下方各欄位 label 後綴「（預設：X）」；hints 累積各 applicable 欄位
+  // 建立的提示 span，函式尾端存進 defaultHintElements（供 syncDefault
+  // HintDims 之後同步淡化態）。
+  const fieldDefaults = computeSegmentFieldDefaults(descriptor.id, descriptor)
+  const hints: Partial<Record<SegmentFieldKey, HTMLElement>> = {}
 
   // T5.9：段名為純視覺標籤（啟停唯一入口＝左欄目錄 checkbox，見
   // buildCatalogItem／setSegmentEnabled，本列自身不再有 enable
   // checkbox）。
-  li.querySelector<HTMLElement>('.segment-row__name')!.textContent = descriptor.label
+  li.querySelector<HTMLElement>('.segment-row__name')!.textContent = segLabel(descriptor.id)
   li.classList.toggle('segment-row--enabled', seg.enabled)
   // T5.5：上/下移鈕移至 .segment-row__enable-field 尾端（不在自動收合的
   // .segment-row__controls 塊內），故顯隱須於此與 setSegmentEnabled 內
@@ -1108,8 +1417,8 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   // 事件、存進 moveButtonElements 供該函式查找。
   const moveUp = li.querySelector<HTMLButtonElement>('.segment-row__move-up')!
   const moveDown = li.querySelector<HTMLButtonElement>('.segment-row__move-down')!
-  moveUp.setAttribute('aria-label', `${descriptor.label} — 上移`)
-  moveDown.setAttribute('aria-label', `${descriptor.label} — 下移`)
+  moveUp.setAttribute('aria-label', msg().segmentControl.moveUp(segLabel(descriptor.id)))
+  moveDown.setAttribute('aria-label', msg().segmentControl.moveDown(segLabel(descriptor.id)))
   moveUp.addEventListener('click', () => moveSegment(descriptor.id, 'up'))
   moveDown.addEventListener('click', () => moveSegment(descriptor.id, 'down'))
   moveButtonElements.set(descriptor.id, { up: moveUp, down: moveDown })
@@ -1119,7 +1428,7 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   // syncSegmentEnabledUi 內顯式同步（僅啟用列顯示；見 index.html 模板
   // 註解 12.）。
   const removeBtn = li.querySelector<HTMLButtonElement>('.segment-row__remove')!
-  removeBtn.setAttribute('aria-label', `${descriptor.label} — 從清單移除`)
+  removeBtn.setAttribute('aria-label', msg().segmentControl.remove(segLabel(descriptor.id)))
   setHidden(removeBtn, !seg.enabled)
   // T5.6 UI 驗收回饋（2026-07-11）：以 MouseEvent.detail 區分輸入模態
   // ——瀏覽器原生語意，真滑鼠點擊 detail 恆 ≥1（連按次數），鍵盤
@@ -1137,7 +1446,9 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   // computeRowSelectOptionOps 原地填入/更新（枚舉含暫存列），不在此處
   // 預先枚舉（此刻尚不知全域列數）。
   const rowSelect = li.querySelector<HTMLSelectElement>('.segment-row__row-select')!
-  contextSpan(rowSelect.closest('.segment-row__field')!).textContent = `${descriptor.label} — `
+  const rowField = rowSelect.closest('.segment-row__field')!
+  contextSpan(rowField).textContent = msg().segmentControl.namePrefix(segLabel(descriptor.id))
+  hints.row = appendDefaultHint(rowField.querySelector('label')!, fieldDefaults.row)
   rowSelectElements.set(descriptor.id, rowSelect)
   // T5.14：select value 現為 **slot index**（非渲染列序）——依 rowSlots
   // 判定該 slot 為 real／pending，轉為 DropTarget 交統一移動入口
@@ -1168,7 +1479,9 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
 
   // 顯示文字 checkbox（T5.12 措辭更名；M1.5 起 icon.glyph 皆 ASCII 文字前綴）。
   const iconInput = li.querySelector<HTMLInputElement>('.segment-row__icon')!
-  contextSpan(iconInput.closest('.segment-row__field')!).textContent = `${descriptor.label} — `
+  const iconField = iconInput.closest('.segment-row__field')!
+  contextSpan(iconField).textContent = msg().segmentControl.namePrefix(segLabel(descriptor.id))
+  hints.icon = appendDefaultHint(iconField.querySelector('label')!, fieldDefaults.icon)
   iconInput.checked = seg.icon
   iconInput.addEventListener('change', () => {
     seg.icon = iconInput.checked
@@ -1177,12 +1490,14 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
 
   // 前綴（≤8；過 validate.ts＋PUA 補判；拒收→role=alert）。
   const prefixInput = li.querySelector<HTMLInputElement>('.segment-row__prefix')!
-  contextSpan(prefixInput.closest('.segment-row__field')!).textContent = `${descriptor.label} — `
+  const prefixField = prefixInput.closest('.segment-row__field')!
+  contextSpan(prefixField).textContent = msg().segmentControl.namePrefix(segLabel(descriptor.id))
+  hints.prefix = appendDefaultHint(prefixField.querySelector('label')!, fieldDefaults.prefix)
   prefixInput.value = seg.prefix ?? ''
   prefixInput.addEventListener('input', () => {
     const result = validateUserText(prefixInput.value)
     if (!result.ok) {
-      showError(`前綴${result.message}`)
+      showError(msg().validation.fieldReject('prefix', result.reason))
       return
     }
     clearError()
@@ -1194,11 +1509,11 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   const variantField = li.querySelector<HTMLElement>('.segment-row__variant-field')!
   if (descriptor.variants !== undefined) {
     const variantSelect = li.querySelector<HTMLSelectElement>('.segment-row__variant')!
-    contextSpan(variantField).textContent = `${descriptor.label} — `
+    contextSpan(variantField).textContent = msg().segmentControl.namePrefix(segLabel(descriptor.id))
     for (const variant of descriptor.variants) {
       const option = document.createElement('option')
       option.value = variant
-      option.textContent = VARIANT_LABELS[variant] ?? variant
+      option.textContent = msg().variantLabel[variant] ?? variant
       variantSelect.appendChild(option)
     }
     variantSelect.value = seg.variant ?? descriptor.variants[0]
@@ -1206,6 +1521,7 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
       seg.variant = variantSelect.value
       commitConfig()
     })
+    hints.variant = appendDefaultHint(variantField.querySelector('label')!, fieldDefaults.variant)
   } else {
     variantField.remove()
   }
@@ -1221,20 +1537,21 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   // 型別）。
   const baseMount = li.querySelector<HTMLElement>('.segment-row__color-mount')!
   const basePicker = SEGMENT_CATALOG.autoEligibleIds.has(descriptor.id)
-    ? createSegmentColorPicker(`${descriptor.label} — 顏色`, seg.color, (spec) => {
+    ? createSegmentColorPicker(msg().segmentControl.colorName(segLabel(descriptor.id)), seg.color, (spec) => {
         seg.color = spec
         commitConfig()
       })
-    : createColorPicker(`${descriptor.label} — 顏色`, segmentColorPlaceholder(seg.color), (spec) => {
+    : createColorPicker(msg().segmentControl.colorName(segLabel(descriptor.id)), segmentColorPlaceholder(seg.color), (spec) => {
         seg.color = spec
         commitConfig()
       })
   baseMount.appendChild(basePicker.element)
+  hints.color = appendDefaultHint(baseMount, fieldDefaults.color)
 
   // powerline 前景覆寫（「終端預設」態＝清除覆寫→回 auto-fg）。
   const fgMount = li.querySelector<HTMLElement>('.segment-row__fg-mount')!
   const fgPicker = createColorPicker(
-    `${descriptor.label} — 前景色`,
+    msg().segmentControl.fgColorName(segLabel(descriptor.id)),
     seg.fgOverride ?? { kind: 'default' },
     (spec) => {
       seg.fgOverride = spec.kind === 'default' ? undefined : spec
@@ -1242,6 +1559,7 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
     },
   )
   fgMount.appendChild(fgPicker.element)
+  hints.fgOverride = appendDefaultHint(fgMount, fieldDefaults.fgOverride)
   // T5.1：全段皆註冊（fg-mount 對全段存在，僅 CSS 依 mode 顯隱，見上方
   // fgPickerElements 宣告文件）——供 syncFgOverrideDisabled 統一巡走。
   fgPickerElements.set(descriptor.id, fgPicker)
@@ -1250,6 +1568,9 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   const thresholdMount = li.querySelector<HTMLElement>('.segment-row__threshold-mount')!
   if (descriptor.category === 'percentage') {
     thresholdEditorElements.set(descriptor.id, buildThresholdEditor(thresholdMount, seg, descriptor))
+    // T2.2：無獨立 label，提示掛在 disclosure 觸發鈕（「閾值變色設定」）後。
+    const thresholdToggle = thresholdMount.querySelector<HTMLButtonElement>('.threshold__toggle')!
+    hints.threshold = appendDefaultHint(thresholdToggle, fieldDefaults.threshold)
   } else {
     thresholdMount.remove()
   }
@@ -1260,13 +1581,15 @@ function buildSegmentRow(seg: SegmentConfig, descriptor: SegmentDescriptor): HTM
   const barField = li.querySelector<HTMLElement>('.segment-row__bar-field')!
   if (SEGMENT_CATALOG.barEligibleIds.has(descriptor.id)) {
     const barInput = li.querySelector<HTMLInputElement>('.segment-row__bar')!
-    contextSpan(barField).textContent = `${descriptor.label} — `
+    contextSpan(barField).textContent = msg().segmentControl.namePrefix(segLabel(descriptor.id))
     barInput.checked = seg.bar === true
     barInput.addEventListener('change', () => setSegmentBar(descriptor.id, barInput.checked))
+    hints.bar = appendDefaultHint(barField.querySelector('label')!, fieldDefaults.bar)
   } else {
     barField.remove()
   }
 
+  defaultHintElements.set(descriptor.id, hints)
   wireDragAndDrop(li, descriptor)
   return li
 }
@@ -1346,11 +1669,7 @@ function ensureDropGap(container: HTMLElement): HTMLElement {
     // 回 undefined（＝落列尾）；real target 則跳過 gap／被拖曳段自身取下一
     // 真實段 id。見 commitSegmentMove（統一移動入口）。
     const beforeId = nextSegmentId(el, movedId)
-    draggingId = null
-    dragOrigin = null
-    const dragged = rowElements.get(movedId)
-    if (dragged !== undefined) dragged.style.opacity = ''
-    clearDropGap()
+    endDragCleanup()
     commitSegmentMove(movedId, target, beforeId)
   })
   dropGapEl = el
@@ -1384,6 +1703,46 @@ function clearDropGap(): void {
   dropGapEl?.remove()
   dropGapEl?.classList.remove('segment-drop-gap--visible')
   dropGapTarget = null
+}
+
+/**
+ * T3.3（09-PLAN §D3 A-2「endDragCleanup 冪等合流」）：拖曳收尾的**單一
+ * 冪等出口**——取代原本散落於 dragend＋5 個 drop handler（li／gap／
+ * 列容器空白處／暫存列，跨中欄與目錄兩來源）各自重複的六步驟（
+ * draggingId／dragOrigin／dragSource 歸零、opacity 復原、clearDropGap、
+ * rAF 取消、body class 移除）。07 DRIFT 既有項——因本任務新增第二個
+ * dragstart 來源（目錄）而被正當化合流（PLAN 明文非範圍蔓延）。
+ *
+ * 來源感知（opacity 復原節點）：`dragSource==='catalog'` 時查
+ * `catalogItemElements`（左欄目錄 li），否則（`'row'`，既有中欄拖曳）查
+ * `rowElements`（中欄完整控件列 li）——兩者以相同 id 存放**不同**節點，
+ * 若不分派直接沿用其中一個 Map，另一來源的節點會清錯（清錯節點半透明
+ * 卡住、正確節點反而漏清）。
+ *
+ * 冪等：讀值（`draggingId`／`dragSource`）先於歸零，故重複呼叫時
+ * `draggingId` 已為 `null`，opacity 復原分支整段略過；`clearDropGap`
+ * 本身冪等（見其文件）；`cancelAnimationFrame` 對已為 `null` 的
+ * `dragClassRafId` 略過；`classList.remove` 對不存在的 class 為 no-op。
+ * 故「drop handler 已跑過一次、dragend 再跑一次」（或反之）皆安全，不會
+ * throw、不會使 class／opacity 卡死——drop 側現時序上提早（於 drop 當下
+ * 即清 rAF／body class，不再延後至保證隨後才到的 dragend），對使用者
+ * 不可辨（drop→dragend 間隔通常同一輪任務內），且更早收斂視覺無副作用。
+ */
+function endDragCleanup(): void {
+  if (draggingId !== null) {
+    const opacityTarget =
+      dragSource === 'catalog' ? catalogItemElements.get(draggingId) : rowElements.get(draggingId)
+    if (opacityTarget !== undefined) opacityTarget.style.opacity = ''
+  }
+  draggingId = null
+  dragOrigin = null
+  dragSource = null
+  clearDropGap()
+  if (dragClassRafId !== null) {
+    cancelAnimationFrame(dragClassRafId)
+    dragClassRafId = null
+  }
+  document.body.classList.remove('is-segment-dragging')
 }
 
 /**
@@ -1423,6 +1782,7 @@ function wireDragAndDrop(li: HTMLLIElement, descriptor: SegmentDescriptor): void
       return
     }
     draggingId = descriptor.id
+    dragSource = 'row'
     dragOrigin = { id: descriptor.id, parent: li.parentElement, nextSibling: li.nextElementSibling }
     event.dataTransfer?.setData('text/plain', descriptor.id)
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
@@ -1443,17 +1803,7 @@ function wireDragAndDrop(li: HTMLLIElement, descriptor: SegmentDescriptor): void
       if (draggingId !== null) document.body.classList.add('is-segment-dragging')
     })
   })
-  li.addEventListener('dragend', () => {
-    draggingId = null
-    dragOrigin = null
-    li.style.opacity = ''
-    clearDropGap()
-    if (dragClassRafId !== null) {
-      cancelAnimationFrame(dragClassRafId)
-      dragClassRafId = null
-    }
-    document.body.classList.remove('is-segment-dragging')
-  })
+  li.addEventListener('dragend', endDragCleanup)
   li.addEventListener('dragover', (event) => {
     if (draggingId === null || draggingId === descriptor.id) return
     const dragged = rowElements.get(draggingId)
@@ -1481,13 +1831,50 @@ function wireDragAndDrop(li: HTMLLIElement, descriptor: SegmentDescriptor): void
     const rect = li.getBoundingClientRect()
     const side = resolveDropSide(event.clientY, rect.top, rect.height)
     const beforeId = resolveInsertBeforeId(li, side, movedId)
-    draggingId = null
-    dragOrigin = null
-    dragged.style.opacity = ''
-    clearDropGap()
+    endDragCleanup()
     if (targetRow === null) return // 防禦：理論上不會發生（啟用段恆屬某列群組）。
     commitSegmentMove(movedId, { kind: 'real', row: targetRow }, beforeId)
   })
+}
+
+/**
+ * T3.3（09-PLAN §D3 A-1／A-2）：左欄目錄項的拖曳起手——與中欄
+ * `wireDragAndDrop` 共用同一 `draggingId`／`commitSegmentMove` 統一入口，
+ * 僅新增第二個 dragstart 來源（`dragSource='catalog'`，供 `endDragCleanup`
+ * 分派 opacity 復原節點）。checkbox 命中區豁免（比照 `wireDragAndDrop`
+ * 對 input/select/button 的起手豁免，見其文件）：`event.target` 落在
+ * `.catalog-item__checkbox` 內時 `preventDefault()` 放棄拖曳，讓原生
+ * 點選勾取行為照常進行，不被拖曳手勢攔截。
+ *
+ * 目錄項不接自身 dragover／drop——落點側（列容器空白處／li／gap
+ * placeholder／暫存列）既有 handler 皆只依賴模組層級 `draggingId`（不
+ * 分辨來源），`commitSegmentMove` 依 `movedSeg.enabled` 自動分派停用段
+ * （enable-into-target，T3.2）或已啟用段（原移動路徑——A-3「已啟用
+ * 目錄項被拖入＝退化為純 move」正是此自動分派的直接結果，無需另立
+ * 分支），故目錄項只需負責 dragstart／dragend 兩端。
+ */
+function wireCatalogDragAndDrop(li: HTMLLIElement, id: string): void {
+  li.draggable = true
+  li.addEventListener('dragstart', (event) => {
+    const target = event.target as HTMLElement
+    if (target.closest('input, select, button, textarea, [role="spinbutton"]')) {
+      event.preventDefault()
+      return
+    }
+    draggingId = id
+    dragSource = 'catalog'
+    dragOrigin = { id, parent: li.parentElement, nextSibling: li.nextElementSibling }
+    event.dataTransfer?.setData('text/plain', id)
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+    li.style.opacity = '0.5'
+    // 比照中欄 wireDragAndDrop 之 T5.6 驗收修復（見其文件）：延後一幀才加
+    // body class，避免 dragstart 派發同幀版面位移中止原生拖曳。
+    dragClassRafId = requestAnimationFrame(() => {
+      dragClassRafId = null
+      if (draggingId !== null) document.body.classList.add('is-segment-dragging')
+    })
+  })
+  li.addEventListener('dragend', endDragCleanup)
 }
 
 /**
@@ -1501,6 +1888,135 @@ function rowIndexOfOl(ol: Element | null): number | null {
   if (ol === null) return null
   const index = rowGroupContainers.findIndex((container) => container.ol === ol)
   return index === -1 ? null : index
+}
+
+// ── 逐列分隔符（T1.7，09-PLAN §D1）：real-index 空間的維護 helper ──
+
+/**
+ * `config.rowSeparators` 正規形（比照 config.ts `sanitizeRowSeparators`
+ * 之修剪規則，該檔本任務禁改、於此複刻同一收斂——UI 寫回路徑須自行維持
+ * 正規形，不能只靠下次 `deserializeConfig` 才收斂）：修剪尾端連續
+ * `null`；修剪後空陣列 → `undefined`（省略欄位，「全繼承」正規形）。
+ * `removeRealAt`／`insertNullAtReal` 皆可能在陣列中段挖除/插入而使尾端
+ * 產生新的連續 `null`（如原陣列 `[a, null, c]` 移除 real index 2 後變
+ * `[a, null]`——尾端多了一個未修剪的 `null`），故三個變異點（
+ * `setSegmentEnabled` drain／`performRowDeletion`／`commitSegmentMove`）
+ * 皆須經此收斂，不得直接賦值裸陣列。
+ */
+function normalizeRowSeparatorsField(seps: readonly RowSeparator[]): RowSeparator[] | undefined {
+  let end = seps.length
+  while (end > 0 && seps[end - 1] === null) end--
+  const trimmed = seps.slice(0, end)
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+/**
+ * commitSegmentMove 專用：把 `rowSlots`／`config.segments` 的 real-slot
+ * 增減換算至 `rowSeparators`（real-index 空間，PLAN A-1 索引基準）的
+ * splice 操作。**不可**直接借用 `planSegmentMove` 回傳的 `nextSlots`——
+ * 該陣列是 slot-index 空間（`convertRealToPending` 只翻 kind、位置不
+ * 動，故「顯示編號」不因來源列耗盡而漂移，見 row-slots.ts 文件），而
+ * `rowSeparators` 索引的是「real 集合中的第 k 個」（real-index 空間，
+ * 一個 real slot 轉 pending 後，其後全部 real 的 real-index 皆前移一格
+ * ——即使 slot-index／顯示編號完全不變）。兩座標系有別，故本函式獨立於
+ * `sourceRow`（movedSeg 移動前的 real index，即其正規化後 `row` 欄）／
+ * `srcDrains`（來源列是否僅剩 moved 一段）／`targetRow`（`plan.targetRow`，
+ * 已是 real-index 空間）三個既有量重新推導，呼叫端（`commitSegmentMove`）
+ * 之 `sourceRow`／`srcDrains` 為獨立重算、非重用 `planSegmentMove` 內部
+ * 同名決策（該函式無此欄位可取）。
+ *
+ * 操作順序**與 `planSegmentMove` 同構**（先落點插入、後來源移除——見其
+ * 文件步驟 3→4）：
+ * 1. `target.kind==='pending'`（落點為既有暫存列指派成真）→ 於
+ *    `targetRow`（此位置尚未插入前即為該新 real 的 real-index，理由同
+ *    `planSegmentMove` 之 `bumpIds` 收集邏輯——「other.row >= targetRow」
+ *    與此處「插入使 real-index >= targetRow 者全數 +1」為同一件事的兩種
+ *    描述）`insertNullAtReal`（新列本身無覆寫）。`target.kind==='real'`
+ *    （落點為既有真實列）不觸發任何插入——bumpIds 恆空，佐證無 real 集合
+ *    成長。
+ * 2. 來源列耗盡且非同列插入（`sameRowInsert` 判定與 `planSegmentMove`
+ *    步驟 4 同式）→ `removeRealAt`。**移除的 real-index 須計入步驟 1 是否
+ *    已使其偏移**：若剛插入的位置 `targetRow <= sourceRow`，來源列的
+ *    real-index 已被步驟 1 的插入向後推一格（`sourceRow + 1`）；否則
+ *    （`target.kind==='real'` 或 `targetRow > sourceRow`）未受影響
+ *    （`sourceRow` 原值）。
+ */
+function computeRowSeparatorsAfterMove(
+  seps: readonly RowSeparator[],
+  target: DropTarget,
+  targetRow: number,
+  sourceRow: number,
+  srcDrains: boolean,
+): RowSeparator[] {
+  let next = target.kind === 'pending' ? insertNullAtReal(seps, targetRow) : [...seps]
+  const sameRowInsert = target.kind === 'real' && targetRow === sourceRow
+  if (srcDrains && !sameRowInsert) {
+    const srcRealIndex = target.kind === 'pending' && targetRow <= sourceRow ? sourceRow + 1 : sourceRow
+    next = removeRealAt(next, srcRealIndex)
+  }
+  return next
+}
+
+/**
+ * 逐列分隔符控件的寫回入口（select／custom input 共用）：`realIndex` 為
+ * 該列群組容器建立時的閉包索引（＝real index，見 `rowGroupContainers`
+ * 文件「容器一經建立…索引終生穩定」）；`value` 為 `null`＝還原繼承全域、
+ * 或明確 `SeparatorConfig` 覆寫。長度不足時先 `padToLength`（T1.2 交付
+ * 呼叫方，見其文件「目前無呼叫方」）補 `null` 至可寫入該位置，寫入後經
+ * `normalizeRowSeparatorsField` 收斂正規形，最後單次 `commitConfig`（與
+ * 全域分隔符控件 `wireGlobalControls` 同慣例：每次控件變動即 commit）。
+ */
+function setRowSeparatorOverride(realIndex: number, value: SeparatorConfig | null): void {
+  const padded = padToLength(config.rowSeparators ?? [], realIndex + 1)
+  padded[realIndex] = value
+  config.rowSeparators = normalizeRowSeparatorsField(padded)
+  commitConfig()
+}
+
+/**
+ * T1.7：依 `config.rowSeparators[i] ?? null`（`i`＝容器 real index，與其
+ * `rowSeparators` 索引同基準）同步每列群組的分隔符控件顯示值——與
+ * `refreshRowNumbering` 同點呼叫（見 `layoutSegmentContainers`）：凡
+ * `rowSeparators` 因 real-slot 增減而重新對位（列刪除／耗盡／pending
+ * 物化）皆伴隨分組或 slots 實際變動，必然觸發 `layoutSegmentContainers`
+ * （見三個變異點文件），故毋須在「只改分隔符本身、未牽動列結構」的一般
+ * commit 路徑額外呼叫——該路徑本就由控件自身的 change handler 直接同步
+ * 已變更列的 DOM 值，無需反查 config 回填。
+ */
+function refreshRowSeparatorControls(): void {
+  for (let i = 0; i < rowGroupContainers.length; i++) {
+    const container = rowGroupContainers[i]
+    const override = config.rowSeparators?.[i] ?? null
+    if (override === null) {
+      container.separatorPresetEl.value = 'inherit'
+      setHidden(container.separatorCustomFieldEl, true)
+      container.separatorCustomEl.value = ''
+    } else if (override.kind === 'preset') {
+      container.separatorPresetEl.value = `preset:${override.value}`
+      setHidden(container.separatorCustomFieldEl, true)
+      container.separatorCustomEl.value = ''
+    } else {
+      container.separatorPresetEl.value = 'custom'
+      setHidden(container.separatorCustomFieldEl, false)
+      container.separatorCustomEl.value = override.value
+    }
+  }
+}
+
+/**
+ * T1.7：powerline 模式下逐列分隔符控件整組停用（比照 `applyModeConstraints`
+ * 對全域 `separatorCustomEl` 的停用精神，見其文件；本控件群組**整組**
+ * 停用而非僅 custom 子欄——逐列覆寫僅 plain 模式生效，見 `config.ts`
+ * `BuilderConfig.rowSeparators` 文件「僅 plain 模式生效」，powerline 下
+ * preset 亦無意義）。**保值不清除**：僅切 `disabled`，`config.rowSeparators`
+ * 資料本身不變（惰性存續，比照既有 `separator` 慣例）。
+ */
+function applyRowSeparatorModeConstraints(): void {
+  const powerline = config.mode === 'powerline'
+  for (const container of rowGroupContainers) {
+    container.separatorPresetEl.disabled = powerline
+    container.separatorCustomEl.disabled = powerline
+  }
 }
 
 /**
@@ -1534,15 +2050,105 @@ function rowIndexOfOl(ol: Element | null): number | null {
  * 組合後，realCount(rowSlots) 恆等於 commit 後實際渲染列數（見 row-slots.ts
  * reconcileRealSlots 為防禦收斂、理論上 no-op）；`beforeId === movedId` 由
  * computeCrossRowMove 既有 no-op 分支安全退化。
+ *
+ * T1.7（09-PLAN §D1 A-3）：`rowSeparators` 隨 `rowSlots` 同步 splice——
+ * `sourceRow`／`srcDrains` 於此**獨立重算**（非重用 `planSegmentMove`
+ * 內部同名決策，該函式的回傳形不含這兩值；純讀取、與 `planSegmentMove`
+ * 內部判定同一套規則，見其文件步驟 1），供 {@link computeRowSeparatorsAfterMove}
+ * 換算 real-index 空間的 splice（`rowSlots`／`convertRealToPending` 是
+ * **slot-index 空間**、位置不變只翻 kind；`rowSeparators` 是**real-index
+ * 空間**、real 集合縮減時其後項目位置會前移——兩者座標系不同，故不可能
+ * 直接借用 `plan.nextSlots`，須另以 real-index 語意獨立推算，見該函式
+ * 文件的座標系換算）。
  */
-function commitSegmentMove(movedId: string, target: DropTarget, beforeId?: string): void {
+export function commitSegmentMove(movedId: string, target: DropTarget, beforeId?: string): void {
+  const movedSeg = segmentConfigById.get(movedId)
+  // T3.2（09-PLAN §D3 A-1「enable-into-target」，本 sprint 唯一 Critical
+  // 級設計 C1）：拖入一個**停用中**的段——語意是「純插入」（無來源列可
+  // 耗盡）非「移動」，走專用分支（見 commitEnableIntoTarget）。已啟用段
+  // 走下方原路徑，行為零變（本分支僅於 `!enabled` 時進入）。
+  if (movedSeg !== undefined && !movedSeg.enabled) {
+    commitEnableIntoTarget(movedId, target, beforeId)
+    return
+  }
   const plan = planSegmentMove(rowSlots, config.segments, movedId, target)
+  const sourceRow = movedSeg !== undefined && movedSeg.enabled ? movedSeg.row ?? 0 : 0
+  const srcDrains = !config.segments.some(
+    (other) => other.id !== movedId && other.enabled && (other.row ?? 0) === sourceRow,
+  )
   for (const id of plan.bumpIds) {
     const other = segmentConfigById.get(id)
     if (other !== undefined) other.row = (other.row ?? 0) + 1
   }
   rowSlots = plan.nextSlots
+  config.rowSeparators = normalizeRowSeparatorsField(
+    computeRowSeparatorsAfterMove(config.rowSeparators ?? [], target, plan.targetRow, sourceRow, srcDrains),
+  )
   performCrossRowMove(movedId, plan.targetRow, beforeId)
+}
+
+/**
+ * T3.2（09-PLAN §D3 A-1「enable-into-target seam」，本 sprint 唯一 Critical
+ * 級設計 C1 落地核心）：`commitSegmentMove` 的**停用段**分支——拖入一個
+ * 停用中的目錄段落到某列/暫存列時，語意是「純插入」（無來源列，故無
+ * `srcDrains` 耗盡、無來源位縮併，bump 僅受 target 側影響）而非「移動」。
+ *
+ * C1 崩解根因（PLAN §D3 verbatim）：停用段不進列群組（row-groups.ts
+ * `if (!seg.enabled) continue`），且 `setSegmentEnabled` 內部自呼
+ * `commitConfig()` 並變異 `rowSlots`（clamp 落回既有列）——「先 enable 再
+ * move」會經**兩段** commit，enable 中間態使 drop 當下捕捉的 slotIndex
+ * stale、`planSegmentMove` 依假來源列算 drain/bump（空清單拖入唯一 pending、
+ * 中間 pending 列兩情境落點錯亂）。故本分支採 T3.1 交付的
+ * `markSegmentEnabledDeferred`（只設 `enabled=true`，不 clamp／不動 slots／
+ * 不 commit）＋由本函式以 drop 當下的 target 一步到位定 row/slots，
+ * **唯一一次** commit：
+ * 1. defer-mark 啟用（`seg.enabled=true`；row 落點交步驟 2 的 seam 一步定，
+ *    不經 `clampReenableRow` 中間態）。
+ * 2. seam 決策 `planEnableIntoTarget`（enable-into-target.ts）——純插入，
+ *    不含 `planSegmentMove` 的來源列耗盡步驟；bump 僅收「row ≥ targetRow」
+ *    者。drop 目標的 slotIndex 於此同一同步事件內取用，不跨 relayout。
+ * 3. 套 bump（`row +1`，原地 mutate 既有物件參照）／`rowSlots`／
+ *    `rowSeparators`。rowSeparators 復用 `computeRowSeparatorsAfterMove`，
+ *    但**純插入＝`srcDrains` 恆 false**（無來源列），故其只做 pending 側的
+ *    `insertNullAtReal`、絕不觸發來源 `removeRealAt`；`sourceRow` 於
+ *    `srcDrains=false` 時不被讀取（見該函式 `sameRowInsert` 閘），傳 0
+ *    佔位。
+ * 4. **唯一一次** `commitConfig`（於 `performCrossRowMove` 內；本函式他處
+ *    不再 commit）＋播報「已加入」（T3.4：`performCrossRowMove` 的 origin
+ *    參數傳 `'catalog-add'`——目錄拖入啟用語意上是「把段加入某列」，非
+ *    「移動既有段」，見 `announceSegmentLanded` 文件）。`seg.row` 由
+ *    `performCrossRowMove` 寫回 target。
+ * 5. **唯一 commit 後**補跑啟用側 UI 同步 `syncSegmentEnabledUi`＋
+ *    `syncFgOverrideDisabled`（round 2 收口，防 I4b 重演）——否則拖入
+ *    啟用中的 powerline+bar 百分比段，其 fgOverride picker 停在停用當下的
+ *    過期 disabled 態；左欄 checkbox／中欄啟用態亦賴此同步。呼叫序比照
+ *    `setSegmentEnabled`（先 syncSegmentEnabledUi、後 syncFgOverrideDisabled），
+ *    唯本分支兩者皆置於**唯一 commit 之後**（PLAN §D3 收口要求）。
+ *
+ * T3.3：目錄項 draggable 的 drop handler（落點側沿用中欄既有 handler，
+ * 見 `wireCatalogDragAndDrop` 文件）直接呼叫 `commitSegmentMove(disabledId,
+ * target, beforeId)` 即自動走本分支（`commitSegmentMove` 依 `!seg.enabled`
+ * 自判），無需另接。已啟用目錄項被拖入時 `movedSeg.enabled` 為 true，
+ * `commitSegmentMove` 走下方一般分支（非本函式）——即 A-3「已啟用目錄項
+ * 被拖入＝退化為純 move」，由該自動分派天然達成，非本函式關注點。
+ */
+function commitEnableIntoTarget(movedId: string, target: DropTarget, beforeId: string | undefined): void {
+  markSegmentEnabledDeferred(movedId)
+  const plan = planEnableIntoTarget(rowSlots, config.segments, movedId, target)
+  for (const id of plan.bumpIds) {
+    const other = segmentConfigById.get(id)
+    if (other !== undefined) other.row = (other.row ?? 0) + 1
+  }
+  rowSlots = plan.nextSlots
+  // 純插入無來源列耗盡：srcDrains 恆 false（見上方文件步驟 3；sourceRow
+  // 於 srcDrains=false 時不被讀取，傳 0 佔位）。
+  config.rowSeparators = normalizeRowSeparatorsField(
+    computeRowSeparatorsAfterMove(config.rowSeparators ?? [], target, plan.targetRow, 0, false),
+  )
+  performCrossRowMove(movedId, plan.targetRow, beforeId, 'catalog-add')
+  // 唯一 commit 後補跑啟用側 UI 同步（round 2 收口，防 I4b 重演；見步驟 5）。
+  syncSegmentEnabledUi(movedId, true)
+  syncFgOverrideDisabled()
 }
 
 /**
@@ -1555,6 +2161,11 @@ function commitSegmentMove(movedId: string, target: DropTarget, beforeId?: strin
  * 自然接手 DOM 搬移／select 刷新，見 layoutSegmentContainers）→ 播報
  * 「〈段名〉移至第 N 列第 M 位（共 K）」——同列插入與跨列移動共用同一
  * 播報格式，滿足 PLAN「播報沿用移動文案」。
+ *
+ * T3.4（09-PLAN §D3 A-3）：`origin` 參數選擇播報模板（見
+ * `announceSegmentLanded` 文件）——預設 `'move'`，既有全部呼叫點
+ * （中欄拖曳／select 指派／已啟用目錄項拖入）零改動；`commitEnableIntoTarget`
+ * （目錄拖入停用段）顯式傳 `'catalog-add'`，播「已加入」。
  *
  * T5.14：rowSlots 已於呼叫端（commitSegmentMove）先行維護，commitConfig
  * 內 layoutSegmentContainers 依其重繪；播報之「第 N 列」須為**顯示編號**
@@ -1570,19 +2181,22 @@ function commitSegmentMove(movedId: string, target: DropTarget, beforeId?: strin
  * 條款針對的是鍵盤觸發的按鈕操作，見 moveSegment），故沿用既有拖放路徑
  * 慣例、不新增焦點管理。
  */
-function performCrossRowMove(movedId: string, targetRow: number, beforeId: string | undefined): void {
+function performCrossRowMove(
+  movedId: string,
+  targetRow: number,
+  beforeId: string | undefined,
+  origin: 'move' | 'catalog-add' = 'move',
+): void {
   const result = computeCrossRowMove(config.segments, movedId, targetRow, beforeId)
   const seg = segmentConfigById.get(movedId)
   if (seg !== undefined) seg.row = targetRow
   config.segments = result.segments
   commitConfig()
   const descriptor = DESCRIPTORS_BY_ID[movedId as SegmentId]
-  announceMove(
-    formatMoveAnnouncement(descriptor.label, {
-      ...result,
-      row: slotIndexOfRealRow(rowSlots, result.row - 1) + 1,
-    }),
-  )
+  announceSegmentLanded(origin, segLabel(descriptor.id), {
+    ...result,
+    row: slotIndexOfRealRow(rowSlots, result.row - 1) + 1,
+  })
 }
 
 /**
@@ -1646,11 +2260,7 @@ function wireRowContainerDrop(container: HTMLElement, targetRow: number): void {
     event.preventDefault()
     const movedId = draggingId!
     const beforeNode = resolveBeforeNode(event)
-    draggingId = null
-    dragOrigin = null
-    const dragged = rowElements.get(movedId)
-    if (dragged !== undefined) dragged.style.opacity = ''
-    clearDropGap()
+    endDragCleanup()
     commitSegmentMove(movedId, { kind: 'real', row: targetRow }, beforeNode?.dataset.segmentId)
   })
 }
@@ -1675,11 +2285,7 @@ function wirePendingRowDrop(container: HTMLElement, slotIndex: number): void {
     if (draggingId === null) return
     event.preventDefault()
     const movedId = draggingId
-    draggingId = null
-    dragOrigin = null
-    const dragged = rowElements.get(movedId)
-    if (dragged !== undefined) dragged.style.opacity = ''
-    clearDropGap()
+    endDragCleanup()
     commitSegmentMove(movedId, { kind: 'pending', slotIndex }, undefined)
   })
 }
@@ -1704,10 +2310,14 @@ function performSwap(id: string, direction: 'up' | 'down'): RowSwapResult | null
   // 映射為 slot 顯示編號（同列交換不改 slots，但若上方有暫存空列則顯示
   // 編號與 real index 不同，故仍須映射）。formatMoveAnnouncement 本身不動。
   announceMove(
-    formatMoveAnnouncement(descriptor.label, {
-      ...result,
-      row: slotIndexOfRealRow(rowSlots, result.row - 1) + 1,
-    }),
+    formatMoveAnnouncement(
+      segLabel(descriptor.id),
+      {
+        ...result,
+        row: slotIndexOfRealRow(rowSlots, result.row - 1) + 1,
+      },
+      currentLocale(),
+    ),
   )
   return result
 }
@@ -1839,6 +2449,10 @@ function performRowDeletion(rowIndex: number): void {
   const slot = slotIndexOfRealRow(rowSlots, rowIndex)
   const displayRow = slot + 1
   rowSlots = removeSlotAt(rowSlots, slot)
+  // T1.7（09-PLAN §D1 A-3）：整列刪除＝真刪除，`rowSeparators[rowIndex]`
+  // （若有）一併消滅、其後覆寫前移一格——`rowIndex` 即該列的 real index
+  // （函式簽章本就以 real index 為單位，與 rowSeparators 索引基準同源）。
+  config.rowSeparators = normalizeRowSeparatorsField(removeRealAt(config.rowSeparators ?? [], rowIndex))
   for (const id of info.segmentIds) {
     const seg = segmentConfigById.get(id)
     if (seg === undefined) continue
@@ -1847,7 +2461,7 @@ function performRowDeletion(rowIndex: number): void {
   }
   commitConfig()
   syncFgOverrideDisabled() // I4c：批次停用後收斂 fgOverride picker 停用態；棄用回傳值，不播報。
-  announceMove(`第 ${displayRow} 列已刪除，${info.segmentIds.length} 個段已回到目錄`)
+  announceMove(msg().announce.rowDeleted(displayRow, info.segmentIds.length))
   addPendingRowEl.focus()
 }
 
@@ -1930,12 +2544,7 @@ const duplicateResetPairIds = new Set<SegmentId>()
 
 /** 重複提示句：分工說明語意（variant＝rate 段內附時刻；獨立段＝完整倒數）。 */
 function duplicateResetHintMessage(rateLabel: string, resetLabel: string): string {
-  const variantLabel = VARIANT_LABELS['percent-reset']
-  return (
-    `「${rateLabel}」已選「${variantLabel}」樣式，與「${resetLabel}」同列並開，` +
-    '重置時間將重複顯示：前者僅於百分比後方附註時刻（如 (14:30)），' +
-    '後者為獨立完整倒數（如 ↺2h (14:30)）'
-  )
+  return msg().announce.duplicateResetHint(rateLabel, resetLabel)
 }
 
 /**
@@ -1972,16 +2581,14 @@ function checkDuplicateResetHints(options?: { silent?: boolean }): void {
       if (!duplicateResetPairIds.has(pair.rateId)) {
         duplicateResetPairIds.add(pair.rateId)
         if (!silent) {
-          messages.push(
-            duplicateResetHintMessage(DESCRIPTORS_BY_ID[pair.rateId].label, DESCRIPTORS_BY_ID[pair.resetId].label),
-          )
+          messages.push(duplicateResetHintMessage(segLabel(pair.rateId), segLabel(pair.resetId)))
         }
       }
     } else {
       duplicateResetPairIds.delete(pair.rateId)
     }
   }
-  if (messages.length > 0) announceGlobal(messages.join('；'))
+  if (messages.length > 0) announceGlobal(msg().announce.join(messages))
 }
 
 /**
@@ -2024,10 +2631,11 @@ function commitConfig(): void {
   } catch (error) {
     // config 恆經清洗、prefix/分隔符已擋 PUA，理論上 resolve/emit 不拋；
     // 防禦性顯示以免整頁凍結。
-    showError(`產生輸出時發生非預期錯誤：${error instanceof Error ? error.message : String(error)}`)
+    showError(msg().validation.unexpectedOutputError(error instanceof Error ? error.message : String(error)))
   }
   updateNoBoundaryHint() // segment 色／啟用態亦可能改變 D1 無邊界提示條件，逐次收束時一併重算。
   checkDuplicateResetHints() // T5.2：percent-reset variant × reset 段同列並開重複提示，逐次收束時一併判定。
+  syncDefaultHintDims() // T2.2：任一欄位變動皆可能使其現值與預設之異同翻轉，逐次收束時一併同步淡化態。
 }
 
 // ── 全域控制 ──
@@ -2064,6 +2672,7 @@ function applyModeConstraints(): string[] {
   powerlineArrowEl.disabled = !powerline // 箭頭選項僅 powerline 有意義。
   lastArrowCapEl.disabled = !powerline || !config.powerlineArrow // D1 gating：false 時 cap 本身無效，一併停用。
   separatorCustomEl.disabled = powerline // powerline 以箭頭轉場，停用自訂分隔符（D3）。
+  applyRowSeparatorModeConstraints() // T1.7：逐列分隔符覆寫僅 plain 模式生效，比照本函式對全域控件的停用精神。
   updateNoBoundaryHint()
   return syncFgOverrideDisabled()
 }
@@ -2097,13 +2706,8 @@ function handleModeChange(nextMode: 'plain' | 'powerline'): void {
   // 下 syncFgOverrideDisabled 之 shouldDisable 恆假，見其邏輯）。
   const newlyDisabledFg = applyModeConstraints()
   commitConfig()
-  const messages = [
-    nextMode === 'powerline'
-      ? '已切換至 Powerline 模式；顏色語意已翻轉（原前景色現作為背景色），自訂分隔符已停用，請檢視預覽。'
-      : '已切換至純文字模式；顏色語意已翻轉（原背景色現作為前景色），請檢視預覽。',
-    ...newlyDisabledFg.map(fgOverrideDisabledMessage),
-  ]
-  announceGlobal(messages.join('；'))
+  const messages = [msg().announce.modeSwitch(nextMode), ...newlyDisabledFg.map(fgOverrideDisabledMessage)]
+  announceGlobal(msg().announce.join(messages))
   // 視圖切換：焦點移至變動的控件群（segment 清單，powerline 下新增前景覆寫色選）。
   segmentListsEl.setAttribute('tabindex', '-1')
   segmentListsEl.focus()
@@ -2127,7 +2731,7 @@ function wireGlobalControls(): void {
         config.separator = { kind: 'custom', value: separatorCustomEl.value }
         commitConfig()
       } else {
-        showError(`分隔符${result.message}`)
+        showError(msg().validation.fieldReject('separator', result.reason))
       }
       separatorCustomEl.focus()
     } else if (value.startsWith('preset:')) {
@@ -2144,7 +2748,7 @@ function wireGlobalControls(): void {
   separatorCustomEl.addEventListener('input', () => {
     const result = validateUserText(separatorCustomEl.value)
     if (!result.ok) {
-      showError(`分隔符${result.message}`)
+      showError(msg().validation.fieldReject('separator', result.reason))
       return
     }
     clearError()
@@ -2185,16 +2789,113 @@ function wirePreviewControls(): void {
 async function copyOutput(text: string, label: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text)
-    announceOutput(`已複製 ${label}`)
+    announceOutput(msg().output.copied(label))
   } catch {
-    announceOutput(`複製失敗，請手動選取${label}內容後複製`)
+    announceOutput(msg().output.copyFailed(label))
   }
 }
 
+// ── T4.2：產出腳本 dialog（PLAN §D4 A-2，showModal＋顯式焦點管理） ──
+
+/**
+ * dialog 內第一個可聚焦元素的選取子——與原生 showModal 聚焦演算法採同一
+ * 判準子集（button／連結／表單控件／顯式 tabindex，且排除 disabled／
+ * tabindex="-1"）。找不到時退回 container 本身（同原生演算法「無可聚焦
+ * 子孫則聚焦 dialog 自身」的 fallback）。
+ */
+const DIALOG_FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function focusFirstFocusable(container: HTMLElement): void {
+  const target = container.querySelector<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)
+  ;(target ?? container).focus()
+}
+
+/**
+ * 開啟產出 dialog。`showModal()` 為首選（PLAN §D4 A-2 拍板取捨：真模態、
+ * 頁面 inert、無法邊改 config 邊看產出碼——接受理由見 index.html 該節點
+ * 註解）；`typeof .showModal === 'function'` 特徵偵測 fallback（僅設
+ * `open` 屬性、非真模態）供 jsdom 與無 showModal 環境（如舊版 iOS
+ * Safari）不炸——完整相容矩陣裁決留待 T4.4 spike，本處只求「不炸＋
+ * 可測」，不逾越該任務範圍。
+ *
+ * 開啟前先保險重算一次 `refreshOutputs()`：config 若在上次開啟後有
+ * 變動（含 `#settings-path` 改值），dialog 內容確保為最新。開啟後**顯式**
+ * 聚焦 dialog 內第一個可聚焦元素——不依賴瀏覽器原生自動聚焦，理由：
+ * (1) jsdom 未實作 showModal／原生聚焦演算法，測試需可測路徑；(2) 與下方
+ * `close` 事件的顯式焦點還原對稱，行為不受瀏覽器實作差異影響。
+ */
+function openOutputDialog(): void {
+  refreshOutputs()
+  if (typeof outputDialogEl.showModal === 'function') {
+    outputDialogEl.showModal()
+  } else {
+    outputDialogEl.setAttribute('open', '')
+  }
+  focusFirstFocusable(outputDialogEl)
+}
+
+/**
+ * 關閉產出 dialog 的單一出口——「關閉」鈕點擊／backdrop click 皆呼叫本
+ * 函式。`typeof .close === 'function'` 為真時原生 `close()` 本身即會
+ * 觸發 `close` 事件（無需重複派送）；fallback 路徑（jsdom／無 showModal
+ * 環境）手動移除 `open` 屬性後**顯式**派送一個 `close` 事件，確保與真實
+ * 瀏覽器路徑走同一段焦點還原邏輯（見 `wireOutputDialog` 的 `close`
+ * 監聽器），不分兩套行為。
+ */
+function closeOutputDialog(): void {
+  if (typeof outputDialogEl.close === 'function' && outputDialogEl.open) {
+    outputDialogEl.close()
+  } else {
+    outputDialogEl.removeAttribute('open')
+    outputDialogEl.dispatchEvent(new Event('close'))
+  }
+}
+
+/**
+ * T4.2（PLAN §D4 A-2「關閉**顯式**還原焦點至『產出腳本』鈕（不依賴
+ * 瀏覽器自動還原）」）：`close` 事件為**唯一**焦點還原出口——不分關閉
+ * 來源（顯式「關閉」鈕／backdrop click／Esc 原生 cancel→close），三者
+ * 皆統一在此還原，避免各自還原分岔出不同行為。backdrop click 關閉為
+ * PLAN 未強制的選配功能（本 task 決策採用，見 T4.2 report「關鍵決策」）
+ * ——僅在 `event.target === outputDialogEl` 時關閉（點擊落在 dialog
+ * padding-box／backdrop，非任何子元素），避免點擊產出內容誤觸關閉。
+ *
+ * jsdom 無原生 showModal／close 事件實作，測試以
+ * `outputDialogEl.dispatchEvent(new Event('close'))` 直接驅動本監聽器
+ * （見 output-dialog.dom.test.ts），與真實瀏覽器路徑共用同一段邏輯。
+ */
+function wireOutputDialog(): void {
+  outputDialogOpenEl.addEventListener('click', openOutputDialog)
+  outputDialogCloseEl.addEventListener('click', closeOutputDialog)
+  outputDialogEl.addEventListener('click', (event) => {
+    if (event.target === outputDialogEl) closeOutputDialog()
+  })
+  outputDialogEl.addEventListener('close', () => {
+    outputDialogOpenEl.focus()
+  })
+}
+
+/**
+ * T4.3（PLAN §D4 A-3）：skip-nav「跳至產出腳本」不再依賴已消失的
+ * `#output-section` 錨點捲動，改為顯式聚焦「產出腳本」鈕
+ * （`outputDialogOpenEl`）本身——skip 的目的是「到達控制項」，非
+ * 「觸發」，故僅 `focus()`、**不**呼叫 `openOutputDialog()`。
+ * `preventDefault()` 蓋掉 href 的原生錨點跳轉（href 保留
+ * `#output-dialog-open` 僅作無 JS 環境的語意化備援，見 index.html
+ * 該節點註解）。
+ */
+function wireSkipToOutput(): void {
+  skipToOutputEl.addEventListener('click', (event) => {
+    event.preventDefault()
+    outputDialogOpenEl.focus()
+  })
+}
+
 function wireOutputActions(): void {
-  copyBashEl.addEventListener('click', () => void copyOutput(lastOutputs.bash, 'bash 腳本'))
-  copyPs1El.addEventListener('click', () => void copyOutput(lastOutputs.ps1, 'PowerShell 腳本'))
-  copySettingsEl.addEventListener('click', () => void copyOutput(lastOutputs.settings, 'settings 片段'))
+  copyBashEl.addEventListener('click', () => void copyOutput(lastOutputs.bash, msg().output.bashLabel))
+  copyPs1El.addEventListener('click', () => void copyOutput(lastOutputs.ps1, msg().output.ps1Label))
+  copySettingsEl.addEventListener('click', () => void copyOutput(lastOutputs.settings, msg().output.settingsLabel))
 }
 
 // ── segment 清單建置 ──
@@ -2205,10 +2906,24 @@ function wireOutputActions(): void {
  * 其列群組，appendChild 為既有節點重定位，非二次建立。左欄目錄項的建置
  * 已分離為獨立函式 buildCatalogItems（見上，職責不重疊：本函式只建置
  * 中欄的重控件列）。
+ *
+ * T5.6（09-PLAN §D5 A-4「rebuild 中欄 segment rows」）：本函式除 init()
+ * 首次呼叫外，語言切換五步序第 (2) 步（`handleLocaleSwitch`）亦會再次
+ * 呼叫——**重繪**語意，非僅首次建置。初次呼叫時 `rowElements` 為空
+ * Map，下方清除迴圈為 no-op；重繪時 `rowElements` 持有**上一輪**的舊
+ * `<li>` 參照，這些節點此刻可能已被 `layoutSegmentContainers` 搬到列
+ * 群組 `<ol>`（啟用段）而不在隱藏池內——僅清空隱藏池
+ * （`segmentHiddenPoolEl.textContent = ''`）不會動到它們，若不顯式
+ * `.remove()`，舊節點會與新建節點並存於文件樹（重複 id、`querySelector`
+ * 命中順序不定，語言切換即無法追溯翻轉——實測即此問題）。故先於清空
+ * 隱藏池／清 Map 之前，逐一 `.remove()` 舊 `rowElements` 之值（不論其
+ * 現居何處），確保重繪後文件樹內每個 segment id 只有一份 `<li>`。
  */
 function buildSegmentRows(): void {
+  for (const li of rowElements.values()) li.remove()
   segmentHiddenPoolEl.textContent = ''
   rowElements.clear()
+  defaultHintElements.clear()
   for (const seg of config.segments) {
     const descriptor = DESCRIPTORS_BY_ID[seg.id as SegmentId] as SegmentDescriptor | undefined
     if (descriptor === undefined) continue // 清洗後不應發生；防禦。
@@ -2216,6 +2931,9 @@ function buildSegmentRows(): void {
     rowElements.set(seg.id, li)
     segmentHiddenPoolEl.appendChild(li)
   }
+  // T2.2：init() 依 T7.4/I5 慣例不呼叫 commitConfig（見其文件），故初始
+  // 淡化態須於此顯式同步一次，之後每次 commitConfig 尾端接手（見其呼叫）。
+  syncDefaultHintDims()
 }
 
 // ── 列群組容器（T5.3；啟用段依渲染列分組，PLAN §排序與列指派 UX） ──
@@ -2273,7 +2991,7 @@ function wireRowDeleteButton(root: HTMLElement, index: number): HTMLButtonElemen
     setHidden(confirmGroup, false)
     cancelBtn.focus()
     // 點擊當下以 rowSlots 計算顯示編號（閉包持 real index，事件時查）。
-    announceMove(`確定要刪除第 ${slotIndexOfRealRow(rowSlots, index) + 1} 列？該列全部段將回到目錄。`)
+    announceMove(msg().rowGroup.deleteConfirmPrompt(slotIndexOfRealRow(rowSlots, index) + 1))
   })
   cancelBtn.addEventListener('click', () => {
     setHidden(confirmGroup, true)
@@ -2296,14 +3014,85 @@ function createRowGroupContainer(index: number): {
   section: HTMLElement
   ol: HTMLOListElement
   deleteTrigger: HTMLButtonElement
+  separatorPresetEl: HTMLSelectElement
+  separatorCustomFieldEl: HTMLElement
+  separatorCustomEl: HTMLInputElement
 } {
   const key = `row-group-${index}`
   const root = instantiateTemplate('segment-row-group-template', '__RID__', key)
-  root.querySelector<HTMLElement>('.segment-section__heading')!.textContent = `第 ${index + 1} 列`
+  // T5.4（09-PLAN §D5 A-3 clone 時序）：clone 後立即套用目前語言——本模板
+  // 尚無 data-i18n 標記（本任務示範面未含此模板，全量遷移留 T5.5），現階段
+  // 為 no-op；下一行 heading 為動態組句（含數字），不改走 data-i18n（見
+  // i18n-dom.ts 檔頭「A-4 中間態邊界」對此類動態組句的處理範圍）。
+  applyI18n(root, currentLocale())
+  root.querySelector<HTMLElement>('.segment-section__heading')!.textContent = msg().rowGroup.heading(index + 1)
+  // T3.5：data-row-index 為顯示編號，與上一行 heading 文字同一組數值
+  // （建立當下 index===顯示編號-1；容器存活期間隨後由 refreshRowNumbering
+  // 依 rowSlots 同步，見其文件）——供 e2e 序數斷言，不必比對 i18n 文字。
+  root.dataset.rowIndex = String(index + 1)
   const ol = root.querySelector<HTMLOListElement>('.segment-list')!
   wireRowContainerDrop(ol, index)
   const deleteTrigger = wireRowDeleteButton(root, index)
-  return { section: root, ol, deleteTrigger }
+  const { separatorPresetEl, separatorCustomFieldEl, separatorCustomEl } = wireRowSeparatorControl(root, index)
+  return { section: root, ol, deleteTrigger, separatorPresetEl, separatorCustomFieldEl, separatorCustomEl }
+}
+
+/**
+ * T1.7（09-PLAN §D1「UI」）：單一列群組的逐列分隔符控件接線——結構與
+ * change handler 皆比照全域分隔符控件（`wireGlobalControls` 內
+ * `separatorPresetEl`／`separatorCustomEl` 兩段，見其文件），差異僅在
+ * 多一個 `'inherit'` 選項（還原繼承，寫回 `null`）與寫回目標為
+ * `config.rowSeparators[realIndex]`（經 `setRowSeparatorOverride`）而非
+ * `config.separator`。`realIndex` 為容器建立時的閉包索引（終生穩定，見
+ * `rowGroupContainers` 文件），與 `wireRowContainerDrop(ol, index)`／
+ * `wireRowDeleteButton(root, index)` 同一 index 來源。
+ */
+function wireRowSeparatorControl(
+  root: HTMLElement,
+  realIndex: number,
+): { separatorPresetEl: HTMLSelectElement; separatorCustomFieldEl: HTMLElement; separatorCustomEl: HTMLInputElement } {
+  const separatorPresetEl = root.querySelector<HTMLSelectElement>('.segment-row-group__separator-preset')!
+  const separatorCustomFieldEl = root.querySelector<HTMLElement>('.segment-row-group__separator-custom-field')!
+  const separatorCustomEl = root.querySelector<HTMLInputElement>('.segment-row-group__separator-custom')!
+
+  separatorPresetEl.addEventListener('change', () => {
+    const value = separatorPresetEl.value
+    if (value === 'inherit') {
+      setHidden(separatorCustomFieldEl, true)
+      separatorCustomEl.value = ''
+      clearError()
+      setRowSeparatorOverride(realIndex, null)
+    } else if (value === 'custom') {
+      setHidden(separatorCustomFieldEl, false)
+      const result = validateUserText(separatorCustomEl.value)
+      if (result.ok) {
+        clearError()
+        setRowSeparatorOverride(realIndex, { kind: 'custom', value: separatorCustomEl.value })
+      } else {
+        showError(msg().validation.fieldReject('separator', result.reason))
+      }
+      separatorCustomEl.focus()
+    } else if (value.startsWith('preset:')) {
+      clearError()
+      setHidden(separatorCustomFieldEl, true)
+      setRowSeparatorOverride(realIndex, {
+        kind: 'preset',
+        value: value.slice('preset:'.length) as SeparatorPresetValue,
+      })
+    }
+  })
+
+  separatorCustomEl.addEventListener('input', () => {
+    const result = validateUserText(separatorCustomEl.value)
+    if (!result.ok) {
+      showError(msg().validation.fieldReject('separator', result.reason))
+      return
+    }
+    clearError()
+    setRowSeparatorOverride(realIndex, { kind: 'custom', value: separatorCustomEl.value })
+  })
+
+  return { separatorPresetEl, separatorCustomFieldEl, separatorCustomEl }
 }
 
 /** 列群組容器數量成長至 count（缺者於 #segment-row-groups 末端新建並掛載）。 */
@@ -2411,7 +3200,9 @@ function refreshRowSelects(groups: readonly RowGroup[]): void {
       }))
       // T5.14：枚舉來源＝rowSlots（位置制，含中間空列）；顯示值錨定為該段
       // 所在真實列的 slot index（group.row 為 real index）。
-      applyRowSelectOptionOps(select, computeRowSelectOptionOps(current, rowSlots))
+      // T5.5：穿入 currentLocale()——新建／更新的 option 文字跟隨當下語言
+      //（切換時的追溯翻轉＝重跑本函式，屬 T5.6 五步序）。
+      applyRowSelectOptionOps(select, computeRowSelectOptionOps(current, rowSlots, currentLocale()))
       select.value = String(slotIndexOfRealRow(rowSlots, group.row))
     }
   }
@@ -2444,9 +3235,10 @@ function renderPendingRowContainers(slots: readonly RowSlot[]): void {
   for (let s = 0; s < slots.length; s++) {
     if (slots[s] !== 'pending') continue
     const root = instantiateTemplate('segment-pending-row-template', '__PRID__', `pending-row-${s}`)
-    root.querySelector<HTMLElement>('.segment-section__heading')!.textContent = `第 ${s + 1} 列`
+    root.querySelector<HTMLElement>('.segment-section__heading')!.textContent = msg().rowGroup.heading(s + 1)
+    root.dataset.rowIndex = String(s + 1) // T3.5：e2e 序數斷言錨點，同步於 heading 文字。
     const deleteBtn = root.querySelector<HTMLButtonElement>('.segment-pending-row__delete')!
-    deleteBtn.textContent = `刪除第 ${s + 1} 列`
+    deleteBtn.textContent = msg().rowGroup.deleteRow(s + 1)
     deleteBtn.addEventListener('click', () => removePendingRow(s))
     wirePendingRowDrop(root, s)
     const before = rowGroupContainers[realIndexOfSlot(slots, s)]?.section ?? null
@@ -2475,7 +3267,7 @@ function removePendingRow(slotIndex: number): void {
   // 類型——凡繞過 layoutSegmentContainers 逕改 rowSlots 的路徑皆須此步）。
   refreshRowNumbering()
   lastRenderedSlots = rowSlots
-  announceMove('空列已移除')
+  announceMove(msg().announce.emptyRowRemoved)
   addPendingRowEl.focus()
 }
 
@@ -2490,18 +3282,18 @@ function refreshRowNumbering(): void {
   for (let i = 0; i < rowGroupContainers.length; i++) {
     const container = rowGroupContainers[i]
     const displayRow = slotIndexOfRealRow(rowSlots, i) + 1
+    container.section.dataset.rowIndex = String(displayRow) // T3.5：e2e 序數斷言錨點，同步於 heading 文字。
     const heading = container.section.querySelector<HTMLElement>('.segment-section__heading')
-    if (heading !== null) heading.textContent = `第 ${displayRow} 列`
-    const rowLabel = `刪除第 ${displayRow} 列`
-    container.deleteTrigger.textContent = rowLabel
+    if (heading !== null) heading.textContent = msg().rowGroup.heading(displayRow)
+    container.deleteTrigger.textContent = msg().rowGroup.deleteRow(displayRow)
     const confirmBtn = container.section.querySelector<HTMLButtonElement>(
       '.segment-row-group__delete-confirm-btn',
     )
     const cancelBtn = container.section.querySelector<HTMLButtonElement>(
       '.segment-row-group__delete-cancel-btn',
     )
-    if (confirmBtn !== null) confirmBtn.setAttribute('aria-label', `確認${rowLabel}`)
-    if (cancelBtn !== null) cancelBtn.setAttribute('aria-label', `取消${rowLabel}`)
+    if (confirmBtn !== null) confirmBtn.setAttribute('aria-label', msg().rowGroup.deleteConfirmAria(displayRow))
+    if (cancelBtn !== null) cancelBtn.setAttribute('aria-label', msg().rowGroup.deleteCancelAria(displayRow))
   }
 }
 
@@ -2527,12 +3319,55 @@ function layoutSegmentContainers(nextGroups: RowGroup[]): void {
   renderPendingRowContainers(rowSlots)
   refreshRowSelects(nextGroups)
   refreshRowNumbering() // T5.14：真實列標題／刪除鈕顯示編號隨 slots 同步。
+  refreshRowSeparatorControls() // T1.7：容器 real index 可能因 real-slot 增減而對應到不同覆寫值，同步顯示。
   refreshMoveButtonStates(nextGroups) // T5.5：列首/列末停用態隨分組/順序變動同步。
   refreshRowDeleteButtons() // T5.11：僅剩最後一個真實列時「刪除此列」鈕 disabled。
   lastRowGroups = nextGroups
   // T5.14 追修：與 lastRowGroups 同點更新「已渲染」基準（純值快照，非同一
   // 參照——後續 rowSlots 被其他變異點重新賦值不影響此快照）。
   lastRenderedSlots = rowSlots
+}
+
+// ── 語言切換（T5.6 五步序；09-PLAN §D5 A-4） ──
+
+/**
+ * 語言切換鈕 click 後、`initLangToggle` 完成第 (1) 步（`persistLocale`＋
+ * `applyI18n(document,next)`，見 i18n-dom.ts）之後呼叫的 hook——接續五
+ * 步序第 (2)-(5) 步：
+ *
+ * (2) rebuild 中欄 segment rows（`buildSegmentRows`——重跑一次性
+ *     aria/label 賦值最可靠的路徑，round 2 釘死「不涉段列焦點保全」：
+ *     切換由語言鈕觸發，焦點在鈕上不在段列）＋`layoutSegmentContainers`
+ *     重新分組佈局（直接呼叫、不經 `commitConfig` 的 rowGroupsEqual 閘門
+ *     ——rebuild 產出全新 `<li>` 節點，即使分組結構未變也必須重新掛載，
+ *     比照 init() 首次佈局的無條件呼叫）＋`syncFgOverrideDisabled`（新
+ *     picker 節點須重新同步 disabled 態，同 init() 經 syncGlobalControls
+ *     間接呼叫的精神；棄用回傳值、不 announceGlobal——非本次操作播報
+ *     主體，同 setSegmentEnabled 呼叫處慣例）＋刷新左欄目錄項名
+ *     （`refreshCatalogNames`，見其文件）；
+ * (3) 強制 preview 重 resolve 一次（`preview.setLocale`，刷新逐列
+ *     aria-label／外層群組 label，見 render-preview.ts `setLocale` 文件）；
+ * (4) `<html lang>` 翻轉（`syncHtmlLang`——PLAN 明訂排在 rebuild／preview
+ *     重 resolve 之後，故不在 i18n-dom.ts 的第 (1) 步內完成）；
+ * (5) 以**切換後語言**經 `#global-live-status` 播報新語言名稱
+ *     （2026-07-17 拍板；此刻 `msg()`／`currentLocale()` 已因
+ *     `persistLocale` 完成而讀到 `next`——`msg().langToggle.
+ *     switchedAnnounce` 為自我指涉句、無需插值，見其文件）。
+ *     `announceGlobal` 單一 live region、後寫覆前寫（見其文件），連續
+ *     切換多次無殘留疊字，天然冪等。
+ *
+ * 不 mutate `config`／`rowSlots`——純視圖重繪：`layoutSegmentContainers`
+ * 內部僅依現有 `config.segments`／`rowSlots` 重新分組與重排容器，兩者
+ * 本身皆不被本函式改寫（語言切換不改變任何使用者設定狀態）。
+ */
+function handleLocaleSwitch(next: Locale): void {
+  buildSegmentRows()
+  layoutSegmentContainers(computeRowGroups(config.segments))
+  syncFgOverrideDisabled()
+  refreshCatalogNames()
+  preview.setLocale(next)
+  syncHtmlLang(next)
+  announceGlobal(msg().langToggle.switchedAnnounce)
 }
 
 /**
@@ -2580,6 +3415,9 @@ function init(): void {
     config,
     scenarioId: 'full',
     theme: 'dark',
+    // T5.6：持久化 en 時開機即以 en 呈現（同其餘 T5.4 clone 點慣例，不需
+    // 先手動切換一次）；bootLocale 為模組層級既算值（見上方語言啟動同步）。
+    locale: bootLocale,
   })
 
   buildCatalogItems() // T5.9：左欄輕量常駐目錄，一次建置、永不重排。
@@ -2594,9 +3432,11 @@ function init(): void {
   layoutSegmentContainers(initialGroups)
   syncGlobalControls()
   wireGlobalControls()
+  wireSkipToOutput()
   wirePendingRowButton()
   wirePreviewControls()
   wireOutputActions()
+  wireOutputDialog()
   refreshOutputs()
   // I5 回歸修復（code review I5，T7.4）：init() 不呼叫 commitConfig，故
   // duplicateResetPairIds 不會如常途經 checkDuplicateResetHints 收斂——

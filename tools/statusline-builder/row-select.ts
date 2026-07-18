@@ -34,8 +34,18 @@
  * - `nextPendingRowCount` **刪除**——位置制下暫存列位置由 main.ts 各
  *   變異點顯式維護（consume／convert／removeSlotAt／append），計數推斷法
  *   （「依前後渲染列成長量扣除」）廢止。
+ *
+ * T5.2（magi/09-statusline-ux-refactor/PLAN.md §D5 A-1；messages.ts 見
+ * T5.1）：`rowSelectOptionsForSlots` 的 option 文字改由 `t(locale)` 注入
+ * （取自 `messages.rowSelect`），不再內嵌中文字面——`locale` 選填、預設
+ * `DEFAULT_LOCALE`（'zh-Hant'），既有呼叫端（main.ts／
+ * `computeRowSelectOptionOps`）零改動下繼續編譯且輸出不變；實際語言
+ * 穿線留待 T5.5。`computeRowSelectOptionOps` 同步加一選填 `locale` 尾參，
+ * 原樣轉發給內部的 `rowSelectOptionsForSlots` 呼叫，保持兩函式的注入
+ * 語意一致。
  */
 
+import { DEFAULT_LOCALE, t, type Locale } from './messages.js'
 import type { RowSlot } from './row-slots.js'
 
 /** 既有／目標 `<option>` 狀態（value／text 皆為字串，對齊 DOM `HTMLOptionElement`）。 */
@@ -64,11 +74,19 @@ export type RowSelectOptionOp =
  * 判定 real／pending 再交 commitSegmentMove——非渲染列序，因位置制下
  * 兩者不再一一對應）、text＝`第 ${slot+1} 列`（real）／
  * `第 ${slot+1} 列（新列）`（pending，與真實列區隔）。
+ *
+ * `locale`（T5.2 注入，選填、預設 `DEFAULT_LOCALE`）：text 取自
+ * `messages.ts` 的 `t(locale).rowSelect.rowOption`／`rowOptionPending`，
+ * 不再內嵌中文字面——不傳時輸出與既有中文字面完全一致（相容性硬約束）。
  */
-export function rowSelectOptionsForSlots(slots: readonly RowSlot[]): RowSelectOption[] {
+export function rowSelectOptionsForSlots(
+  slots: readonly RowSlot[],
+  locale: Locale = DEFAULT_LOCALE,
+): RowSelectOption[] {
+  const m = t(locale)
   return slots.map((slot, i) => ({
     value: String(i),
-    text: slot === 'pending' ? `第 ${i + 1} 列（新列）` : `第 ${i + 1} 列`,
+    text: slot === 'pending' ? m.rowSelect.rowOptionPending(i + 1) : m.rowSelect.rowOption(i + 1),
   }))
 }
 
@@ -80,12 +98,17 @@ export function rowSelectOptionsForSlots(slots: readonly RowSlot[]): RowSelectOp
  * 接線：與 row 分組無關的 commit 不觸發全體 select 刷新），此處的空陣列
  * 回傳確保縱使誤呼叫、目標未變時亦不會產生任何 DOM 操作指令（雙重保險，
  * 非取代 main.ts 層的變動偵測）。
+ *
+ * `locale`（T5.2 注入，選填、預設 `DEFAULT_LOCALE`）：原樣轉發給內部的
+ * `rowSelectOptionsForSlots(slots, locale)` 呼叫，不傳時輸出與既有中文
+ * 字面完全一致（相容性硬約束）。
  */
 export function computeRowSelectOptionOps(
   current: readonly RowSelectOption[],
   slots: readonly RowSlot[],
+  locale: Locale = DEFAULT_LOCALE,
 ): RowSelectOptionOp[] {
-  const target = rowSelectOptionsForSlots(slots)
+  const target = rowSelectOptionsForSlots(slots, locale)
   const ops: RowSelectOptionOp[] = []
   for (let i = 0; i < target.length; i++) {
     const existing = current[i]

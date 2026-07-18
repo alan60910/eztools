@@ -105,6 +105,20 @@ export interface BuilderConfig {
   version: typeof CONFIG_VERSION
   mode: 'plain' | 'powerline'
   separator: SeparatorConfig
+  /**
+   * 逐列分隔符覆寫（T1.1，magi/09-statusline-ux-refactor/PLAN.md §D1
+   * A-1／A-2；D-c：CONFIG_VERSION 不 bump，選填欄缺省即「全繼承」，
+   * 先例同 06b `row`／08 `bar`）：索引對位「config 正規化後的啟用列位」
+   * ——全部 `enabled` 段依 row 值升冪去重排序後的 dense 位置，與
+   * emit-bash `groupByRow`／emit-ps1 `groupSegmentsByRow` 的分組序同
+   * 基準（消費端見 T1.3 resolve 映射、T1.4/T1.5 emitter）。`null`／缺項
+   * ＝該列繼承全域 `separator`。**僅 plain 模式生效**——mode 為
+   * powerline 時本欄保值不清除（惰性存續，比照既有 `separator` 慣例），
+   * 由 emit 端依 mode 忽略，本模組不做 mode gating。正規形（
+   * `sanitizeConfig` 產出）：陣列已修剪尾端 `null`、全 `null`／空陣列
+   * 省略本欄——本任務只管 schema／清洗，reindex（跟列走）屬 T1.2。
+   */
+  rowSeparators?: (SeparatorConfig | null)[]
   lastArrowCap: boolean // powerline 末段收尾箭頭（預設 true，Q1）
   powerlineArrow: boolean // powerline 段間箭頭（預設 false，v2 新欄；D1 gating 見 emitter，本模組不碰）
   segments: SegmentConfig[]
@@ -248,6 +262,50 @@ function sanitizeSeparator(raw: unknown): SeparatorConfig {
   return defaultSeparator()
 }
 
+/**
+ * `rowSeparators` 陣列單一元素清洗（T1.1，09-PLAN §D1 A-2）：`null`／
+ * 缺項／畸形一律回 `null`（該列繼承全域分隔符）——**不得**複用
+ * `sanitizeSeparator`：其全失敗路徑回 `defaultSeparator()`（＝明示
+ * `'|'`），直接複用會把畸形覆寫污染成「明示選 preset '|'」、破壞
+ * 「`null`＝繼承全域」的語意。與 `sanitizeSeparator` 平行實作、各自
+ * 獨立的失敗出口，僅結構完整者委派既有驗證核心（preset 白名單、
+ * `validateCustomText`）。
+ */
+function sanitizeRowSeparator(raw: unknown): SeparatorConfig | null {
+  if (!isRecord(raw) || typeof raw.value !== 'string') return null
+  if (raw.kind === 'preset') {
+    return (SEPARATOR_PRESETS as readonly string[]).includes(raw.value)
+      ? { kind: 'preset', value: raw.value as SeparatorPresetValue }
+      : null
+  }
+  if (raw.kind === 'custom') {
+    return validateCustomText(raw.value).ok ? { kind: 'custom', value: raw.value } : null
+  }
+  return null
+}
+
+/**
+ * `rowSeparators` 陣列級清洗（T1.1，09-PLAN §D1 A-2）：非陣列 → 回
+ * `undefined`（欄位缺席）；逐元素委派 `sanitizeRowSeparator`；長度
+ * clamp 上界比照 `sanitizeRow`（見上方，對 `row:999999999` 的 DoS
+ * 防禦精神）——上界取目錄段數 `catalog.ids.length`（現役啟用列數不可能
+ * 超過段數，防手改存檔塞巨陣列讓列群組渲染凍死頁面）；clamp 後修剪
+ * 尾端 `null`（正規形不留冗餘「全繼承」尾巴）；修剪後全 `null`／空陣列
+ * → `undefined`（回「全繼承」正規形，省略本欄避免存檔膨脹）。
+ */
+function sanitizeRowSeparators(
+  raw: unknown,
+  catalog: SegmentCatalog,
+): (SeparatorConfig | null)[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const max = catalog.ids.length
+  const clamped = raw.slice(0, max).map((entry) => sanitizeRowSeparator(entry))
+  let end = clamped.length
+  while (end > 0 && clamped[end - 1] === null) end--
+  const trimmed = clamped.slice(0, end)
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
 /** 未知 id／非物件 → null（整列丟棄）；其餘欄逐欄清洗、未知欄不搬運即忽略。 */
 function sanitizeSegment(raw: unknown, catalog: SegmentCatalog): SegmentConfig | null {
   if (!isRecord(raw)) return null
@@ -307,7 +365,18 @@ function sanitizeSegments(raw: unknown, catalog: SegmentCatalog): SegmentConfig[
   return out
 }
 
-function sanitizeConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): BuilderConfig {
+/**
+ * 頂層欄位清洗核心（`rowSeparators` 除外——見 `sanitizeConfig`）：
+ * `migrateConfig`（v1→v2）與 `sanitizeConfig`（v2）共用同一套逐欄清洗，
+ * 但 `rowSeparators` 故意不在此——v1 存檔無「config 正規化後啟用列位」
+ * 這個 v2 專屬概念可依附，migrateConfig 分支**不得**產生此欄（09-PLAN
+ * §D1 A-2 補充契約），故該欄清洗獨立於此核心之外、僅 `sanitizeConfig`
+ * 呼叫。
+ */
+function sanitizeConfigCore(
+  raw: Record<string, unknown>,
+  catalog: SegmentCatalog,
+): Omit<BuilderConfig, 'rowSeparators'> {
   return {
     version: CONFIG_VERSION,
     mode: raw.mode === 'powerline' ? 'powerline' : 'plain',
@@ -318,21 +387,30 @@ function sanitizeConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): 
   }
 }
 
+function sanitizeConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): BuilderConfig {
+  const core = sanitizeConfigCore(raw, catalog)
+  const rowSeparators = sanitizeRowSeparators(raw.rowSeparators, catalog)
+  return rowSeparators !== undefined ? { ...core, rowSeparators } : core
+}
+
 /**
  * migrate（v1→v2，PLAN §D2 06a）：raw.version===1（嚴格 ===）之存檔視為
  * 前代 schema——逐欄清洗與 sanitizeConfig 同一套 drop-unknown-and-continue
- * helper（separator／segments／lastArrowCap 等），另補 v2 新欄
- * powerlineArrow：v1 無此欄，依 mode 派生——'powerline' 保留既有箭頭觀感
- * （設 true，直到 T2.3 落地 gating 前 emitter 仍照 v1 全語意跑）、'plain'
- * 或 mode 缺欄／非法 → false（sanitizeConfig 之 mode 判定已等價 raw.mode
- * === 'powerline' 之嚴格比對，此處直接讀已清洗之 mode 即可）。
+ * helper（`sanitizeConfigCore`：separator／segments／lastArrowCap 等），
+ * 另補 v2 新欄 powerlineArrow：v1 無此欄，依 mode 派生——'powerline' 保留
+ * 既有箭頭觀感（設 true，直到 T2.3 落地 gating 前 emitter 仍照 v1 全語意
+ * 跑）、'plain' 或 mode 缺欄／非法 → false（sanitizeConfigCore 之 mode
+ * 判定已等價 raw.mode === 'powerline' 之嚴格比對，此處直接讀已清洗之
+ * mode 即可）。**不含 `rowSeparators`**（T1.1，09-PLAN §D1 A-2 補充
+ * 契約）：呼叫 `sanitizeConfigCore` 而非 `sanitizeConfig`，v1 遷移產出
+ * 恆不帶此 v2 專屬新欄，即使 raw 湊巧夾帶亦不遷移。
  *
  * 其餘版本（0、3、字串、缺欄——非 v1）無前代 schema 可依，一律重置為
  * 預設（未來 v3 時在此加 v2→v3 分支，v1 分支不動）。
  */
 function migrateConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): BuilderConfig {
   if (raw.version !== 1) return defaultConfig(catalog)
-  const sanitized = sanitizeConfig(raw, catalog)
+  const sanitized = sanitizeConfigCore(raw, catalog)
   return { ...sanitized, powerlineArrow: sanitized.mode === 'powerline' }
 }
 

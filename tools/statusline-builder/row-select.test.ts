@@ -52,6 +52,14 @@ describe('rowSelectOptionsForSlots（目標 option 全集，依 slots 位置制�
   it('全 pending（所有段停用時累積的空列）：從 slot 0 起算', () => {
     expect(rowSelectOptionsForSlots(['pending'])).toEqual([{ value: '0', text: '第 1 列（新列）' }])
   })
+
+  it('T5.2：locale="en" → 英文 option 文字（real／pending 皆覆蓋）', () => {
+    expect(rowSelectOptionsForSlots(['real', 'pending', 'real'], 'en')).toEqual([
+      { value: '0', text: 'Row 1' },
+      { value: '1', text: 'Row 2 (new)' },
+      { value: '2', text: 'Row 3' },
+    ])
+  })
 })
 
 describe('computeRowSelectOptionOps（原地更新指令 diff，依 slots）', () => {
@@ -113,6 +121,13 @@ describe('computeRowSelectOptionOps（原地更新指令 diff，依 slots）', (
     const current: RowSelectOption[] = rowSelectOptionsForSlots(['real', 'pending', 'real'])
     expect(computeRowSelectOptionOps(current, ['real', 'real', 'real'])).toEqual([
       { kind: 'update', index: 1, value: '1', text: '第 2 列' },
+    ])
+  })
+
+  it('T5.2：locale="en" 原樣轉發給 rowSelectOptionsForSlots → append 操作帶英文 text', () => {
+    expect(computeRowSelectOptionOps([], ['real', 'pending'], 'en')).toEqual([
+      { kind: 'append', value: '0', text: 'Row 1' },
+      { kind: 'append', value: '1', text: 'Row 2 (new)' },
     ])
   })
 })

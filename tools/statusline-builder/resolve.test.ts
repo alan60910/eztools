@@ -22,7 +22,13 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { ColorSpec } from './color.js'
-import { defaultConfig, deserializeConfig, type BuilderConfig, type SegmentConfig } from './config.js'
+import {
+  defaultConfig,
+  deserializeConfig,
+  type BuilderConfig,
+  type SegmentConfig,
+  type SeparatorConfig,
+} from './config.js'
 import { toAnsi } from './emit-ansi.js'
 import {
   MOCK_SCENARIOS_BY_ID,
@@ -47,6 +53,7 @@ import {
   DESCRIPTORS_BY_ID,
   formatCost,
   formatResetsAt,
+  segmentAriaText,
   SEGMENT_CATALOG,
   type SegmentId,
   type StatusData,
@@ -1398,6 +1405,160 @@ describe('多列語意', () => {
     const rows = resolve(alive, FULL)
     expect(rows.length).toBeGreaterThanOrEqual(1)
     expect(rows).toHaveLength(2)
+  })
+})
+
+// ── rowSeparators 啟用位映射（T1.3，09-PLAN §D1 A-1；resolve 消費點） ──
+//
+// 索引基準＝「config 正規化後的啟用列位」：全部 enabled 段（不論本次
+// resolve 存活與否）的相異 row 值升冪去重位置，與 renderRowOrder（執行期
+// 存活列緊縮序）分開計算——見 resolve.ts 檔頭「rowSeparators 啟用位映射」
+// 節。以下對位案專測兩基準分岔時（整列執行期死亡）不得混淆。
+
+describe('rowSeparators 啟用位映射', () => {
+  const sepPreset = (value: '|' | '›' | '·' | ' '): SeparatorConfig => ({ kind: 'preset', value })
+
+  it('多列 plain＋第 2 列覆寫「›」：該列以覆寫 join、其他列用全域「|」', () => {
+    const config = cfg({
+      rowSeparators: [null, sepPreset('›')],
+      segments: [
+        seg('model', { row: 0 }),
+        seg('cost', { row: 0 }),
+        seg('git-branch', { row: 1 }),
+        seg('clock', { row: 1 }),
+      ],
+    })
+    const rows = resolve(config, FULL)
+    expect(rows).toHaveLength(2)
+    expect(rows[0].map((r) => r.text)).toEqual(['Fable 5', '|', formatCost(3.3341)])
+    expect(rows[1].map((r) => r.text)).toEqual(['DEV', '›', '09:05'])
+  })
+
+  it(
+    '整列執行期死亡對位案：3 啟用列，第 1 列（啟用位 0）全段死亡、第 3 列' +
+      '（啟用位 2）有覆寫——存活輸出的最後一列須用啟用位 2 的覆寫，非存活位 1',
+    () => {
+      const config = cfg({
+        rowSeparators: [sepPreset('·'), null, sepPreset('›')],
+        segments: [
+          // 啟用位 0：hide 政策段，於 EARLY 全滅（比照既有「全滅」多列案）。
+          seg('session-name', { row: 0 }),
+          seg('vim-mode', { row: 0 }),
+          // 啟用位 1：dash 政策段恆存活（顯 NA_TEXT），rowSeparators[1]=null。
+          seg('context-used', { row: 1 }),
+          seg('context-remaining', { row: 1 }),
+          // 啟用位 2：shell／cost 段於 EARLY 存活，rowSeparators[2]='›' 覆寫。
+          seg('git-branch', { row: 2 }),
+          seg('cost', { row: 2 }),
+        ],
+      })
+      const rows = resolve(config, EARLY)
+      // 第 1 列（啟用位 0）整列死亡，渲染列僅剩 2 列（原啟用位 1／2）。
+      expect(rows).toHaveLength(2)
+      // 存活第 1 列＝原啟用位 1（rowSeparators[1]=null → 全域 '|'）。
+      expect(rows[0].map((r) => r.text)).toEqual([NA_TEXT, '|', NA_TEXT])
+      // 存活第 2 列（最後一列）＝原啟用位 2（rowSeparators[2]='›' 覆寫）——
+      // 若誤用存活位 1（如直接 .map 迭代 index）會退回 rowSeparators[1]=null
+      // ＝全域 '|'，本斷言即失敗。
+      expect(rows[1].map((r) => r.text)).toEqual(['main', '›', '$0.0000'])
+    },
+  )
+
+  it('缺項／null／無此欄 → 全域分隔符', () => {
+    const twoRows = (over: Partial<BuilderConfig> = {}) =>
+      cfg({
+        segments: [
+          seg('model', { row: 0 }),
+          seg('cost', { row: 0 }),
+          seg('git-branch', { row: 1 }),
+          seg('clock', { row: 1 }),
+        ],
+        ...over,
+      })
+    // 無此欄。
+    expect(resolve(twoRows(), FULL)[0].map((r) => r.text)).toEqual(['Fable 5', '|', formatCost(3.3341)])
+    // 全 null。
+    expect(resolve(twoRows({ rowSeparators: [null, null] }), FULL)[1].map((r) => r.text)).toEqual([
+      'DEV',
+      '|',
+      '09:05',
+    ])
+    // 陣列過短（越界索引 → undefined）。
+    expect(resolve(twoRows({ rowSeparators: [sepPreset('·')] }), FULL)[1].map((r) => r.text)).toEqual([
+      'DEV',
+      '|',
+      '09:05',
+    ])
+  })
+
+  it('powerline 模式：rowSeparators 存在時輸出與無此欄完全相同（分支零觸碰，天然忽略）', () => {
+    const segments = [
+      seg('model', { color: A(226), row: 0 }),
+      seg('cost', { color: A(16), row: 0 }),
+      seg('git-branch', { color: A(240), row: 1 }),
+    ]
+    const without = cfg({ mode: 'powerline', powerlineArrow: true, segments })
+    const withOverride = cfg({
+      mode: 'powerline',
+      powerlineArrow: true,
+      rowSeparators: [sepPreset('›'), sepPreset('·')],
+      segments,
+    })
+    expect(resolve(withOverride, FULL)).toEqual(resolve(without, FULL))
+  })
+})
+
+// ── locale 注入（T5.3；ResolveInput.locale，選填、預設 zh-Hant） ──
+
+describe('locale 注入（ResolveInput.locale）', () => {
+  it('缺省 locale＝顯式 zh-Hant 等價（DEFAULT_LOCALE 相容錨點，byte 級）', () => {
+    const config = cfg({ segments: [seg('reset-5h', { icon: true })] })
+    const resetsAt = epochAt(14, 30)
+    const base = inputAt(FULL, resetsAt - 7200, (d) => {
+      d.rate_limits!.five_hour!.resets_at = resetsAt
+    })
+    expect(resolve(config, base)).toEqual(resolve(config, { ...base, locale: 'zh-Hant' }))
+  })
+
+  it('en：icon run ariaText 走 segmentAriaText(id, "en")（非 zh-Hant 固定字面）', () => {
+    const runs = resolve(cfg({ segments: [seg('model', { icon: true })] }), { ...FULL, locale: 'en' })[0]
+    expect(runs[0].ariaText).toBe(`${segmentAriaText('model', 'en')} Fable 5`)
+    expect(runs[0].ariaText).toBe('Model Fable 5')
+  })
+
+  it('en：倒數段（reset-5h）value ariaText 代換詞＝t("en").resetAriaWord="reset"（非「重置」）', () => {
+    const resetsAt = epochAt(14, 30)
+    const runs = resolve(
+      cfg({ segments: [seg('reset-5h')] }),
+      {
+        ...inputAt(FULL, resetsAt - 7200, (d) => {
+          d.rate_limits!.five_hour!.resets_at = resetsAt
+        }),
+        locale: 'en',
+      },
+    )[0]
+    expect(runs).toEqual([{ text: '↺ 2h (14:30)', ariaText: 'reset 2h (14:30)' }])
+  })
+
+  it('en：percent-reset 後綴（rate-5h）aria 代換詞同為 "reset"（M6 C4 locale 感知）', () => {
+    const resetsAt = epochAt(14, 30)
+    const runs = resolve(
+      cfg({ segments: [seg('rate-5h', { variant: 'percent-reset' })] }),
+      {
+        ...inputAt(FULL, resetsAt - 2 * 3600, (d) => {
+          d.rate_limits!.five_hour!.used_percentage = 63.2
+          d.rate_limits!.five_hour!.resets_at = resetsAt
+        }),
+        locale: 'en',
+      },
+    )[0]
+    expect(runs).toEqual([{ text: '63% ↺ 2h (14:30)', ariaText: '63% reset 2h (14:30)' }])
+  })
+
+  it('en：text 主文字通道不受 locale 影響（僅 aria-label 組裝分岔，主值格式化與腳本輸出無關）', () => {
+    const zh = resolve(cfg({ segments: [seg('model'), seg('cost')] }), FULL)[0]
+    const en = resolve(cfg({ segments: [seg('model'), seg('cost')] }), { ...FULL, locale: 'en' })[0]
+    expect(en.map((r) => r.text)).toEqual(zh.map((r) => r.text))
   })
 })
 

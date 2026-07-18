@@ -310,4 +310,40 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
       ],
     }),
   },
+
+  // ── T1.6（magi/09-statusline-ux-refactor/PLAN.md §D1 golden 策略）：
+  // rowSeparators golden 契約落地——單列來源涵蓋「單列＋列 0 覆寫」與
+  // 「custom 覆寫值含須逸出字元」兩案；多列對應案（「某列覆寫＋某列
+  // null 顯式繼承」）見 tools/statusline-builder/multirow-golden-configs.ts
+  // （兩來源零耦合、各自獨立事實來源，同既有 T4.6 擴案慣例）。皆 plain
+  // 模式（rowSeparators 僅 plain 生效，PLAN §D1 golden 策略明訂範圍）。
+
+  // 單列＋列 0（唯一啟用位）覆寫：全域 '|'、rowSeparators[0] 覆寫為 preset
+  // '·'——單列 config 下 emitBash／emitPs1 皆恆呼叫 rowSeparatorValue(config,
+  // 0)（無需 hasRowSepOverride 分流，見 emit-bash.ts「單列路徑 SEP 綁列 0
+  // 覆寫」註解），join 分隔符須採覆寫值、非全域。
+  {
+    name: 'rowsep-single-override',
+    config: cfg('plain', {
+      rowSeparators: [{ kind: 'preset', value: '·' }],
+      segments: [
+        seg('model', { color: A(226) }),
+        seg('cost', { color: A(220) }),
+        seg('duration', { color: A(118) }),
+      ],
+    }),
+    scenario: fullWith(),
+  },
+
+  // 單列覆寫值為 custom 且含須逸出字元（單引號）：驗 bashSingleQuote 對
+  // `SEP` 宣告本身的逸出（比照既有 `escaping` 案分隔符逸出精神，惟該案
+  // 逸出全域 separator、本案逸出 rowSeparators 覆寫值）。
+  {
+    name: 'rowsep-custom-escape',
+    config: cfg('plain', {
+      rowSeparators: [{ kind: 'custom', value: "'" }],
+      segments: [seg('model', { prefix: "'$(x)", color: A(226) }), seg('version', {})],
+    }),
+    scenario: fullWith(),
+  },
 ]

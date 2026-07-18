@@ -26,7 +26,10 @@
   （worker chunk 由 Rollup 自動 emit，非自寫）
 - statusline-builder：**零 runtime npm 依賴**；預覽以系統 monospace＋ASCII
   前綴 icon 渲染，無簽入字型資產（sprint 06a 已移除先前簽入的 Nerd Font
-  subset 與其建置工序，devDependency 淨刪記錄見 Deployment）
+  subset 與其建置工序，devDependency 淨刪記錄見 Deployment）；i18n 為
+  自製零依賴字串表（zh-Hant／en——純核心 `messages.ts` typed 雙字典＋
+  DOM 套用器 `i18n-dom.ts` 雙層，純函式模組以 locale 參數注入、選填
+  預設 zh-Hant，sprint 09）
 
 ## Database / storage
 - 無（所有處理在瀏覽器端記憶體中完成）

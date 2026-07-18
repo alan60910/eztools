@@ -84,6 +84,7 @@
  * 純函式、零 DOM import，node 可測。
  */
 import type { SegmentCatalog } from './config.js'
+import { DEFAULT_LOCALE, t, type Locale } from './messages.js'
 
 // ── StatusData：stdin JSON 忠實 typed mirror（F1） ──
 
@@ -245,7 +246,14 @@ export interface SegmentDescriptor {
   jqPath: string
   ps1Path: string
   format: FormatKind
-  /** glyph＝T1.5.2 核可對照表 ASCII 前綴字面（如 'cwd:'；推翻 06a emoji 對照表定案，見 prefix-table.md）；ariaText＝SR 文字等價（中文，不受本次變更影響）。 */
+  /**
+   * glyph＝T1.5.2 核可對照表 ASCII 前綴字面（如 'cwd:'；推翻 06a emoji
+   * 對照表定案，見 prefix-table.md）；ariaText＝SR 文字等價——T5.3 起單一
+   * 事實來源反轉：本欄與 `label` 欄的值改自 messages.ts zh-Hant 字典於
+   * 模組初始化時取得（見下方 `M` 常數與 `SEGMENT_DESCRIPTOR_LIST`），非
+   * 本檔字面自身；locale 感知取值走下方 `segmentLabel`／`segmentAriaText`
+   * accessor（messages 為源、segments 為消費者）。
+   */
   icon: { glyph: string; ariaText: string }
   nullPolicy: NullPolicy
   /** 允許集（目錄衍生）；預設＝variants[0]（見 defaultVariant）。 */
@@ -544,17 +552,28 @@ function deepFreeze<T>(v: T): T {
   return v
 }
 
+/**
+ * T5.3（09-PLAN Rev 2 §5.3）：單一事實來源反轉——本檔目錄的 label／
+ * icon.ariaText 值改自 messages.ts zh-Hant 字典於模組初始化時取得（純→
+ * 純 import，非執行期循環；見 messages.ts 對本檔的 type-only import）。
+ * `M` 為 zh-Hant 字典的模組級快取，下方 SEGMENT_DESCRIPTOR_LIST 逐段
+ * 取值（`M.segments['id'].label`／`.ariaText`）；messages.test.ts 的
+ * 「零漂移」比對測試因而由「兩處手抄需同步」轉為結構性恆真（反轉後
+ * 自然成立，保留無妨）。
+ */
+const M = t(DEFAULT_LOCALE)
+
 const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   // ── 永在（12） ──
   {
     id: 'model',
-    label: '模型',
+    label: M.segments.model.label,
     category: 'always',
     tsPath: (d) => d.model.display_name,
     jqPath: '.model.display_name',
     ps1Path: '$d.model.display_name',
     format: 'text',
-    icon: { glyph: 'model:', ariaText: '模型' },
+    icon: { glyph: 'model:', ariaText: M.segments.model.ariaText },
     nullPolicy: 'empty',
     // auto 配色承載欄（T3.2，欄位 inert；resolve/emit 消費屬 M4）：比對
     // 來源＝.model.id（較 display_name 穩定）。
@@ -566,7 +585,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'cwd',
-    label: '目前目錄',
+    label: M.segments.cwd.label,
     category: 'always',
     // 採 top-level `.cwd`（官方範例慣用欄）；workspace.current_dir 疑為
     // 同值雙表述（未驗證），SP-0 對帳。
@@ -574,107 +593,107 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.cwd',
     ps1Path: '$d.cwd',
     format: 'path',
-    icon: { glyph: 'cwd:', ariaText: '目前目錄' },
+    icon: { glyph: 'cwd:', ariaText: M.segments.cwd.ariaText },
     nullPolicy: 'empty',
     variants: CWD_VARIANTS,
     provisional: false,
   },
   {
     id: 'project-dir',
-    label: '專案目錄',
+    label: M.segments['project-dir'].label,
     category: 'always',
     tsPath: (d) => d.workspace.project_dir,
     jqPath: '.workspace.project_dir',
     ps1Path: '$d.workspace.project_dir',
     format: 'text',
-    icon: { glyph: 'proj:', ariaText: '專案目錄' },
+    icon: { glyph: 'proj:', ariaText: M.segments['project-dir'].ariaText },
     nullPolicy: 'empty',
     provisional: false,
   },
   {
     id: 'output-style',
-    label: '輸出風格',
+    label: M.segments['output-style'].label,
     category: 'always',
     tsPath: (d) => d.output_style.name,
     jqPath: '.output_style.name',
     ps1Path: '$d.output_style.name',
     format: 'text',
-    icon: { glyph: 'style:', ariaText: '輸出風格' },
+    icon: { glyph: 'style:', ariaText: M.segments['output-style'].ariaText },
     nullPolicy: 'empty',
     provisional: false,
   },
   {
     id: 'version',
-    label: '版本',
+    label: M.segments.version.label,
     category: 'always',
     tsPath: (d) => d.version,
     jqPath: '.version',
     ps1Path: '$d.version',
     format: 'text',
-    icon: { glyph: 'ver:', ariaText: '版本' },
+    icon: { glyph: 'ver:', ariaText: M.segments.version.ariaText },
     nullPolicy: 'empty',
     provisional: false,
   },
   {
     id: 'cost',
-    label: '費用',
+    label: M.segments.cost.label,
     category: 'always',
     tsPath: (d) => d.cost.total_cost_usd,
     jqPath: '.cost.total_cost_usd',
     ps1Path: '$d.cost.total_cost_usd',
     format: 'cost',
-    icon: { glyph: 'cost:', ariaText: '費用' },
+    icon: { glyph: 'cost:', ariaText: M.segments.cost.ariaText },
     nullPolicy: 'empty',
     provisional: false,
   },
   {
     id: 'duration',
-    label: '工作時長',
+    label: M.segments.duration.label,
     category: 'always',
     // 取 total_duration_ms（wall clock）；total_api_duration_ms 不設段。
     tsPath: (d) => d.cost.total_duration_ms,
     jqPath: '.cost.total_duration_ms',
     ps1Path: '$d.cost.total_duration_ms',
     format: 'duration',
-    icon: { glyph: 'dur:', ariaText: '工作時長' },
+    icon: { glyph: 'dur:', ariaText: M.segments.duration.ariaText },
     nullPolicy: 'empty',
     provisional: false,
   },
   {
     id: 'lines-changed',
-    label: '行數增減',
+    label: M.segments['lines-changed'].label,
     category: 'always',
     // 多欄位段：取 cost 節點，欄位讀取歸 FormatKind 'lines-changed'。
     tsPath: (d) => d.cost,
     jqPath: '.cost',
     ps1Path: '$d.cost',
     format: 'lines-changed',
-    icon: { glyph: 'diff:', ariaText: '行數增減' },
+    icon: { glyph: 'diff:', ariaText: M.segments['lines-changed'].ariaText },
     nullPolicy: 'empty',
     provisional: false,
   },
   {
     id: 'context-size',
-    label: '上下文大小',
+    label: M.segments['context-size'].label,
     category: 'always',
     // in+out 總和＝「當前 context」token 數（F6 現行語意鎖定）。
     tsPath: (d) => d.context_window,
     jqPath: '.context_window',
     ps1Path: '$d.context_window',
     format: 'context-size',
-    icon: { glyph: 'ctx:', ariaText: '上下文大小' },
+    icon: { glyph: 'ctx:', ariaText: M.segments['context-size'].ariaText },
     nullPolicy: 'empty',
     provisional: false,
   },
   {
     id: 'thinking',
-    label: '思考模式',
+    label: M.segments.thinking.label,
     category: 'always',
     tsPath: (d) => d.thinking.enabled,
     jqPath: '.thinking.enabled',
     ps1Path: '$d.thinking.enabled',
     format: 'flag',
-    icon: { glyph: 'think:', ariaText: '思考模式' },
+    icon: { glyph: 'think:', ariaText: M.segments.thinking.ariaText },
     // empty＝null/false 同視為不顯示（jq `// empty` 對 false 亦 fallback
     // ——刻意選擇，PLAN 契約 3）。
     nullPolicy: 'empty',
@@ -682,7 +701,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'token-in',
-    label: 'Tokens 輸入',
+    label: M.segments['token-in'].label,
     category: 'always',
     // 主值＝current_usage.input_tokens（number|null）；current_usage 整包
     // null 或缺席時 optional chaining 天然回 undefined（isValueDead 對
@@ -694,50 +713,50 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     // resolve.ts formatTokens；bash/ps1 端同構已於 T4.3/T4.4 落地，走
     // 各自專屬 jq/ps1 pipeline——見檔頭「占位聲明（T4.1 已解除）」節）。
     format: 'tokens',
-    icon: { glyph: 'in:', ariaText: 'Tokens 輸入' },
+    icon: { glyph: 'in:', ariaText: M.segments['token-in'].ariaText },
     nullPolicy: 'dash',
     provisional: false,
   },
   {
     id: 'token-out',
-    label: 'Tokens 輸出',
+    label: M.segments['token-out'].label,
     category: 'always',
     tsPath: (d) => d.context_window.current_usage?.output_tokens,
     jqPath: '.context_window.current_usage.output_tokens',
     ps1Path: '$d.context_window.current_usage.output_tokens',
     format: 'tokens', // 同 token-in（見上方註解；T4.1）。
-    icon: { glyph: 'out:', ariaText: 'Tokens 輸出' },
+    icon: { glyph: 'out:', ariaText: M.segments['token-out'].ariaText },
     nullPolicy: 'dash',
     provisional: false,
   },
   // ── 百分比（5，可掛閾值；主值 null → '--' 不套閾值色） ──
   {
     id: 'context-used',
-    label: '上下文已用',
+    label: M.segments['context-used'].label,
     category: 'percentage',
     tsPath: (d) => d.context_window.used_percentage,
     jqPath: '.context_window.used_percentage',
     ps1Path: '$d.context_window.used_percentage',
     format: 'percentage',
-    icon: { glyph: 'used:', ariaText: '上下文已用' },
+    icon: { glyph: 'used:', ariaText: M.segments['context-used'].ariaText },
     nullPolicy: 'dash',
     provisional: false,
   },
   {
     id: 'context-remaining',
-    label: '上下文剩餘',
+    label: M.segments['context-remaining'].label,
     category: 'percentage',
     tsPath: (d) => d.context_window.remaining_percentage,
     jqPath: '.context_window.remaining_percentage',
     ps1Path: '$d.context_window.remaining_percentage',
     format: 'percentage',
-    icon: { glyph: 'left:', ariaText: '上下文剩餘' },
+    icon: { glyph: 'left:', ariaText: M.segments['context-remaining'].ariaText },
     nullPolicy: 'dash',
     provisional: false,
   },
   {
     id: 'rate-5h',
-    label: '5 小時限額',
+    label: M.segments['rate-5h'].label,
     category: 'percentage',
     // rate_limits 整包缺席（非 Pro/Max）→ 主值 undefined → dash '--'
     // （PLAN 目錄把 rate 段歸百分比類、dash 政策；不做整段隱藏）。
@@ -745,7 +764,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.rate_limits.five_hour.used_percentage',
     ps1Path: '$d.rate_limits.five_hour.used_percentage',
     format: 'percentage',
-    icon: { glyph: '5h:', ariaText: '5 小時限額' },
+    icon: { glyph: '5h:', ariaText: M.segments['rate-5h'].ariaText },
     nullPolicy: 'dash',
     variants: RATE_VARIANTS,
     resetsAt: {
@@ -758,13 +777,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'rate-7d',
-    label: '7 日限額',
+    label: M.segments['rate-7d'].label,
     category: 'percentage',
     tsPath: (d) => d.rate_limits?.seven_day?.used_percentage,
     jqPath: '.rate_limits.seven_day.used_percentage',
     ps1Path: '$d.rate_limits.seven_day.used_percentage',
     format: 'percentage',
-    icon: { glyph: '7d:', ariaText: '7 日限額' },
+    icon: { glyph: '7d:', ariaText: M.segments['rate-7d'].ariaText },
     nullPolicy: 'dash',
     variants: RATE_VARIANTS,
     resetsAt: {
@@ -777,7 +796,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'cache-hit',
-    label: 'Cache 命中率',
+    label: M.segments['cache-hit'].label,
     category: 'percentage',
     // 公式在取值層完成（computeCacheHitPercentage／CACHE_HIT_JQ_PATH／
     // CACHE_HIT_PS1_PATH，見上方定義）：三式恆回 number | null、不取節點
@@ -786,32 +805,32 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: CACHE_HIT_JQ_PATH,
     ps1Path: CACHE_HIT_PS1_PATH,
     format: 'percentage',
-    icon: { glyph: 'cache:', ariaText: 'Cache 命中率' },
+    icon: { glyph: 'cache:', ariaText: M.segments['cache-hit'].ariaText },
     nullPolicy: 'dash',
     provisional: false,
   },
   // ── 條件性（10；缺席 → 整段剔除） ──
   {
     id: 'session-name',
-    label: '工作階段名稱',
+    label: M.segments['session-name'].label,
     category: 'conditional',
     tsPath: (d) => d.session_name,
     jqPath: '.session_name',
     ps1Path: '$d.session_name',
     format: 'text',
-    icon: { glyph: 'sess:', ariaText: '工作階段名稱' },
+    icon: { glyph: 'sess:', ariaText: M.segments['session-name'].ariaText },
     nullPolicy: 'hide',
     provisional: false,
   },
   {
     id: 'effort',
-    label: '推理強度',
+    label: M.segments.effort.label,
     category: 'conditional',
     tsPath: (d) => d.effort?.level,
     jqPath: '.effort.level',
     ps1Path: '$d.effort.level',
     format: 'text',
-    icon: { glyph: 'eff:', ariaText: '推理強度' },
+    icon: { glyph: 'eff:', ariaText: M.segments.effort.ariaText },
     nullPolicy: 'hide',
     // auto 配色承載欄（T3.2，欄位 inert；resolve/emit 消費屬 M4）：主值
     // 即 .effort.level，直接複用免 key。
@@ -820,13 +839,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'vim-mode',
-    label: 'Vim 模式',
+    label: M.segments['vim-mode'].label,
     category: 'conditional',
     tsPath: (d) => d.vim?.mode,
     jqPath: '.vim.mode',
     ps1Path: '$d.vim.mode',
     format: 'text',
-    icon: { glyph: 'vim:', ariaText: 'Vim 模式' },
+    icon: { glyph: 'vim:', ariaText: M.segments['vim-mode'].ariaText },
     nullPolicy: 'hide',
     provisional: true,
     provisionalNote:
@@ -834,26 +853,26 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'agent-name',
-    label: '代理名稱',
+    label: M.segments['agent-name'].label,
     category: 'conditional',
     tsPath: (d) => d.agent?.name,
     jqPath: '.agent.name',
     ps1Path: '$d.agent.name',
     format: 'text',
-    icon: { glyph: 'agent:', ariaText: '代理名稱' },
+    icon: { glyph: 'agent:', ariaText: M.segments['agent-name'].ariaText },
     nullPolicy: 'hide',
     provisional: false,
   },
   {
     id: 'pr',
-    label: 'PR',
+    label: M.segments.pr.label,
     category: 'conditional',
     // 顯示 #<number>；url／review_state 為 mirror 欄、v1 不顯示。
     tsPath: (d) => d.pr,
     jqPath: '.pr',
     ps1Path: '$d.pr',
     format: 'pr',
-    icon: { glyph: 'pr:', ariaText: '拉取請求' },
+    icon: { glyph: 'pr:', ariaText: M.segments.pr.ariaText },
     nullPolicy: 'hide',
     provisional: true,
     provisionalNote:
@@ -861,20 +880,20 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'repo',
-    label: '儲存庫',
+    label: M.segments.repo.label,
     category: 'conditional',
     // 顯示 <owner>/<name>；host 為 mirror 欄、v1 不顯示。
     tsPath: (d) => d.workspace.repo,
     jqPath: '.workspace.repo',
     ps1Path: '$d.workspace.repo',
     format: 'repo',
-    icon: { glyph: 'repo:', ariaText: '儲存庫' },
+    icon: { glyph: 'repo:', ariaText: M.segments.repo.ariaText },
     nullPolicy: 'hide',
     provisional: false,
   },
   {
     id: 'worktree',
-    label: 'Git 工作樹',
+    label: M.segments.worktree.label,
     category: 'conditional',
     // 名稱段（SP-0 拆段後）：取值 fallback 鏈 git_worktree 優先、次
     // worktree.name。tsPath `??`（nullish）≈ jq `//`（null/false）——本欄
@@ -884,13 +903,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     ps1Path:
       '$(if ($null -ne $d.workspace.git_worktree) { $d.workspace.git_worktree } else { $d.worktree.name })',
     format: 'text',
-    icon: { glyph: 'wt:', ariaText: 'Git 工作樹' },
+    icon: { glyph: 'wt:', ariaText: M.segments.worktree.ariaText },
     nullPolicy: 'hide',
     provisional: false,
   },
   {
     id: 'worktree-branch',
-    label: 'Git 工作樹分支',
+    label: M.segments['worktree-branch'].label,
     category: 'conditional',
     // SP-0 實證（fixture L22）：worktree.branch＝工作樹分支名
     // （'worktree-calm-purring-sifakis'）；與 worktree 名稱段互補。普通
@@ -900,13 +919,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     jqPath: '.worktree.branch',
     ps1Path: '$d.worktree.branch',
     format: 'text',
-    icon: { glyph: 'wtbr:', ariaText: 'Git 工作樹分支' },
+    icon: { glyph: 'wtbr:', ariaText: M.segments['worktree-branch'].ariaText },
     nullPolicy: 'hide',
     provisional: false,
   },
   {
     id: 'reset-5h',
-    label: '5 小時限額重置倒數',
+    label: M.segments['reset-5h'].label,
     category: 'conditional',
     // 主值＝resets_at epoch（number|null；rate_limits／five_hour 任一層
     // 缺席時 optional chaining 天然回 undefined，hide 政策下 isValueDead
@@ -919,7 +938,7 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
     // 「↺ Xh/Xm (HH:MM)」兩階梯真實作在 resolve.ts formatResetCountdown5h
     // （需 now）；shell 端已於 T4.3/T4.4 落地，走專屬 jq/ps1 倒數 pipeline。
     format: 'reset-countdown-5h',
-    icon: { glyph: 'r5h:', ariaText: '5 小時限額重置倒數' },
+    icon: { glyph: 'r5h:', ariaText: M.segments['reset-5h'].ariaText },
     nullPolicy: 'hide',
     // 通用「過期即死值」標記（T4.1 起由 resolve 消費）：與主值同一底層欄位。
     expiresAtPath: {
@@ -931,13 +950,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'reset-7d',
-    label: '7 日限額重置倒數',
+    label: M.segments['reset-7d'].label,
     category: 'conditional',
     tsPath: (d) => d.rate_limits?.seven_day?.resets_at,
     jqPath: '.rate_limits.seven_day.resets_at',
     ps1Path: '$d.rate_limits.seven_day.resets_at',
     format: 'reset-countdown-7d', // 同 reset-5h（見上方註解；T4.1 兩套階梯之 7d 檔）。
-    icon: { glyph: 'r7d:', ariaText: '7 日限額重置倒數' },
+    icon: { glyph: 'r7d:', ariaText: M.segments['reset-7d'].ariaText },
     nullPolicy: 'hide',
     expiresAtPath: {
       tsPath: (d) => d.rate_limits?.seven_day?.resets_at,
@@ -949,13 +968,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   // ── shell-out（3；值不出於 stdin JSON，見檔頭 idiom 節） ──
   {
     id: 'git-branch',
-    label: 'Git 分支',
+    label: M.segments['git-branch'].label,
     category: 'shell-out',
     tsPath: () => undefined,
     jqPath: '',
     ps1Path: '',
     format: 'text',
-    icon: { glyph: 'git:', ariaText: '分支' },
+    icon: { glyph: 'git:', ariaText: M.segments['git-branch'].ariaText },
     // 非 git 目錄／detached → 空輸出 → 剔段。
     nullPolicy: 'hide',
     shellOut: { bash: 'git branch --show-current', ps1: 'git branch --show-current' },
@@ -963,13 +982,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'git-dirty',
-    label: 'Git 髒標記',
+    label: M.segments['git-dirty'].label,
     category: 'shell-out',
     tsPath: () => undefined,
     jqPath: '',
     ps1Path: '',
     format: 'dirty',
-    icon: { glyph: 'dirty:', ariaText: '未提交變更' },
+    icon: { glyph: 'dirty:', ariaText: M.segments['git-dirty'].ariaText },
     // porcelain 空（乾淨）／非 git 目錄 → 剔段；非空 → '*'。
     nullPolicy: 'hide',
     shellOut: { bash: 'git status --porcelain', ps1: 'git status --porcelain' },
@@ -977,13 +996,13 @@ const SEGMENT_DESCRIPTOR_LIST: SegmentDescriptor[] = [
   },
   {
     id: 'clock',
-    label: '時鐘',
+    label: M.segments.clock.label,
     category: 'shell-out',
     tsPath: () => undefined,
     jqPath: '',
     ps1Path: '',
     format: 'clock',
-    icon: { glyph: 'time:', ariaText: '時鐘' },
+    icon: { glyph: 'time:', ariaText: M.segments.clock.ariaText },
     // 恆有值；啟用 → settings 附 refreshInterval: 60（emit-settings）。
     nullPolicy: 'empty',
     shellOut: { bash: 'date +%H:%M', ps1: 'Get-Date -Format HH:mm' },
@@ -1004,6 +1023,23 @@ export const DESCRIPTORS_BY_ID: Readonly<Record<SegmentId, SegmentDescriptor>> =
     SegmentDescriptor
   >,
 )
+
+/**
+ * locale 感知 accessor（T5.3，09-PLAN Rev 2 §5.3）：`descriptor.label`／
+ * `descriptor.icon.ariaText` 欄位仍固定為 zh-Hant（main.ts 大量直讀該兩
+ * 欄，欄位 API 保留不動）；本兩函式供下游（T5.5/T5.6 main.ts 穿線）依
+ * `locale` 取任一語言的段文字，單一事實來源仍在 messages.ts（`t(locale)`）
+ * ——本檔僅轉發、不重複維護字典。`locale` 選填，預設 `DEFAULT_LOCALE`
+ * （zh-Hant），與 `ResolveInput.locale` 同一預設值語意。
+ */
+export function segmentLabel(id: SegmentId, locale: Locale = DEFAULT_LOCALE): string {
+  return t(locale).segments[id].label
+}
+
+/** 見 `segmentLabel` 文件；取 icon 的 SR 文字等價（resolve.ts headAria 組裝點消費）。 */
+export function segmentAriaText(id: SegmentId, locale: Locale = DEFAULT_LOCALE): string {
+  return t(locale).segments[id].ariaText
+}
 
 /**
  * config.ts 注入面（{ids, variantsById, barEligibleIds, autoEligibleIds}

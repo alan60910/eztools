@@ -1,0 +1,127 @@
+{
+  "viewports": [
+    {
+      "label": "mobile-375x667",
+      "width": 375,
+      "height": 667,
+      "snapshot": {
+        "viewportInnerHeight": 667,
+        "viewportInnerWidth": 375,
+        "bandRect": {
+          "top": 385.546875,
+          "bottom": 652.34375,
+          "height": 266.796875
+        },
+        "bandComputedMaxHeightPx": 266.8,
+        "rowGroupCount": 3,
+        "firstRowGroupRect": {
+          "top": 3374.640625,
+          "bottom": 4622.5625,
+          "height": 1247.921875
+        },
+        "catalogHeight": 2460.734375,
+        "selectedTop": 3209.078125,
+        "globalSectionRect": {
+          "top": 716.34375,
+          "bottom": 1155.9375,
+          "height": 439.59375
+        },
+        "firstSegmentRowHeight": 520.5625,
+        "segmentRowsInFirstGroup": 2,
+        "mainIsGrid": false
+      },
+      "pct": 39.99953148425787,
+      "bandOk": true,
+      "rowVisible": false
+    },
+    {
+      "label": "mobile-390x844",
+      "width": 390,
+      "height": 844,
+      "snapshot": {
+        "viewportInnerHeight": 844,
+        "viewportInnerWidth": 390,
+        "bandRect": {
+          "top": 386.546875,
+          "bottom": 652.328125,
+          "height": 265.78125
+        },
+        "bandComputedMaxHeightPx": 337.6,
+        "rowGroupCount": 3,
+        "firstRowGroupRect": {
+          "top": 3374.625,
+          "bottom": 4622.546875,
+          "height": 1247.921875
+        },
+        "catalogHeight": 2460.734375,
+        "selectedTop": 3209.0625,
+        "globalSectionRect": {
+          "top": 716.328125,
+          "bottom": 1155.921875,
+          "height": 439.59375
+        },
+        "firstSegmentRowHeight": 520.5625,
+        "segmentRowsInFirstGroup": 2,
+        "mainIsGrid": false
+      },
+      "pct": 31.49066943127962,
+      "bandOk": true,
+      "rowVisible": false
+    },
+    {
+      "label": "desktop-1280x800",
+      "width": 1280,
+      "height": 800,
+      "snapshot": {
+        "viewportInnerHeight": 800,
+        "viewportInnerWidth": 1280,
+        "bandRect": {
+          "top": 237.375,
+          "bottom": 460.359375,
+          "height": 222.984375
+        },
+        "bandComputedMaxHeightPx": 320,
+        "rowGroupCount": 3,
+        "firstRowGroupRect": {
+          "top": 645.140625,
+          "bottom": 1628.265625,
+          "height": 983.125
+        },
+        "catalogHeight": 2539.125,
+        "selectedTop": 524.359375,
+        "globalSectionRect": {
+          "top": 524.359375,
+          "bottom": 963.953125,
+          "height": 439.59375
+        },
+        "firstSegmentRowHeight": 428.5625,
+        "segmentRowsInFirstGroup": 2,
+        "mainIsGrid": true
+      },
+      "pct": 27.873046875,
+      "bandOk": true,
+      "rowVisible": false
+    }
+  ],
+  "dialog": {
+    "open": {
+      "hasOpenAttr": true,
+      "usedShowModal": true,
+      "matchesModal": true,
+      "activeIsCopyBash": true,
+      "activeElementId": "copy-bash"
+    },
+    "afterEsc": {
+      "hasOpenAttr": false,
+      "activeElementId": "output-dialog-open"
+    },
+    "afterBackdropClick": {
+      "hasOpenAttr": false,
+      "activeElementId": "output-dialog-open"
+    },
+    "afterCloseButton": {
+      "hasOpenAttr": false,
+      "activeElementId": "output-dialog-open"
+    }
+  }
+}

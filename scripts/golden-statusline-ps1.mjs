@@ -221,6 +221,37 @@ export const CANONICAL_CONFIGS = [
       ],
     }),
   },
+
+  // ── T1.6（magi/09-statusline-ux-refactor/PLAN.md §D1 golden 策略）
+  //    golden 擴案：與 scripts/statusline-golden-configs.ts 內同名 bash
+  //    案結構 equivalent（non-literal，兩份 canonical 各自獨立事實來源，
+  //    同上方 T4.6 擴案慣例）。與 emit-ps1.test.ts 內同名 config 逐字
+  //    同步（golden 測試為漂移守門）。 ──
+
+  {
+    name: 'rowsep-single-override',
+    // 單列＋列 0（唯一啟用位）覆寫：全域 '|'、rowSeparators[0] 覆寫為
+    // preset '·'。
+    config: cfg({
+      mode: 'plain',
+      rowSeparators: [{ kind: 'preset', value: '·' }],
+      segments: [
+        seg('model', { color: A(226) }),
+        seg('cost', { color: A(220) }),
+        seg('duration', { color: A(118) }),
+      ],
+    }),
+  },
+  {
+    name: 'rowsep-custom-escape',
+    // 單列覆寫值為 custom 且含須逸出字元（單引號）：驗 psSingleQuote 對
+    // 覆寫值本身的逸出。
+    config: cfg({
+      mode: 'plain',
+      rowSeparators: [{ kind: 'custom', value: "'" }],
+      segments: [seg('model', { prefix: "'$(x)", color: A(226) }), seg('version', {})],
+    }),
+  },
 ]
 
 // ── 多列代表 case（T3.3；magi/07-statusline-multirow-layout/PLAN.md §golden

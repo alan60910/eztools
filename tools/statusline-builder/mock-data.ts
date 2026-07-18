@@ -57,7 +57,12 @@ export interface MockShellChannel {
 
 export interface MockScenario {
   id: MockScenarioId
-  /** UI 顯示名（mock 情境 radiogroup 的 accessible label）。 */
+  /**
+   * UI 顯示名（mock 情境 radiogroup 的 accessible label）——**非渲染
+   * 副本**：實際渲染權威來源為 index.html 情境 radio 的靜態 label 字面
+   * （main.ts 不讀本欄位填 DOM），故不列入 i18n 面（09-PLAN §D5 A-3，
+   * T5.4）。此欄僅供本模組自身文件/測試可讀性參照。
+   */
   label: string
   /** 情境角色（何以入 canonical 集）。 */
   note: string
@@ -175,7 +180,7 @@ const MOCK_SCENARIO_LIST: MockScenario[] = [
   },
   {
     id: 'early-null',
-    label: 'session 早期（可 null 欄全 null）',
+    label: '早期 session（可 null 欄全 null）',
     note: '首次 API 回應前：used/remaining/current_usage 為 null（dash 段顯 "--"）、rate_limits 未出現、條件欄全缺、cost 全零。',
     provisional: true,
     now: EARLY_NOW,

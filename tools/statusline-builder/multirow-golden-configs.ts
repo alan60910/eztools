@@ -144,4 +144,27 @@ export const MULTIROW_GOLDEN_CASES: readonly MultirowGoldenCase[] = [
       ],
     }),
   },
+  {
+    name: 'multirow-plain-rowseps',
+    // T1.6（magi/09-statusline-ux-refactor/PLAN.md §D1 golden 策略）：「某
+    // 列覆寫＋某列 null 顯式繼承」多列 golden 契約——段組合／row 分佈逐欄
+    // 沿用 `multirow-plain` 案（僅新增 rowSeparators，兩案對照即最小 diff）。
+    // 三列：row 0（啟用位 0）`rowSeparators[0]=null`→全域 '|'；row 1（啟用
+    // 位 1）覆寫 preset '·'；row 2（啟用位 2，亦陣列末位）
+    // `rowSeparators[2]=null`→全域 '|'——**顯式尾端 null**（非陣列過短之
+    // 越界 undefined；本檔為 raw BuilderConfig 直餵 emitBash／emitPs1，不
+    // 經 sanitizeConfig 修剪尾端 null），機械覆蓋 rowSeparatorValue 對「顯式
+    // null」與「缺項」同歸全域值的兩種來源路徑。
+    config: cfg('plain', {
+      rowSeparators: [null, { kind: 'preset', value: '·' }, null],
+      segments: [
+        seg('model', { color: A(75), row: 0 }),
+        seg('cwd', { variant: 'tilde', prefix: '@', color: A(45), row: 0 }),
+        seg('cost', { color: A(220), row: 1 }),
+        seg('duration', { color: A(118), row: 1 }),
+        seg('context-used', { threshold: TRAFFIC, color: A(240), row: 2 }),
+        seg('rate-5h', { color: A(99), row: 2 }),
+      ],
+    }),
+  },
 ]

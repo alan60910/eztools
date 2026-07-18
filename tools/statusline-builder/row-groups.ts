@@ -9,8 +9,15 @@
  * 是否實際變動」這兩個決策抽成零 DOM 依賴的純函式模組，main.ts 於
  * commitConfig／init 內 import 使用（DOM 組裝——建立/銷毀列群組容器、
  * 搬移既有 <li>——留在 main.ts，只機械消費本模組的計算結果）。
+ *
+ * T5.2（magi/09-statusline-ux-refactor/PLAN.md §D5 A-1；messages.ts 見
+ * T5.1）：`formatMoveAnnouncement` 播報句形改由 `t(locale)` 注入，不再
+ * 內嵌中文字面——`locale` 選填、預設 `DEFAULT_LOCALE`（'zh-Hant'），既有
+ * 呼叫端（main.ts）零改動下繼續編譯且輸出不變；實際語言穿線（UI 切換
+ * 帶動 locale 傳遞）留待 T5.5。
  */
 import type { SegmentConfig } from './config.js'
+import { DEFAULT_LOCALE, t, type Locale } from './messages.js'
 
 /** 單一渲染列的分組結果（僅啟用段）。 */
 export interface RowGroup {
@@ -128,12 +135,17 @@ export function computeRowSwap(
  * K）」）——純函式化以供單元測試；main.ts 呼叫 `announceMove` 時代入本
  * 函式輸出。`info` 接受 `RowSwapResult`（或其 `row`/`position`/`rowSize`
  * 子集，供拖曳等其他觸發路徑復用同一格式化邏輯而不必產生完整交換結果）。
+ *
+ * `locale`（T5.2 注入，選填、預設 `DEFAULT_LOCALE`）：句形取自
+ * `messages.ts` 的 `t(locale).announce.move`，不再內嵌中文字面——不傳
+ * 時輸出與既有中文字面完全一致（相容性硬約束）。
  */
 export function formatMoveAnnouncement(
   label: string,
   info: Pick<RowSwapResult, 'row' | 'position' | 'rowSize'>,
+  locale: Locale = DEFAULT_LOCALE,
 ): string {
-  return `${label} 移至第 ${info.row} 列第 ${info.position} 位（共 ${info.rowSize}）`
+  return t(locale).announce.move(label, info.row, info.position, info.rowSize)
 }
 
 // ── 跨列移動（T5.10；magi/07-statusline-multirow-layout/PLAN.md §排序與 ──

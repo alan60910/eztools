@@ -81,6 +81,22 @@
  * 顯式代換 ariaText（見下方 `ariaSuffix`／`needsSuffixAria`）；未含 `↺`
  * 之後綴（或無 suffix）維持原省略／組裝規則不變。
  *
+ * ── T5.3（magi/09-statusline-ux-refactor/PLAN.md Rev 2 §5.3；messages.ts
+ * i18n 純核心注入）──
+ * `ResolveInput.locale?: Locale` 選填、預設 `DEFAULT_LOCALE`（zh-Hant）
+ * ──既有呼叫點（main.ts／render-preview／各測試／golden scripts）零改動
+ * 仍編譯、輸出 byte 不變。resolveSegment 內 `locale = input.locale ??
+ * DEFAULT_LOCALE` 供兩處 ariaText 組裝消費：(a) `headAria` 改走
+ * `segmentAriaText(descriptor.id, locale)`（segments.ts 匯出的 locale
+ * 感知 accessor，取代直讀恆為 zh-Hant 的 `descriptor.icon.ariaText`）；
+ * (b) C4 的 `↺`→「重置」代換詞改為 `t(locale).resetAriaWord`（`resetWord`
+ * 變數，`en` 下代換為 `'reset'`）。**單一事實來源反轉**：segments.ts
+ * 目錄的 `label`／`icon.ariaText` 欄位值本身也改自 messages.ts zh-Hant
+ * 字典於模組初始化時取得（見該檔「T5.3」節）——本檔 import 不變、僅新增
+ * `t`／`DEFAULT_LOCALE`／`Locale`（messages.js）與 `segmentAriaText`
+ * （segments.js）。`text` 主文字通道（`descriptor.label`／腳本輸出）不
+ * 受 locale 影響，僅 aria-label 組裝分岔。
+ *
  * ── 契約沉默處選擇（T2.3/T2.4/T2.5/T3.2 依賴面，勿改動語意）──
  * 1. **run 粒度**：powerline 段恆為單 run（段只有一組 fg/bg，箭頭交接
  *    才有唯一 bg 可取）——**bar 段例外（4 run）；箭頭交接 bg 一律取段
@@ -119,6 +135,7 @@
 import { autoFg, type ColorSpec } from './color.js'
 import type { BuilderConfig, SegmentColor, SegmentConfig } from './config.js'
 import type { MockShellChannel } from './mock-data.js'
+import { DEFAULT_LOCALE, t, type Locale } from './messages.js'
 import {
   DESCRIPTORS_BY_ID,
   defaultVariant,
@@ -126,6 +143,7 @@ import {
   formatResetsAt,
   formatValue,
   isValueDead,
+  segmentAriaText,
   type FormatKind,
   type SegmentDescriptor,
   type SegmentId,
@@ -162,6 +180,16 @@ export interface ResolveInput {
    * ——mock 消費端以 `MockScenario.now` 填入（結構子集直傳即含此欄）。
    */
   now: number
+  /**
+   * 預覽 aria-label 語系（T5.3，09-PLAN Rev 2 §5.3）：選填、缺席＝
+   * `DEFAULT_LOCALE`（zh-Hant）——既有呼叫點（main.ts／render-preview／
+   * 各測試／golden scripts）零改動仍編譯、輸出 byte 不變（結構子集直傳
+   * 的 MockScenario 本就不帶此欄，可選性使其照樣賦值相容）。僅影響
+   * ariaText 組裝（倒數後綴「重置」代換詞、icon run 的 SR 文字等價）；
+   * `text` 主文字通道（描述子 `label`／腳本輸出）不受影響——見
+   * resolveSegment 消費點（`headAria`／`ariaSuffix`／`valueAria`）。
+   */
+  locale?: Locale
 }
 
 /** powerline 轉場箭頭（v1 固定 U+E0B0，PLAN Non-Goals 記 minority）。 */
@@ -392,6 +420,9 @@ function resolveSegment(
   powerlineArrow: boolean,
 ): ResolvedSegment | null {
   const raw = mainValue(descriptor, input)
+  // T5.3（09-PLAN Rev 2 §5.3）：ariaText 組裝的語系基準——選填、缺席退
+  // DEFAULT_LOCALE（zh-Hant，既有輸出 byte 不變的相容錨點）。
+  const locale = input.locale ?? DEFAULT_LOCALE
   const isDash = descriptor.nullPolicy === 'dash' && raw == null
   if (descriptor.nullPolicy !== 'dash' && isValueDead(raw)) return null
   // T4.1（08-PLAN Rev 4 §4）：expiresAtPath 通用死值規則——欄位存在且
@@ -421,18 +452,22 @@ function resolveSegment(
     descriptor.resetsAt !== undefined && variant === 'percent-reset'
       ? resetsAtSuffix(descriptor.resetsAt.tsPath(input.data), input.now, descriptor.resetsAt.countdown)
       : ''
-  // M6 C4（2026-07-14 拍板）：後綴含 `↺` 代換為「重置」（沿倒數段既有
-  // aria 代換慣例）——suffix 非空時恆含 `↺`（resetsAtSuffix 兩套倒數形皆
-  // 以 `↺` 起首），故 needsSuffixAria ⟺ suffix !== ''；仍以 includes 判定
-  // 保留形狀彈性（零 id 特判）。三處 ariaText 組裝點（下方 powerline／
-  // plain 單 run、plain 閾值分裂 value run、bar run4）皆消費本二值。
-  const ariaSuffix = suffix.includes('↺') ? suffix.replace('↺', '重置') : suffix
+  // M6 C4（2026-07-14 拍板；T5.3 起代換詞 locale 感知）：後綴含 `↺` 代換
+  // 為 `t(locale).resetAriaWord`（沿倒數段既有 aria 代換慣例）——suffix
+  // 非空時恆含 `↺`（resetsAtSuffix 兩套倒數形皆以 `↺` 起首），故
+  // needsSuffixAria ⟺ suffix !== ''；仍以 includes 判定保留形狀彈性
+  // （零 id 特判）。三處 ariaText 組裝點（下方 powerline／plain 單 run、
+  // plain 閾值分裂 value run、bar run4）皆消費本二值。
+  const resetWord = t(locale).resetAriaWord
+  const ariaSuffix = suffix.includes('↺') ? suffix.replace('↺', resetWord) : suffix
   const needsSuffixAria = ariaSuffix !== suffix
   const prefix = seg.prefix ?? ''
   const head = prefix + (seg.icon ? `${descriptor.icon.glyph} ` : '')
-  // icon run 的顯式 aria＝glyph 機械代換為 icon.ariaText（prefix 字面保留）；
-  // icon 關閉＝null → 純文字 fallback（省略 ariaText）。
-  const headAria = seg.icon ? prefix + descriptor.icon.ariaText : null
+  // icon run 的顯式 aria＝glyph 機械代換為 segmentAriaText(id, locale)
+  // （T5.3 起走 locale 感知 accessor，取代直讀 descriptor.icon.ariaText
+  // ——該欄位本身固定 zh-Hant，見 segments.ts SegmentDescriptor.icon 文件；
+  // prefix 字面保留）；icon 關閉＝null → 純文字 fallback（省略 ariaText）。
+  const headAria = seg.icon ? prefix + segmentAriaText(descriptor.id, locale) : null
 
   // 閾值只作用 percentage 類（沉默處選擇 4）；dash 不套閾值色（契約 3）。
   const threshold: { rule: ThresholdRule; index: number } | null =
@@ -489,13 +524,13 @@ function resolveSegment(
     return { runs: [headRun, filledRun, emptyRun, valueRun], bg: segColor }
   }
 
-  // 倒數段 value 部 aria 代換（T4.2，08-PLAN Rev 4 §4）：引擎自產 `↺`
-  // 非 PUA、機械 enforcement 不攔——顯式代換「重置」（沿 icon glyph→
-  // ariaText 代換慣例；使用者 prefix 通道字面保留不代換；S7 失守換
-  // ASCII 替代時自然退場）。
+  // 倒數段 value 部 aria 代換（T4.2，08-PLAN Rev 4 §4；T5.3 起代換詞
+  // locale 感知）：引擎自產 `↺` 非 PUA、機械 enforcement 不攔——顯式代換
+  // `resetWord`（沿 icon glyph→ariaText 代換慣例；使用者 prefix 通道字面
+  // 保留不代換；S7 失守換 ASCII 替代時自然退場）。
   const valueAria =
     descriptor.format === 'reset-countdown-5h' || descriptor.format === 'reset-countdown-7d'
-      ? valueText.replace('↺', '重置')
+      ? valueText.replace('↺', resetWord)
       : null
   const ariaValue = valueAria ?? valueText
 
@@ -516,8 +551,9 @@ function resolveSegment(
     // chunk trim，補了也會被削掉，省略較不易誤導閱讀者「aria 有格」。
     const pad = powerlineArrow ? '' : ' '
     const run: StyledRun = { text: head + valueText + suffix + pad }
-    // M6 C4：後綴含 `↺` 時併入 ariaSuffix（代換「重置」）；headAria 為
-    // null 但後綴仍需代換（needsSuffixAria）時比照 valueAria 分支組裝。
+    // M6 C4：後綴含 `↺` 時併入 ariaSuffix（代換 resetWord，T5.3 起 locale
+    // 感知）；headAria 為 null 但後綴仍需代換（needsSuffixAria）時比照
+    // valueAria 分支組裝。
     if (headAria !== null) run.ariaText = `${headAria} ${ariaValue}${ariaSuffix}`
     else if (valueAria !== null || needsSuffixAria) run.ariaText = `${prefix}${ariaValue}${ariaSuffix}`
     assignColor(run, 'fg', fg)
@@ -606,6 +642,21 @@ function joinPowerline(
  * 不受多列影響（padding 已在 resolveSegment 併入段 run，與分組無關）
  * ——多列下即「每列末段亦帶尾隨空格」。
  *
+ * ── rowSeparators 啟用位映射（T1.3，09-PLAN §D1 A-1；僅 plain 分支消費，
+ * powerline 分支零觸碰＝天然忽略） ──
+ * `config.rowSeparators[i]` 對位「config 正規化後的啟用列位」——**全部**
+ * `enabled` 段（不論本次執行期存活與否）的相異 `seg.row ?? 0` 值升冪去重
+ * 後的 dense 位置，與 `emit-bash.ts` `groupByRow`／`emit-ps1.ts`
+ * `groupSegmentsByRow` 的分組序同基準。此基準**獨立於** `renderRowOrder`
+ * （上方「執行期存活列」緊縮序，分桶前已剔除死亡段）——兩者於某啟用列
+ * 整列執行期死亡時分岔，故**禁止**直接以 `renderRowOrder.map` 的迭代
+ * index 取 `rowSeparators` 覆寫。實作另計 `enabledRowOrder`（全部 enabled
+ * 段的相異 row 值升冪陣列，不受本次存活結果影響），每個存活渲染列
+ * `row` 鍵先以 `enabledRowOrder.indexOf(row)` 映射回其啟用位，再取
+ * `config.rowSeparators?.[啟用位]?.value ?? config.separator.value`
+ * （`null`／缺項／整欄缺席皆退全域）——確保「整列死亡＋後列有覆寫」
+ * 情境下預覽與腳本仍 byte 一致。
+ *
  * ── 全段隱藏退化（實作層防衛） ──
  * 零存活列時（Map 為空）回傳 **`[[]]`**（一列空列）而非 `[]`——保住
  * `toAnsi`「全隱藏輸出恆為單一 reset、非空字串」的既有鎖死不變量；
@@ -631,11 +682,21 @@ export function resolve(config: BuilderConfig, input: ResolveInput): StyledRun[]
     else bucket.push(segment)
   }
   const renderRowOrder = [...groups.keys()].sort((a, b) => a - b)
+  // T1.3（09-PLAN §D1 A-1）：啟用位基準——全部 enabled 段（不論存活）的
+  // 相異 row 值升冪去重陣列，與 renderRowOrder（執行期存活列緊縮序）
+  // 分開計算，避免整列執行期死亡時兩基準分岔而誤取覆寫（見上方 docstring）。
+  const enabledRowOrder = [...new Set(
+    config.segments.filter((seg) => seg.enabled).map((seg) => seg.row ?? 0),
+  )].sort((a, b) => a - b)
   const rows: StyledRun[][] = renderRowOrder.map((row) => {
     const bucket = groups.get(row)!
-    return config.mode === 'powerline'
-      ? joinPowerline(bucket, config.lastArrowCap, config.powerlineArrow)
-      : joinPlain(bucket, config.separator.value)
+    if (config.mode === 'powerline') {
+      return joinPowerline(bucket, config.lastArrowCap, config.powerlineArrow)
+    }
+    // 存活渲染列 row 鍵 → 啟用位 → rowSeparators 覆寫（null／缺項退全域）。
+    const enabledPos = enabledRowOrder.indexOf(row)
+    const separatorValue = config.rowSeparators?.[enabledPos]?.value ?? config.separator.value
+    return joinPlain(bucket, separatorValue)
   })
   return rows.length > 0 ? rows : [[]]
 }

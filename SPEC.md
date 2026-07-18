@@ -50,11 +50,27 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   輸出**：`SegmentConfig.row?: number`（選填、缺欄視同 0，CONFIG_VERSION
   維持 2 不 bump）驅動 `resolve()` 回傳 `rows: StyledRun[][]`（按渲染列序
   分組、空列壓縮，全隱藏退化為單一空列 `[[]]`），三後端與預覽逐列同步
-  輸出，行尾契約＝列間單一 LF join、無尾隨換行；**三欄滿版版面**（左＝
-  segment 目錄 transfer-list，勾選原位灰化留位、不重排；中＝已選擇，依
-  渲染列分組，各列群組容器自帶地標／標題可跳達；右＝即時預覽＋產出腳本
-  sticky），斷點 3→2→1 欄退化；config schema 現為 CONFIG_VERSION 2（含
-  v1→v2 遷移，`row` 為 v2 內選填欄）；位於 `tools/statusline-builder/`
+  輸出，行尾契約＝列間單一 LF join、無尾隨換行；**全寬 sticky 預覽頂帶版面**（sprint 09
+  改寫：預覽終端框＋底色／情境緊湊控件成全寬 sticky 頂帶，max-height
+  ≤40dvh、終端框內部捲動，頂帶自身承載 role=region 捲動停點；下方
+  雙欄——左＝segment 目錄 transfer-list（勾選原位灰化留位、不重排，
+  目錄項可**拖移入列**直接啟用至中欄目標列，checkbox 鍵盤等效保留、
+  落列播報採視覺顯示編號）＋中＝已選擇（依渲染列分組，各列群組容器
+  自帶地標／標題可跳達，列 header 帶逐列分隔符覆寫控件）——斷點
+  2→1 欄退化；產出收斂為頂帶右端單一按鈕開 `<dialog>`（stacked 三
+  產物各含複製／下載；showModal＋feature-detect fallback，
+  `#output-status` live region 常駐 dialog 外）；**逐列分隔符覆寫**
+  `BuilderConfig.rowSeparators?: (SeparatorConfig|null)[]`（v2 內選填
+  欄不 bump，缺項／null 退全域；索引綁**啟用列位**、三後端與預覽同
+  基準；僅 plain 模式生效，powerline 保值惰性；golden 採「既有凍結＋
+  新增帶覆寫 fixture」策略）；**i18n 雙語**（zh-Hant 預設／en）：純
+  核心 `messages.ts`（typed `Messages` 介面雙字典，typecheck 罩插值
+  arity）＋DOM 套用器 `i18n-dom.ts`（data-i18n／data-i18n-attr、
+  localStorage `eztools-statusline-builder-lang`、`<html lang>` 同步、
+  五步序切換重繪）雙層，純函式模組以 locale 注入（選填預設 zh-Hant），
+  產出腳本內容不雙語化；config schema 現為 CONFIG_VERSION 2（含
+  v1→v2 遷移，`row`／`rowSeparators` 為 v2 內選填欄）；位於
+  `tools/statusline-builder/`
 
 ## Public surface
 - 靜態網頁（GitHub Pages 託管的 HTML/CSS/JS）
@@ -114,6 +130,10 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - localStorage key 統一格式 `eztools-<scope>-<name>`；全站範圍慣例可省略
   scope（如全站主題 `eztools-theme`）。此慣例為 06a 新增，不追溯既有
   key——statusline-builder 既有的設定存檔 key 維持原命名不變
+- 互動工具關鍵節點以 `data-testid` 提供 e2e 穩定錨點，e2e selector
+  一律走錨點、不依賴 DOM 結構路徑；e2e 斷言亦**不得依賴 i18n 可見
+  文字**，位置／序數類斷言走 `data-*` 序數屬性（如 `data-row-index`）。
+  此慣例為 sprint 09 新增（statusline-builder e2e 全 7 案為現行活例）
 
 ## Status
 入口頁骨架已完成（Vite MPA 架構、工具清單注入機制、a11y 基線）。部署
@@ -147,6 +167,14 @@ sticky），斷點 3→2→1 欄退化；排序語意重構為「依渲染列分
 列可暫存為 UI 空列（位置制、可居中間；純顯示態、不入存檔——config
 恆無空列，跨列移動搬空來源列時原地保留為空列）；
 CONFIG_VERSION 維持 2（`row` 為既有版本內選填欄，不 bump）。
+
+sprint 09（statusline-builder UX 重構，真機回饋批）已交付：逐列分隔符
+覆寫（v2 選填欄；golden 既有凍結＋新增 6 fixture）、欄位預設值標示
+（八欄位＋值＝預設淡化）、目錄拖移入列（enable-into-target 原子路徑＋
+來源感知冪等清理＋落列播報）、全寬 sticky 預覽頂帶＋單一產出鈕
+`<dialog>`、zh-Hant／en 雙語 i18n（20+ 域字典、五步序切換重繪）；
+e2e 5→7 案（data-testid 錨點制）、測試 1454→1738 案。真機驗收
+（T6.2-CHECKLIST）遞延至下個 sprint（BACKLOG 真機驗收批）。
 
 sprint 06c（statusline-builder 目錄擴充＋前置加固）已交付：目錄
 25→30 段（新增 token-in／token-out／cache-hit／reset-5h／reset-7d，

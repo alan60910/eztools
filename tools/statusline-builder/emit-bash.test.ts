@@ -20,7 +20,7 @@ import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { ColorSpec } from './color.js'
-import type { BuilderConfig, SegmentConfig } from './config.js'
+import type { BuilderConfig, SegmentConfig, SeparatorConfig } from './config.js'
 import { toAnsi } from './emit-ansi.js'
 import { emitBash, JQ_MISSING_HINT, type SegmentDescriptorCatalog } from './emit-bash.js'
 import { MOCK_SCENARIOS_BY_ID, type MockScenarioId } from './mock-data.js'
@@ -344,6 +344,150 @@ describe('單列退化（T3.1：emit 期分組壓縮為 1 列 → 扁平結構�
     for (const { name, config } of GOLDEN_CASES) {
       const s = emitBash(config, CATALOG)
       expect(s, `${name} 不應含多列標記`).not.toMatch(/texts_\d/)
+    }
+  })
+})
+
+// ── T1.4（09-PLAN §D1 A-4）：emit-bash 逐列分隔符（SEP_k 展開）＋
+// no-override fast path ──
+
+describe('逐列分隔符（T1.4：emit-bash SEP_k 展開，結構斷言）', () => {
+  const threeRowSegs = [
+    segT('model', { color: A(226), row: 0 }),
+    segT('cost', { color: A(220), row: 1 }),
+    segT('duration', { color: A(45), row: 2 }),
+  ]
+
+  it('no-override fast path：rowSeparators 缺席（多列）→ 單一 SEP= 宣告，逐位元組同改動前；不含 SEP_0', () => {
+    const noField = cfgT('plain', true, threeRowSegs)
+    const script = emitBash(noField, CATALOG)
+    // 單一全域宣告：恰一個 `SEP=` 開頭行。
+    const sepDeclLines = script.split('\n').filter((l) => /^SEP[=_]/.test(l))
+    expect(sepDeclLines).toEqual([`SEP='|'`])
+    expect(script).not.toContain('SEP_0')
+    expect(script).not.toContain('SEP_1')
+    expect(script).not.toContain('SEP_2')
+    // joinPlain 三列皆引用 bare $SEP／${SEP}（不含底線尾碼）。
+    expect(script).toContain('"$SEP"')
+    expect(script).toContain('${SEP}')
+  })
+
+  it('no-override fast path：rowSeparators 全 null（多列）→ 與缺席欄位產出逐位元組相同', () => {
+    const noField = cfgT('plain', true, threeRowSegs)
+    const allNull: BuilderConfig = { ...noField, rowSeparators: [null, null, null] }
+    expect(emitBash(allNull, CATALOG)).toEqual(emitBash(noField, CATALOG))
+  })
+
+  it('多列＋第 2 列（index 1）覆寫：逐列 SEP_k 展開，未覆寫列退全域值，joinPlain 各自引用對應列', () => {
+    const overridden: BuilderConfig = {
+      ...cfgT('plain', true, threeRowSegs),
+      rowSeparators: [null, { kind: 'preset', value: '·' }, null],
+    }
+    const script = emitBash(overridden, CATALOG)
+    // 三列皆宣告（未覆寫列退全域 '|'，覆寫列用 '·'）。
+    expect(script).toContain(`SEP_0='|'`)
+    expect(script).toContain(`SEP_1='·'`)
+    expect(script).toContain(`SEP_2='|'`)
+    // 不再有 bare 全域宣告／引用殘留。
+    expect(script).not.toMatch(/^SEP='/m)
+    expect(script).not.toContain('"$SEP"')
+    expect(script).not.toContain('${SEP}')
+    // joinPlain 逐列引用各自的 SEP_k（順序：row0→row1→row2，且各自對應）。
+    expect(script).toContain('[ -n "$SEP_0" ]')
+    expect(script).toContain('${ESC}[0m${SEP_0}')
+    expect(script).toContain('[ -n "$SEP_1" ]')
+    expect(script).toContain('${ESC}[0m${SEP_1}')
+    expect(script).toContain('[ -n "$SEP_2" ]')
+    expect(script).toContain('${ESC}[0m${SEP_2}')
+    // 段落序：row 1 的 join 區塊須引用 segstart_1（不跨列，同 T3.1 既有斷言精神）。
+    expect(script).toContain('[ "${segstart_1[$i]}" = "1" ]')
+  })
+
+  it('單列路徑＋列 0 覆寫：SEP（非 SEP_0）直接綁覆寫值', () => {
+    const singleRowSegs = [segT('model', { color: A(226) }), segT('cost', { color: A(220) })]
+    const overridden: BuilderConfig = {
+      ...cfgT('plain', true, singleRowSegs),
+      rowSeparators: [{ kind: 'preset', value: '·' }],
+    }
+    const script = emitBash(overridden, CATALOG)
+    expect(script).toContain(`SEP='·'`)
+    expect(script).not.toContain('SEP_0')
+    expect(script).not.toContain('SEP_1')
+    // 單列扁平路徑：join 引用仍是 bare $SEP／${SEP}。
+    expect(script).toContain('"$SEP"')
+    expect(script).toContain('${SEP}')
+  })
+
+  it('custom 覆寫含單引號等需逸出字元：bashSingleQuote 正確逸出（`\'`→`\'\\\'\'`）', () => {
+    const overridden: BuilderConfig = {
+      ...cfgT('plain', true, threeRowSegs),
+      rowSeparators: [null, { kind: 'custom', value: "'" }, null],
+    }
+    const script = emitBash(overridden, CATALOG)
+    // bashSingleQuote("'") === `''\'''`（既有「契約 6」escaping 案同一逸出規則）。
+    expect(script).toContain(`SEP_1=''\\'''`)
+  })
+
+  it('powerline 模式零觸碰：rowSeparators 有值時不 emit 任何 SEP 相關宣告／引用', () => {
+    const overridden: BuilderConfig = {
+      ...cfgT('powerline', true, threeRowSegs),
+      rowSeparators: [null, { kind: 'preset', value: '·' }, null],
+    }
+    const script = emitBash(overridden, CATALOG)
+    expect(script).not.toContain('SEP')
+  })
+})
+
+// ── T1.6（09-PLAN §D1 golden 策略）：rowSeparators 對 powerline 惰性——
+// 機械證據 ──
+//
+// 「既有 powerline golden 檔全數零 diff」無法在測試內直接比對「舊版黃金
+// bytes」（測試沒有歷史參照）；改為機械化的**間接證明**：powerline 分支
+// 對 `config.rowSeparators` 零觸碰（見 emitBash 主體 `if (config.mode ===
+// 'plain')` 區塊——powerline 段落完全不讀此欄），故對任一既有 powerline
+// config 塞入（無論何值）rowSeparators，emitBash 產出必須逐位元組不變。
+// 這正是「rowSeparators schema 落地後既有 8 個 powerline golden 檔（.sh）
+// 恆凍結」的機械擔保——不需，也無法，直接比對「golden:update 前後」的
+// bytes（該比對屬人審 `git diff --stat` 稽核，見 T1.6-report.md）。
+describe('rowSeparators 對 powerline 惰性（T1.6 機械證據；既有 powerline golden .sh 零 diff 佐證）', () => {
+  const GARBAGE_ROW_SEPS: (SeparatorConfig | null)[] = [
+    { kind: 'custom', value: '###' },
+    { kind: 'preset', value: '·' },
+    null,
+  ]
+
+  it('單列來源（GOLDEN_CASES）：明列 6 個 powerline case，帶 rowSeparators 塞值 vs 不帶，emitBash 產出逐位元組相同', () => {
+    const powerlineCases = GOLDEN_CASES.filter((c) => c.config.mode === 'powerline')
+    // 明列既有 6 個單列 powerline golden 案名（若此清單漂移，需連動更新
+    // T1.6-report.md 與下方多列清單合計「8 檔」的稽核佐證）。
+    expect(powerlineCases.map((c) => c.name).sort()).toEqual(
+      [
+        'sp5-a-powerline',
+        'sp5-b-powerline',
+        'powerline-rich',
+        'powerline-noarrow',
+        'bar-auto-powerline-arrow',
+        'bar-auto-powerline-noarrow',
+      ].sort(),
+    )
+    for (const { name, config } of powerlineCases) {
+      const withSeps: BuilderConfig = { ...config, rowSeparators: GARBAGE_ROW_SEPS }
+      expect(emitBash(withSeps, CATALOG), `${name}：帶 rowSeparators 不應改變 powerline 輸出`).toEqual(
+        emitBash(config, CATALOG),
+      )
+    }
+  })
+
+  it('多列來源（MULTIROW_GOLDEN_CASES）：明列 2 個 powerline case（合計 8 檔），帶 rowSeparators 塞值 vs 不帶，emitBash 產出逐位元組相同', () => {
+    const powerlineCases = MULTIROW_GOLDEN_CASES.filter((c) => c.config.mode === 'powerline')
+    expect(powerlineCases.map((c) => c.name).sort()).toEqual(
+      ['multirow-powerline', 'multirow-powerline-noarrow'].sort(),
+    )
+    for (const { name, config } of powerlineCases) {
+      const withSeps: BuilderConfig = { ...config, rowSeparators: GARBAGE_ROW_SEPS }
+      expect(emitBash(withSeps, CATALOG), `${name}：帶 rowSeparators 不應改變 powerline 輸出`).toEqual(
+        emitBash(config, CATALOG),
+      )
     }
   })
 })

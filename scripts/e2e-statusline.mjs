@@ -43,6 +43,19 @@
  *      消失、真實列緊湊重編（本腳本開發期以 CDP 對 dist 建置的真實頁面
  *      實測驗證此行為，與五案清單描述一致，非臆測）。
  *
+ * T6.1（magi/09-statusline-ux-refactor/PLAN.md，2026-07-17 使用者核可）
+ * 追加兩案，五案→七案：
+ *   6. 目錄拖入指定列——真拖曳（`Input.dispatchDragEvent`）觸發
+ *      enable-into-target seam（main.ts `commitEnableIntoTarget`）。
+ *      `catalog-drag.dom.test.ts` 僅以 jsdom 手工 `MouseEvent` dispatch
+ *      驗證邏輯層（無原生 DnD／dataTransfer），本案補上真實瀏覽器拖放
+ *      管線的一致性驗證。
+ *   7. 產出 dialog 開→複製→Esc 關→焦點還原產出鈕——`Input.dispatchKeyEvent`
+ *      注入真實 Esc 按鍵，觸發原生 `<dialog>` 的 cancel→close 鏈路（非
+ *      `output-dialog.dom.test.ts` 該檔手工 `dispatchEvent(new
+ *      Event('close'))` 模擬的邏輯層驗證），確認 `wireOutputDialog` 的
+ *      `close` 監聽器在真實瀏覽器下確實把焦點還原至開鈕。
+ *
  * 用法：
  *   node scripts/e2e-statusline.mjs      # 或 npm run test:e2e
  *   E2E_HEADED=1 node scripts/e2e-statusline.mjs   # 人工除錯用 headed
@@ -274,23 +287,51 @@ function seedExpr(enabledRows) {
 // ── 幾何輔助（多列版面下每段控件列很高，任何固定 viewport 都可能不夠；
 // drop 前必須先把來源／目標元素捲入視野，且 scrollIntoView 須帶
 // behavior:'instant'——見檔頭「零依賴 CDP 全鏈」段落文件）──
+//
+// T3.5（09-PLAN §D3 e2e 穩定錨點慣例，2026-07-17 拍板）：selector 全數
+// 改走 `data-testid`（見 tools/statusline-builder/index.html 模板契約
+// 「T3.5」條目與 main.ts 對應寫入點），不再依賴 `li.segment-row`／
+// `.segment-row__grip` 等 class 名稱結構路徑——M4 版面重構／M5 i18n 皆
+// 不會動搖這些錨點。
 
 function gripPointExpr(segmentId) {
-  return `(() => { const li = document.querySelector('li.segment-row[data-segment-id=${JSON.stringify(segmentId)}]'); const grip = li.querySelector('.segment-row__grip'); grip.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); const r = grip.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
+  return `(() => { const li = document.querySelector('[data-testid="segment-row"][data-segment-id=${JSON.stringify(segmentId)}]'); const grip = li.querySelector('[data-testid="segment-grip"]'); grip.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); const r = grip.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
 }
 
 function liPointExpr(segmentId, verticalFrac) {
-  return `(() => { const li = document.querySelector('li.segment-row[data-segment-id=${JSON.stringify(segmentId)}]'); li.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); const r = li.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height * ${verticalFrac}) }; })()`
+  return `(() => { const li = document.querySelector('[data-testid="segment-row"][data-segment-id=${JSON.stringify(segmentId)}]'); li.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); const r = li.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height * ${verticalFrac}) }; })()`
+}
+
+// T6.1：左欄目錄項（停用段）拖曳起點——落在 `.catalog-item__name`（段名
+// 文字）而非 checkbox 本身。main.ts wireCatalogDragAndDrop 的 checkbox
+// 命中區豁免僅檢查 `event.target.closest('input, select, button,
+// textarea, [role="spinbutton"]')`，`<label>`／文字 span 皆不在排除清單
+// 內，故名稱文字節點本就是合法拖曳起點——style.css `.catalog-item`
+// `user-select: none` 正是為此互動預先鋪的防選字（見其文件 T3.3 段），
+// 非本腳本繞路取巧。
+function catalogPointExpr(segmentId) {
+  return `(() => { const li = document.querySelector('[data-testid="catalog-item"][data-segment-id=${JSON.stringify(segmentId)}]'); li.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); const name = li.querySelector('.catalog-item__name'); const r = name.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
 }
 
 // 全列群組快照（真實列＋pending 占位，DOM 序＝slot 序）；S1/S4/S9/S7 皆用
-// 此比對，heading（顯示編號「第 N 列」）一併納入比對，因為「編號隨
-// slots 變動重排」本身就是這幾案要守住的不變量之一。
+// 此比對。T3.5：改讀 `data-row-index`（序數屬性，main.ts refreshRowNumbering／
+// renderPendingRowContainers 同步維護，語意＝顯示編號）取代原本比對
+// heading textContent「第 N 列」——去除 i18n 可見文字依賴（M5 heading
+// 文案將可切換語言，屆時文字比對必崩，序數屬性不受影響）。一併納入
+// **每列 separator 覆寫狀態**（T1.7 新增控件）：真實列讀
+// `.segment-row-group__separator-preset`（data-testid="row-separator-preset"）
+// 的 `value`——'inherit'/'preset:X'/'custom' 為程式碼態值、非可見文字，
+// 直接讀 DOM 控件值（而非重新推導 localStorage config 的 rowSeparators
+// 正規化邏輯）更貼近「使用者實際看到的控件狀態」，且不需複刻
+// main.ts refreshRowSeparatorControls 的映射規則於本腳本。pending 列無
+// separator 控件，快照物件不含該欄位。
 const SNAPSHOT_EXPR = `
-  [...document.querySelectorAll('#segment-row-groups > *')].map((el) => {
-    const heading = el.querySelector('.segment-section__heading')?.textContent?.trim() ?? '?';
-    if (el.classList.contains('segment-pending-row')) return { kind: 'pending', heading };
-    return { kind: 'real', heading, segs: [...el.querySelectorAll('li.segment-row')].map((li) => li.dataset.segmentId) };
+  [...document.querySelectorAll('#segment-row-groups [data-testid="row-group"], #segment-row-groups [data-testid="pending-row-group"]')].map((el) => {
+    const rowIndex = Number(el.dataset.rowIndex);
+    if (el.dataset.testid === 'pending-row-group') return { kind: 'pending', rowIndex };
+    const segs = [...el.querySelectorAll('[data-testid="segment-row"]')].map((li) => li.dataset.segmentId);
+    const separatorOverride = el.querySelector('[data-testid="row-separator-preset"]')?.value ?? null;
+    return { kind: 'real', rowIndex, segs, separatorOverride };
   })
 `
 
@@ -303,7 +344,7 @@ const caseSameRowSwap = {
   seed: { model: 0, cost: 0 },
   async run({ evaluate, dragBySelector }) {
     const before = await evaluate(
-      `[...document.querySelectorAll('#segment-row-groups .segment-list')[0].querySelectorAll('li.segment-row')].map((li) => li.dataset.segmentId)`,
+      `[...document.querySelectorAll('[data-testid="row-group"]')[0].querySelectorAll('[data-testid="segment-row"]')].map((li) => li.dataset.segmentId)`,
     )
     if (JSON.stringify(before) !== JSON.stringify(['model', 'cost'])) {
       return { ok: false, symptom: `unexpected seed order: ${JSON.stringify(before)}` }
@@ -311,7 +352,7 @@ const caseSameRowSwap = {
     const dragResult = await dragBySelector(gripPointExpr('cost'), liPointExpr('model', 0.25))
     if (!dragResult.ok) return dragResult
     const after = await evaluate(
-      `[...document.querySelectorAll('#segment-row-groups .segment-list')[0].querySelectorAll('li.segment-row')].map((li) => li.dataset.segmentId)`,
+      `[...document.querySelectorAll('[data-testid="row-group"]')[0].querySelectorAll('[data-testid="segment-row"]')].map((li) => li.dataset.segmentId)`,
     )
     if (JSON.stringify(after) === JSON.stringify(['cost', 'model'])) return { ok: true }
     return { ok: false, symptom: `order after drop: ${JSON.stringify(after)} (expected ["cost","model"])` }
@@ -328,9 +369,9 @@ const caseS1CrossRowDrain = {
     if (!dragResult.ok) return dragResult
     const snapshot = await evaluate(SNAPSHOT_EXPR)
     const expected = [
-      { kind: 'real', heading: '第 1 列', segs: ['model'] },
-      { kind: 'real', heading: '第 2 列', segs: ['cost', 'duration'] },
-      { kind: 'pending', heading: '第 3 列' },
+      { kind: 'real', rowIndex: 1, segs: ['model'], separatorOverride: 'inherit' },
+      { kind: 'real', rowIndex: 2, segs: ['cost', 'duration'], separatorOverride: 'inherit' },
+      { kind: 'pending', rowIndex: 3 },
     ]
     if (JSON.stringify(snapshot) === JSON.stringify(expected)) return { ok: true }
     return { ok: false, symptom: `snapshot after drop: ${JSON.stringify(snapshot)} (expected ${JSON.stringify(expected)})` }
@@ -349,9 +390,9 @@ const caseS4SelectIntoMiddlePending = {
     await selectMove('model', 2)
     const mid = await evaluate(SNAPSHOT_EXPR)
     const expectedMid = [
-      { kind: 'pending', heading: '第 1 列' },
-      { kind: 'real', heading: '第 2 列', segs: ['cost'] },
-      { kind: 'real', heading: '第 3 列', segs: ['duration', 'model'] },
+      { kind: 'pending', rowIndex: 1 },
+      { kind: 'real', rowIndex: 2, segs: ['cost'], separatorOverride: 'inherit' },
+      { kind: 'real', rowIndex: 3, segs: ['duration', 'model'], separatorOverride: 'inherit' },
     ]
     if (JSON.stringify(mid) !== JSON.stringify(expectedMid)) {
       return { ok: false, symptom: `snapshot after step1 (drain via select): ${JSON.stringify(mid)} (expected ${JSON.stringify(expectedMid)})` }
@@ -360,9 +401,9 @@ const caseS4SelectIntoMiddlePending = {
     await selectMove('cost', 0)
     const after = await evaluate(SNAPSHOT_EXPR)
     const expected = [
-      { kind: 'real', heading: '第 1 列', segs: ['cost'] },
-      { kind: 'pending', heading: '第 2 列' },
-      { kind: 'real', heading: '第 3 列', segs: ['duration', 'model'] },
+      { kind: 'real', rowIndex: 1, segs: ['cost'], separatorOverride: 'inherit' },
+      { kind: 'pending', rowIndex: 2 },
+      { kind: 'real', rowIndex: 3, segs: ['duration', 'model'], separatorOverride: 'inherit' },
     ]
     if (JSON.stringify(after) === JSON.stringify(expected)) return { ok: true }
     return { ok: false, symptom: `snapshot after step2 (assign into pending): ${JSON.stringify(after)} (expected ${JSON.stringify(expected)})` }
@@ -384,16 +425,16 @@ const caseS9DeletePendingRenumber = {
     // 點該 pending 的刪除鈕（免確認，見 main.ts wirePendingRowButton 文件）。
     await evaluate(`
       (() => {
-        const p = document.querySelector('.segment-pending-row');
-        p.querySelector('button').click();
+        const p = document.querySelector('[data-testid="pending-row-group"]');
+        p.querySelector('[data-testid="pending-row-delete"]').click();
         return 'clicked';
       })()
     `)
     await delayFn(300)
     const after = await evaluate(SNAPSHOT_EXPR)
     const expected = [
-      { kind: 'real', heading: '第 1 列', segs: ['cost'] },
-      { kind: 'real', heading: '第 2 列', segs: ['duration', 'model'] },
+      { kind: 'real', rowIndex: 1, segs: ['cost'], separatorOverride: 'inherit' },
+      { kind: 'real', rowIndex: 2, segs: ['duration', 'model'], separatorOverride: 'inherit' },
     ]
     if (JSON.stringify(after) === JSON.stringify(expected)) return { ok: true }
     return { ok: false, symptom: `snapshot after deleting pending: ${JSON.stringify(after)} (expected ${JSON.stringify(expected)})` }
@@ -427,11 +468,105 @@ const caseS7DragDrainReload = {
     await navigate()
     const after = await evaluate(SNAPSHOT_EXPR)
     const expected = [
-      { kind: 'real', heading: '第 1 列', segs: ['model'] },
-      { kind: 'real', heading: '第 2 列', segs: ['cost', 'duration'] },
+      { kind: 'real', rowIndex: 1, segs: ['model'], separatorOverride: 'inherit' },
+      { kind: 'real', rowIndex: 2, segs: ['cost', 'duration'], separatorOverride: 'inherit' },
     ]
     if (JSON.stringify(after) === JSON.stringify(expected)) return { ok: true }
     return { ok: false, symptom: `snapshot after reload: ${JSON.stringify(after)} (expected ${JSON.stringify(expected)}, pending must NOT survive reload)` }
+  },
+}
+
+// 6. T6.1：目錄拖入指定列——真拖曳把一個停用中的目錄段（duration，seed
+//    刻意排除於 enabled 之外）拖進既有列（cost 所在列），觸發
+//    enable-into-target seam（commitEnableIntoTarget）。斷言分兩層：
+//    (a) 結構性（SNAPSHOT_EXPR 落列位置＋catalog-item 灰化 class／badge
+//        hidden／checkbox.checked，皆非 i18n 可見文字，本 sprint 慣例）；
+//    (b) 例外：播報 live region 含「已加入」（zh 預設語系字面比對——見
+//        下方 run() 內註解，非唯一斷言依據，僅作額外訊號驗證）。
+const caseCatalogDragIntoRow = {
+  id: 'catalog-drag-into-row',
+  label: 'T6.1：目錄拖入指定列（真拖曳觸發 enable-into-target）',
+  seed: { model: 0, cost: 1 },
+  async run({ evaluate, dragBySelector }) {
+    const dragResult = await dragBySelector(catalogPointExpr('duration'), liPointExpr('cost', 0.75))
+    if (!dragResult.ok) return dragResult
+    const snapshot = await evaluate(SNAPSHOT_EXPR)
+    const expectedSnapshot = [
+      { kind: 'real', rowIndex: 1, segs: ['model'], separatorOverride: 'inherit' },
+      { kind: 'real', rowIndex: 2, segs: ['cost', 'duration'], separatorOverride: 'inherit' },
+    ]
+    if (JSON.stringify(snapshot) !== JSON.stringify(expectedSnapshot)) {
+      return { ok: false, symptom: `snapshot after catalog drag-in: ${JSON.stringify(snapshot)} (expected ${JSON.stringify(expectedSnapshot)})` }
+    }
+    const catalogState = await evaluate(`
+      (() => {
+        const li = document.querySelector('[data-testid="catalog-item"][data-segment-id="duration"]');
+        const badge = li.querySelector('.catalog-item__badge');
+        const checkbox = li.querySelector('.catalog-item__checkbox');
+        return { enabledClass: li.classList.contains('catalog-item--enabled'), badgeHidden: badge.hidden, checked: checkbox.checked };
+      })()
+    `)
+    const expectedCatalogState = { enabledClass: true, badgeHidden: false, checked: true }
+    if (JSON.stringify(catalogState) !== JSON.stringify(expectedCatalogState)) {
+      return { ok: false, symptom: `catalog item state after drag-in: ${JSON.stringify(catalogState)} (expected ${JSON.stringify(expectedCatalogState)})` }
+    }
+    // 例外斷言（本 sprint「e2e 避免比對 i18n 可見文字」慣例的例外一案，
+    // 比照 T3.5-report.md 決策記錄精神）：落列播報句本身是使用者可感知
+    // 的功能訊號（非純裝飾文案），目前僅 zh 為預設可測語系，故此處斷言
+    // zh 播報含「已加入」；上方結構性斷言已足以判定成敗，本行僅為額外
+    // 訊號驗證，非唯一依據。
+    const liveText = await evaluate(`document.getElementById('segment-move-status').textContent`)
+    if (typeof liveText !== 'string' || !liveText.includes('已加入')) {
+      return { ok: false, symptom: `live region after catalog drag-in missing "已加入": ${JSON.stringify(liveText)}` }
+    }
+    return { ok: true }
+  },
+}
+
+// 7. T6.1：產出 dialog 開→複製→Esc 關→焦點還原產出鈕。複製鈕不斷言
+//    剪貼簿「成功」與否（headless 環境 navigator.clipboard.writeText 的
+//    權限行為不定，見 copyOutput：成功／失敗兩分支皆呼叫
+//    announceOutput，皆會移除 #output-status 的 is-empty class）——只驗
+//    按鈕確實可點、確實觸發某個結果播報，取捨見 T6.1-report.md。Esc 以
+//    CDP `Input.dispatchKeyEvent` 注入真實按鍵（非 JS dispatchEvent 模擬），
+//    驗證原生 <dialog> 的 cancel→close 鏈路。
+const caseOutputDialogEscFocusReturn = {
+  id: 'output-dialog-esc-focus-return',
+  label: 'T6.1：產出 dialog 開→複製→Esc 關→焦點還原產出鈕',
+  seed: { model: 0, cost: 1 },
+  async run({ evaluate, delayFn, pressEscape }) {
+    await evaluate(`document.querySelector('[data-testid="output-dialog-open"]').click()`)
+    await delayFn(250)
+    const afterOpen = await evaluate(`
+      (() => {
+        const dialog = document.querySelector('[data-testid="output-dialog"]');
+        return { open: dialog.open, focusInside: dialog.contains(document.activeElement) };
+      })()
+    `)
+    if (!afterOpen.open || !afterOpen.focusInside) {
+      return { ok: false, symptom: `dialog state after open click: ${JSON.stringify(afterOpen)} (expected open+focus inside)` }
+    }
+
+    await evaluate(`document.getElementById('copy-bash').click()`)
+    await delayFn(300)
+    const statusIsEmpty = await evaluate(`document.getElementById('output-status').classList.contains('is-empty')`)
+    if (statusIsEmpty !== false) {
+      return { ok: false, symptom: `#output-status still is-empty after clicking copy-bash (button seems unresponsive): is-empty=${statusIsEmpty}` }
+    }
+
+    await pressEscape()
+    await delayFn(300)
+    const afterEsc = await evaluate(`
+      (() => {
+        const dialog = document.querySelector('[data-testid="output-dialog"]');
+        const openBtn = document.querySelector('[data-testid="output-dialog-open"]');
+        return { open: dialog.open, activeIsOpenButton: document.activeElement === openBtn };
+      })()
+    `)
+    if (afterEsc.open || !afterEsc.activeIsOpenButton) {
+      return { ok: false, symptom: `dialog/focus state after Esc: ${JSON.stringify(afterEsc)} (expected closed + focus restored to open button)` }
+    }
+    return { ok: true }
   },
 }
 
@@ -441,6 +576,8 @@ const CASES = [
   caseS4SelectIntoMiddlePending,
   caseS9DeletePendingRenumber,
   caseS7DragDrainReload,
+  caseCatalogDragIntoRow,
+  caseOutputDialogEscFocusReturn,
 ]
 
 // ── 單案執行器：全新瀏覽器＋全新 user-data-dir ─────────────────────────
@@ -524,11 +661,22 @@ async function runCase({ browserPath, baseUrl, headless, testCase }) {
       return { ok: true }
     }
 
+    // T6.1：CDP 注入真實 Esc 按鍵（rawKeyDown→keyUp）——與 JS
+    // `dispatchEvent(new KeyboardEvent(...))` 不同，真實鍵盤事件才會被
+    // Chromium 原生 `<dialog>` 的 cancel（Esc）處理管線接住並觸發
+    // cancel→close；純 DOM 派發的 KeyboardEvent 不具備這條原生行為。
+    async function pressEscape() {
+      const base = { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }
+      await client.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
+      await delay(30)
+      await client.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base })
+    }
+
     async function selectMove(segmentId, slotValue) {
       await evaluate(`
         (() => {
-          const li = document.querySelector('li.segment-row[data-segment-id=${JSON.stringify(segmentId)}]');
-          const sel = li.querySelector('select.segment-row__row-select');
+          const li = document.querySelector('[data-testid="segment-row"][data-segment-id=${JSON.stringify(segmentId)}]');
+          const sel = li.querySelector('[data-testid="row-select"]');
           sel.value = ${JSON.stringify(String(slotValue))};
           sel.dispatchEvent(new Event('change', { bubbles: true }));
           return sel.value;
@@ -537,7 +685,7 @@ async function runCase({ browserPath, baseUrl, headless, testCase }) {
       await delay(300)
     }
 
-    const outcome = await testCase.run({ evaluate, dragBySelector, selectMove, navigate, delayFn: delay })
+    const outcome = await testCase.run({ evaluate, dragBySelector, selectMove, navigate, delayFn: delay, pressEscape })
     const durationMs = Date.now() - t0
     return { success: outcome.ok, symptom: outcome.symptom ?? null, durationMs }
   } catch (err) {

@@ -356,23 +356,28 @@ const NEEDS_GIT_REPO = BASH.ok || IS_WIN
 const GIT_REPO_DIR = NEEDS_GIT_REPO ? gitBranchRepo() : ''
 
 describe.skipIf(!BASH.ok)('auto 預覽 vs 產出腳本一致 — bash＋jq 真執行 byte-exact', () => {
+  // micro-fix（gate 基建）：全量 52 檔並行負載下曾逾 vitest 預設 5000ms
+  // timeout（隔離跑 2.5s、負載下實測 5.1–5.9s，byte 對拍本身非迴歸）——真
+  // 子程序 spawn（bash＋jq）耗時受宿主排程影響，補顯式 30s 上限吸收負載
+  // 抖動，斷言與生產碼皆未變動。
   it('reference-7row fixture（FULL 情境，STATUSLINE_NOW_EPOCH 顯式釘 now；cwd 釘受控 git repo；clock 段以外 byte-exact）', () => {
     const oracle = fixtureOracle()
     const script = emitBash(CONFIG, DESCRIPTORS_BY_ID)
     const r = runBash(script, JSON.stringify(FULL.data), { STATUSLINE_NOW_EPOCH: String(FULL.now) }, GIT_REPO_DIR)
     expect(r.status, `bash stderr=${r.stderr}`).toBe(0)
     expect(maskClock(r.stdout)).toBe(maskClock(oracle))
-  })
+  }, 30_000)
 })
 
 describe.skipIf(!IS_WIN)('auto 預覽 vs 產出腳本一致 — PowerShell 5.1 真執行 byte-exact', () => {
+  // 同上（micro-fix）：ps1 real-exec 同屬子程序 spawn，同一 gate 基建修復。
   it('reference-7row fixture（FULL 情境，STATUSLINE_NOW_EPOCH 顯式釘 now；cwd 釘受控 git repo；clock 段以外 byte-exact）', () => {
     const oracle = fixtureOracle()
     const script = emitPs1(CONFIG, DESCRIPTORS_BY_ID)
     const r = runPs1(script, JSON.stringify(FULL.data), { STATUSLINE_NOW_EPOCH: String(FULL.now) }, GIT_REPO_DIR)
     expect(r.status, `ps1 stderr=${r.stderr}`).toBe(0)
     expect(maskClock(r.stdout)).toBe(maskClock(oracle))
-  })
+  }, 30_000)
 })
 
 describe('real-exec skip 環境自述（診斷用，恆過）', () => {

@@ -829,8 +829,16 @@ function joinPowerline(lastArrowCap: boolean, powerlineArrow: boolean, rowSuffix
   return lines
 }
 
-/** `rowSuffix`＝多列陣列變數隔離（T3.1；語意同 joinPowerline 之文件）。 */
-function joinPlain(rowSuffix: string): string[] {
+/**
+ * `rowSuffix`＝多列陣列變數隔離（T3.1；語意同 joinPowerline 之文件）。
+ * `sepVar`＝分隔符變數名字面（T1.4，09-PLAN §D1 A-4；不含 `$`／`{}`）：
+ * 呼叫端依「rowGroups 範圍內是否存在任一列覆寫」決定——無覆寫時三列皆
+ * 傳 `'SEP'`（全域單一宣告，byte-exact fast path）；有覆寫時傳該列專屬
+ * `` `SEP${rowSuffix}` ``（即令該列本身無覆寫，emitBash 主體仍會以退
+ * 全域值宣告對應 `SEP_k`，見 rowSeparatorValue／hasAnyRowSeparatorOverride）。
+ * 本函式僅消費變數名字面組字串，不判斷覆寫語意（單一事實來源在呼叫端）。
+ */
+function joinPlain(rowSuffix: string, sepVar: string): string[] {
   const textsVar = `texts${rowSuffix}`
   const fgsVar = `fgs${rowSuffix}`
   const segstartVar = `segstart${rowSuffix}`
@@ -841,8 +849,8 @@ function joinPlain(rowSuffix: string): string[] {
     `${outVar}=""`,
     `${nVar}=\${#${textsVar}[@]}`,
     `for ((i = 0; i < ${nVar}; i++)); do`,
-    `  if [ "$i" -gt 0 ] && [ "\${${segstartVar}[$i]}" = "1" ] && [ -n "$SEP" ]; then`,
-    `    ${outVar}+="\${ESC}[0m\${SEP}"`,
+    `  if [ "$i" -gt 0 ] && [ "\${${segstartVar}[$i]}" = "1" ] && [ -n "$${sepVar}" ]; then`,
+    `    ${outVar}+="\${ESC}[0m\${${sepVar}}"`,
     '  fi',
     `  ${outVar}+="\${ESC}[0m"`,
     `  if [ -n "\${${fgsVar}[$i]}" ]; then ${outVar}+="\${ESC}[\${${fgsVar}[$i]}m"; fi`,
@@ -881,6 +889,37 @@ function groupByRow(resolved: readonly ResolvedSeg[]): ResolvedSeg[][] {
   return order.map((row) => groups.get(row)!)
 }
 
+// ── 逐列分隔符解析（T1.4，09-PLAN §D1 A-1／A-4：僅 plain 模式消費；
+// powerline 零觸碰）──
+
+/**
+ * `rowSeparators[rowIndex]` 非 `null`／未定義 → 覆寫值；否則退全域
+ * `config.separator`。索引基準＝**啟用列位**——即 `groupByRow` 的分組序
+ * （呼叫端直接傳入該序的迴圈變數 `r`），與 config 契約文件（config.ts
+ * `rowSeparators` 欄位註解）同一基準，**不需**額外映射（與 resolve 的
+ * 「存活列→啟用位」映射不同，那是 T1.3 的事——emit 期只關心「有幾列、
+ * 每列覆寫什麼」，不判定 runtime 存活）。
+ */
+function rowSeparatorValue(config: BuilderConfig, rowIndex: number): string {
+  const override = config.rowSeparators?.[rowIndex]
+  return (override ?? config.separator).value
+}
+
+/**
+ * `rowGroups` 範圍內是否存在任一列覆寫（`rowSeparators` 全 `null`／
+ * 缺席／越界 → `false`）。**no-override fast path 的唯一判準**：`false`
+ * 時 SEP 宣告與 `joinPlain` 呼叫皆沿用改動前寫法（單一 `SEP=`、bare
+ * `$SEP`），確保無覆寫 config 產出與現行逐位元組相同（golden 凍結
+ * 前提）；`true` 時才觸發逐列 `SEP_k` 展開。
+ */
+function hasAnyRowSeparatorOverride(config: BuilderConfig, rowCount: number): boolean {
+  if (config.rowSeparators === undefined) return false
+  for (let k = 0; k < rowCount; k++) {
+    if (config.rowSeparators[k] !== null && config.rowSeparators[k] !== undefined) return true
+  }
+  return false
+}
+
 // ── 產生器主體 ──
 
 /**
@@ -904,6 +943,10 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
   const needsJq = resolved.some(({ descriptor }) => descriptor.category !== 'shell-out')
   const em: Emitter = { mode: config.mode, powerlineArrow: config.powerlineArrow }
   const rowGroups = groupByRow(resolved)
+  // T1.4：有覆寫時逐列 SEP_k 展開（見下方宣告區塊與 joinPlain 呼叫點）；
+  // 無覆寫時全程沿用改動前單一 SEP 寫法（fast path）。
+  const hasRowSepOverride =
+    config.mode === 'plain' && hasAnyRowSeparatorOverride(config, rowGroups.length)
 
   const out: string[] = []
   out.push('#!/usr/bin/env bash')
@@ -929,7 +972,24 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
   if (config.mode === 'powerline' && config.powerlineArrow) {
     out.push(`ARROW=${bashSingleQuote(POWERLINE_ARROW)}`)
   }
-  if (config.mode === 'plain') out.push(`SEP=${bashSingleQuote(config.separator.value)}`)
+  if (config.mode === 'plain') {
+    if (rowGroups.length <= 1) {
+      // 單列（含 0 段空鏈）：沿用單一 `SEP`，值改綁列 0 覆寫（A-4「單列
+      // 路徑 SEP 綁列 0 覆寫」）；無覆寫時即 `config.separator`，與改動
+      // 前逐位元組相同（fast path）。
+      out.push(`SEP=${bashSingleQuote(rowSeparatorValue(config, 0))}`)
+    } else if (!hasRowSepOverride) {
+      // 多列＋無覆寫：沿用改動前單一 SEP 宣告（fast path，byte-exact）。
+      out.push(`SEP=${bashSingleQuote(config.separator.value)}`)
+    } else {
+      // 多列＋有覆寫：拆逐列 `SEP_k`（k＝啟用列位，與 rowSuffix `_${r}`
+      // 同一數值，無需映射）；未覆寫的列亦宣告、退全域值，供 joinPlain
+      // 統一以 `SEP${rowSuffix}` 引用。
+      for (let r = 0; r < rowGroups.length; r++) {
+        out.push(`SEP_${r}=${bashSingleQuote(rowSeparatorValue(config, r))}`)
+      }
+    }
+  }
   out.push('')
 
   if (rowGroups.length <= 1) {
@@ -949,7 +1009,7 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
     out.push(
       ...(config.mode === 'powerline'
         ? joinPowerline(config.lastArrowCap, config.powerlineArrow, '')
-        : joinPlain('')),
+        : joinPlain('', 'SEP')),
     )
   } else {
     // 多列：四步執行期展開。
@@ -973,7 +1033,7 @@ export function emitBash(config: BuilderConfig, catalog: SegmentDescriptorCatalo
       out.push(
         ...(config.mode === 'powerline'
           ? joinPowerline(config.lastArrowCap, config.powerlineArrow, rowSuffix)
-          : joinPlain(rowSuffix)),
+          : joinPlain(rowSuffix, hasRowSepOverride ? `SEP${rowSuffix}` : 'SEP')),
       )
       out.push('')
     }

@@ -1,0 +1,93 @@
+{
+  "viewports": [
+    {
+      "label": "mobile-375x667",
+      "width": 375,
+      "height": 667,
+      "snapshot": {
+        "viewportInnerHeight": 667,
+        "viewportInnerWidth": 375,
+        "bandRect": {
+          "top": 385.546875,
+          "bottom": 652.34375,
+          "height": 266.796875
+        },
+        "selectedRect": {
+          "top": 716.34375,
+          "bottom": 4842.875
+        },
+        "catalogRect": {
+          "top": 4842.875,
+          "bottom": 7335.609375
+        },
+        "firstRowGroupRect": {
+          "top": 881.90625,
+          "bottom": 2129.828125,
+          "height": 1247.921875
+        },
+        "headingRowRect": {
+          "top": 881.90625,
+          "bottom": 937.90625
+        },
+        "firstSegmentRowRect": {
+          "top": 997.90625,
+          "bottom": 1518.46875
+        },
+        "mainIsFlex": true,
+        "catalogOrder": "1",
+        "selectedOrder": "0"
+      },
+      "bandOk": true,
+      "selectedStartVisible": false,
+      "headingVisible": false,
+      "firstSegmentStartVisible": false
+    },
+    {
+      "label": "mobile-390x844",
+      "width": 390,
+      "height": 844,
+      "snapshot": {
+        "viewportInnerHeight": 844,
+        "viewportInnerWidth": 390,
+        "bandRect": {
+          "top": 386.546875,
+          "bottom": 652.328125,
+          "height": 265.78125
+        },
+        "selectedRect": {
+          "top": 716.328125,
+          "bottom": 4842.859375
+        },
+        "catalogRect": {
+          "top": 4842.859375,
+          "bottom": 7335.59375
+        },
+        "firstRowGroupRect": {
+          "top": 881.890625,
+          "bottom": 2129.8125,
+          "height": 1247.921875
+        },
+        "headingRowRect": {
+          "top": 881.890625,
+          "bottom": 937.890625
+        },
+        "firstSegmentRowRect": {
+          "top": 997.890625,
+          "bottom": 1518.453125
+        },
+        "mainIsFlex": true,
+        "catalogOrder": "1",
+        "selectedOrder": "0"
+      },
+      "bandOk": true,
+      "selectedStartVisible": true,
+      "headingVisible": false,
+      "firstSegmentStartVisible": false
+    }
+  ],
+  "dialogCss": {
+    "beforeOpen": "none",
+    "afterOpen": "block",
+    "afterClose": "none"
+  }
+}

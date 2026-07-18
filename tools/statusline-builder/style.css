@@ -356,6 +356,12 @@ select:disabled {
   互動（灰化留位）」）：左欄輕量常駐目錄項——checkbox 勾選＝啟用，取消
   即恢復；本身永不移動（main.ts 一次建置、不重排），故不需 hover 位移
   等互動樣式，僅需「未加入／已加入」兩態視覺區分。
+
+  T3.3（magi/09-statusline-ux-refactor/PLAN.md §D3 A-1／A-2）：整項現可
+  拖曳（main.ts wireCatalogDragAndDrop）。user-select:none 防同一類
+  regression 重演——T5.13（中欄 .segment-row__enable-field）已記錄：對
+  純文字節點（此處為 .catalog-item__name）按住拖曳易觸發文字選取而非
+  li[draggable] 的元素拖曳，故整項比照排除選字。
 */
 .catalog-item {
   display: flex;
@@ -365,6 +371,7 @@ select:disabled {
   border: 1px solid var(--border);
   border-radius: 0.375rem;
   background-color: var(--surface);
+  user-select: none;
 }
 
 .catalog-item__label {
@@ -514,6 +521,42 @@ select:disabled {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+/*
+  T1.7（magi/09-statusline-ux-refactor/PLAN.md §D1「UI」）：逐列分隔符
+  控件——置列群組 header 內、標題列之下。與全域控件（.control-group，
+  預設 flex-column）同構，此處疊加 inline 排列（label＋select 同列）以
+  貼合列 header 的緊湊調性；.segment-row-group__separator-custom-field
+  沿用 .control-subfield 既有 column 版面（label 在上、input 在下），
+  不另覆寫。
+*/
+.segment-row-group__separator-field {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.segment-row-group__separator-field > label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.segment-row-group__separator-preset {
+  width: auto;
+  min-width: 8rem;
+}
+
+.segment-row-group__separator-custom-field {
+  flex-basis: 100%;
+}
+
+.segment-row-group__separator-custom {
+  width: auto;
+  max-width: 10rem;
 }
 
 /*
@@ -679,6 +722,26 @@ body.is-segment-dragging .segment-pending-row {
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--fg);
+}
+
+/*
+  T2.2（magi/09-statusline-ux-refactor/PLAN.md §D2「預設值標示」）：欄位
+  「（預設：X）」提示——main.ts appendDefaultHint 掛在 label／mount／
+  disclosure 鈕之後（跨 .segment-row__field label、.color-picker 掛載點、
+  .threshold__toggle 三種上下文共用同一 class，故不限定 .segment-row__field
+  祖先選擇器）。弱字重／縮字級／--fg-muted 與欄位主要 label 文字區隔；
+  現值＝預設時 main.ts syncDefaultHintDims 加 --at-default 進一步降低
+  透明度（選項 C：凸顯偏離預設之欄位，反之現值≠預設時維持較明顯樣式）。
+  aria-hidden（見 appendDefaultHint 文件）：純視覺，不進 accessible name。
+*/
+.segment-row__default-hint {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
+.segment-row__default-hint--at-default {
+  opacity: 0.6;
 }
 
 .segment-row__prefix {
@@ -984,19 +1047,158 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 }
 
 /* ============================================================
-   即時預覽
+   即時預覽（T4.1：全寬 sticky 頂帶，取代原三欄 aside 右欄定位；
+   全斷點生效，非僅寬螢幕——見 magi/09-statusline-ux-refactor/PLAN.md
+   §D4 A-1）
    ============================================================ */
+
+/*
+  頂帶本身：sticky 貼頂＋max-height 40dvh 預算（桌面與行動一致）；
+  overflow:hidden 讓超出預算的內容改由子項（.preview-terminal）自行
+  縱向捲動，而非撐破頂帶本身。z-index 介於一般內容（auto/0）與
+  .skip-link 的 z-index:10（見上方規則）之間，使 `.skip-link:focus`
+  仍浮頂帶之上；background-color 不透明，避免下方 <main> 內容於頁面
+  捲動時透出頂帶邊界。role="region"／tabindex="0"（index.html 已設）
+  接手原 .builder-columns__aside 的捲動停點角色——「兩個捲動停點」
+  契約：本節點＋下方 .preview-terminal，總數維持 2。
+*/
 .preview-section {
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  width: 100%;
+  max-height: 40dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
+/*
+  內容置中對齊寬度：與 header/main/footer 的斷點 max-width 同步放寬
+  （見下方 grid 區塊媒體查詢），讓頂帶視覺上與頁面其餘內容左右對齊，
+  同時頂帶背景本身仍全寬（100vw 貼邊）。min-height:0 允許 flex column
+  內的 .preview-terminal 在 max-height 預算內收縮並捲動，而非被內容
+  撐破。
+*/
+.preview-section__inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
+  padding: 0.75rem 1.5rem;
+  gap: 0.375rem;
+}
+
+.preview-section h2 {
+  margin-bottom: 0;
+  font-size: 1.0625rem;
+}
+
+/*
+  T4.1「控件收斂單列緊湊形」：底色／情境兩組 segmented control＋產出
+  腳本佔位鈕同列排列（flex-wrap 允許窄視口換行，見 T4.4 真機驗收
+  390×844 目視項）。
+*/
 .preview-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem 2rem;
-  margin-bottom: 1rem;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.preview-controls__output-open {
+  margin-left: auto;
+  padding: 0.375rem 0.875rem;
+  font-size: 0.875rem;
+}
+
+/*
+  segmented control 視覺（PLAN D4 A-1「收斂為單列緊湊形」，實作變體 A：
+  短文字 pill）：<fieldset><legend> 群組語意保留，legend 視覺上 sr-only
+  （群組名仍在 a11y tree，只是不佔版面——與各 option 的可見縮寫＋
+  aria-label 全文並用，見 index.html 逐一註解）。
+*/
+.segmented-group {
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+}
+
+.segmented-control {
+  display: inline-flex;
+  border: 1px solid var(--fg-muted);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.segmented-control__option {
+  position: relative;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  gap: 0.25rem;
+}
+
+.segmented-control__option:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+/* 視覺選中態呼應（原生 checked 語意仍由 input 承載，本規則僅視覺） */
+.segmented-control__option:has(input:checked) {
+  background-color: var(--accent-fill);
+  color: var(--accent-fill-fg);
+}
+
+/* input 視覺隱藏但仍可聚焦（同上方 .color-swatch input 技法） */
+.segmented-control__option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+}
+
+.segmented-control__option:has(input:focus-visible) {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+/*
+  變體 B（T4.1 兩版截圖比較用，`.preview-band--variant-b`——加在
+  #preview-section 上；非 production 切換入口，僅供使用者於兩版截圖間
+  擇一，見 T4.1 report）：options 進一步壓縮為 icon-only 密集列，可見
+  文字 clip 隱藏（技法同 .sr-only），改以 data-icon 內容呈現。
+*/
+.preview-band--variant-b .segmented-control__option {
+  padding: 0.375rem 0.625rem;
+  min-width: 2rem;
+  justify-content: center;
+}
+
+.preview-band--variant-b .segmented-control__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.preview-band--variant-b .segmented-control__option::before {
+  content: attr(data-icon);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.preview-band__mock-hint {
+  margin: 0;
 }
 
 /*
@@ -1009,6 +1211,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 */
 .preview-terminal {
   min-height: 3rem;
+  flex: 1 1 auto; /* T4.1：頂帶 max-height 預算內，本框佔剩餘空間並自行捲動 */
   padding: 0.75rem 1rem;
   border-radius: 0.375rem;
   font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
@@ -1016,6 +1219,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   line-height: 1.6;
   white-space: pre;
   overflow-x: auto;
+  overflow-y: auto; /* T4.1：終端框內部縱向捲動（頂帶「兩個捲動停點」契約之二） */
 }
 
 /*
@@ -1063,12 +1267,43 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 }
 
 /* ============================================================
-   產出腳本
+   產出腳本（T4.2：單一按鈕收斂進 <dialog>，取代 T4.1 過渡期的內嵌區塊）
    ============================================================ */
-.output-section {
-  padding: 1rem;
+dialog.output-dialog {
+  box-sizing: border-box;
+  width: min(90vw, 640px);
+  max-height: min(85vh, 46rem);
+  padding: 1.25rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
+  background-color: var(--bg);
+  color: var(--fg);
+  overflow-y: auto;
+}
+
+/* 未支援 showModal 的 fallback 路徑（main.ts openOutputDialog 設 open 屬性、
+   非真模態）：無 ::backdrop 可套用，此規則僅在真模態時生效，無害。 */
+dialog.output-dialog::backdrop {
+  background-color: rgb(0 0 0 / 50%);
+}
+
+/*
+  T4.4 spike micro-fix（sp1/T4.4-report.md「四」節 fallback 決策句，
+  2026-07-17 落地）：完全不支援 `<dialog>` 的瀏覽器（如 iOS Safari
+  <15.4）沒有原生 `dialog:not([open]) { display: none }` UA stylesheet
+  規則——若不補一條同義的作者規則，這類瀏覽器會在使用者按下「產出腳本」
+  之前，就讓本檔已授權樣式化的 `dialog.output-dialog`（width／padding／
+  border 等）以一般 block 元素之姿常駐可見。對已支援的瀏覽器（含本專案
+  fallback 特徵偵測時仍會呼叫的 `setAttribute('open','')`／
+  `removeAttribute('open')`，main.ts openOutputDialog／closeOutputDialog）
+  此規則與原生規則同義、無副作用。
+*/
+dialog.output-dialog:not([open]) {
+  display: none;
+}
+
+.output-dialog__footer {
+  margin-top: 1rem;
 }
 
 .output-block {
@@ -1148,52 +1383,95 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 */
 
 /* ============================================================
-   三欄滿版版面（T5.8，magi/07-statusline-multirow-layout/PLAN.md
-   §D3-R4；取代 T5.2 的雙欄版面，斷點退化 3→2→1）
+   雙欄版面（T4.1，magi/09-statusline-ux-refactor/PLAN.md §D4 A-1；
+   取代 T5.8 三欄滿版版面——即時預覽抽離為全寬頂帶後，.builder-
+   columns__aside 隨之退役，主版面退化為「左目錄＋中已選擇」雙欄，
+   斷點簡化為 2→1，不再有 ≥1400px 的第三欄斷點）
    ============================================================ */
 
-/* grid item 預設 min-width:auto 會撐破欄寬（子孫如 .preview-terminal／
-   .output-block__code 本身已橫向捲動，需要欄本身可收縮而非被內容撐開）；
-   <1100px 未進 grid 時亦無害（純 block 容器）。三 wrapper 皆需此防禦。 */
+/* grid item 預設 min-width:auto 會撐破欄寬（子孫如 .output-block__code
+   本身已橫向捲動，需要欄本身可收縮而非被內容撐開）；<1100px 進入下方
+   flex 單欄堆疊時亦無害（flex item 同樣受 min-width:auto 影響撐寬，故
+   此防禦對兩種版面皆需要，非僅 grid 專屬）。兩 wrapper 皆需此防禦。 */
 .builder-columns__catalog,
-.builder-columns__selected,
-.builder-columns__aside {
+.builder-columns__selected {
   min-width: 0;
+}
+
+/*
+  T4.4 spike micro-fix（magi/09-statusline-ux-refactor/sp1/T4.4-report.md
+  「二」節建議 2，2026-07-17 落地）：<1100px 單欄堆疊斷點下，目錄欄（四類
+  30 段常駐清單＋全域設定，實測高度 ~2460px）在 DOM 序上先於「已選擇」
+  欄，導致第一個列群組被推到 y≈3374px（頂帶下緣後還要再捲過整個目錄才
+  看得到）。本規則**只調整視覺呈現序**（CSS `order`，scoped 於
+  `max-width: 1099.98px`，與下方 `@media (min-width: 1100px)` 雙欄 grid
+  互斥、無 cascade 覆寫疑慮）：main 由預設 block 堆疊改為 flex 單欄，
+  `.builder-columns__catalog` 給予正 order 使其排到「已選擇」欄之後，
+  `#output-status`／`#error-message`（同為 main 直接子節點、維持預設
+  order:0）位置不受影響，仍在最上方。**DOM 序刻意不動**（index.html 本
+  次調度為並行 T5.5 車道、禁碰）。
+
+  已知取捨（team-lead 指名記錄）：CSS `order` 只影響視覺繪製順序，不影響
+  鍵盤 Tab 序與螢幕報讀機預設線性朗讀序（兩者皆沿 DOM 序）——即本規則
+  生效後，沿用 DOM 序導覽的鍵盤／SR 使用者仍會先走過整個目錄清單（30
+  段常駐項）才到「已選擇」列群組，與行動裝置上一般滑鼠使用者「先看到
+  已選擇」的視覺順序不一致，屬 WCAG 1.3.2（Meaningful Sequence）／2.4.3
+  （Focus Order）已知落差。修法需要真正搬動 DOM 節點（index.html），非
+  本次「只准改 style.css」的調度範圍內可解——留待下一個可碰 index.html
+  的任務評估是否值得搬動節點或另尋 aria 層級彌合方案。
+*/
+@media (max-width: 1099.98px) {
+  main {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .builder-columns__catalog {
+    order: 1;
+  }
 }
 
 @media (min-width: 1100px) {
   /*
     全站基線 max-width:960px（src/style.css:203-210）於多欄下空間過窄，
-    .threshold__buckets（本檔 743-747 行，單桶 min-width 260px）每行剩
-    1 桶、10 桶閾值編輯器高度暴增（PLAN §D3 Rev 2 釘死、D3-R4 沿用）。
-    本頁 local override 於此斷點放寬至 ~1360px（header／footer 同步以
-    維持左右邊界對齊）；≥1400px 三欄時再放寬至 ~1800px（見下）。
-    <1100px 不套此規則、回落全站 960px 基線；不動 src/style.css。
+    .threshold__buckets（本檔單桶 min-width 260px）每行剩 1 桶、10 桶
+    閾值編輯器高度暴增（PLAN §D3 Rev 2 釘死、D3-R4 沿用，T4.1 沿用同一
+    理由）。本頁 local override 於此斷點放寬至 ~1360px（header／main／
+    footer／.preview-section__inner 同步以維持左右邊界對齊）；≥1400px
+    再放寬至 ~1800px（見下，僅寬度上限微調，不再新增欄位）。<1100px 不
+    套此規則、回落全站 960px 基線；不動 src/style.css。
   */
   header,
   main,
-  footer {
+  footer,
+  .preview-section__inner {
     max-width: 1360px;
   }
 
   /*
-    ~1100–1400px：兩欄退化（PLAN §D3-R4「回落 06b 雙欄精神」）——左欄＝
-    目錄＋已選擇上下堆疊（.builder-columns__catalog／__selected 同落
-    第一欄，以 grid-template-areas 顯式堆疊，非 auto-placement，避免
-    兩者搶佔同一 cell）、右欄＝預覽產出。#error-message 獨立一列跨欄
-    （grid-area: error，兩欄與下方三欄 area 命名皆含此列，防
-    auto-placement 錯位，PLAN §D3 Rev 2 釘死、D3-R4 沿用）。
-    align-items:start 避免 stretch（見下方 aside 的 sticky 註解）。
+    雙欄並列：左欄＝目錄、右欄＝已選擇（T4.1 起「已選擇」不再與預覽
+    產出共用第三欄，故給予較寬比例——1:2，優先讓「已選擇」欄（列群組＋
+    排序＋完整控件，PLAN 明言為本次改版核心互動區）取得較大可視寬度）。
+    #error-message／#output-status 各自獨立一列跨欄置頂（grid-area，防
+    auto-placement 落入 catalog/selected 儲存格造成視覺重疊——兩者皆為
+    is-empty 收合的常駐 live region，PLAN §D3 Rev 2 釘死 #error-message
+    此慣例、T4.2 比照套用於新搬入 main 的 #output-status）。T4.2 起
+    #output-section 已收進 `<dialog>`（脫離文件流的頂層 overlay），
+    不再佔用 grid 列。align-items:start 避免 stretch。
   */
   main {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
     grid-template-areas:
+      'output-status output-status'
       'error error'
-      'catalog aside'
-      'selected aside';
+      'catalog selected';
     column-gap: 2rem;
     align-items: start;
+  }
+
+  #output-status {
+    grid-area: output-status;
   }
 
   #error-message {
@@ -1207,58 +1485,45 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   .builder-columns__selected {
     grid-area: selected;
   }
-
-  /*
-    右欄（預覽＋產出）：position:sticky 搭配 align-self:start（grid 子項
-    預設 stretch 會使 sticky 失效，必須 start）；max-height 用 100dvh
-    而非 100vh（行動端工具列遮擋，此斷點雖以桌面為主，仍依規範採
-    dvh）；overflow-y:auto 使其成為捲動容器（role="region"／
-    aria-label="預覽與產出"／tabindex="0" 已於 index.html 常駐，不受
-    breakpoint 影響——此處僅補實際捲動行為）。grid-area 在兩欄
-    （aside，跨 catalog／selected 兩列高）與三欄（aside，單列）兩種
-    template 下皆同名，故不需按斷點重複宣告。<1100px 退單欄時無
-    grid，此規則不生效，右欄回一般 block 流。
-  */
-  .builder-columns__aside {
-    grid-area: aside;
-    position: sticky;
-    top: 0;
-    align-self: start;
-    max-height: 100dvh;
-    overflow-y: auto;
-  }
 }
 
 @media (min-width: 1400px) {
   /*
-    ≥1400px：三欄滿版（PLAN §D3-R4「滿版」）。本頁 local override 進一步
-    放寬 header／main／footer 至 ~1800px 上限（滿版語意，防超寬螢幕過度
+    ≥1400px：僅寬度上限微調（不再新增欄位——三欄滿版版面已隨 T4.1 的
+    頂帶抽離而結束）。本頁 local override 進一步放寬 header／main／
+    footer／.preview-section__inner 至 ~1800px 上限（防超寬螢幕過度
     拉伸；width:100%＋margin-inline:auto 已確保視口更窄時不溢出，此處
     max-width 僅設頂）。
   */
   header,
   main,
-  footer {
+  footer,
+  .preview-section__inner {
     max-width: 1800px;
   }
+}
 
-  /*
-    三欄並列：目錄／已選擇／預覽產出各自獨立欄，取代上一斷點的堆疊
-    grid-template-areas。欄寬比例 3:4:3（建議值，PLAN 未鎖死、本棒
-    裁決）——目錄欄較窄：T5.9 前本欄仍塞入完整 segment 控件列（本棒
-    範圍不做 transfer-list 輕量化），故非零風險窄化，但目錄欄多數欄位
-    為 checkbox／文字，可正常換行，優先讓「已選擇」欄（列群組＋排序＋
-    完整控件，PLAN 明言為本次改版核心互動區）取得最大可視寬度；預覽
-    產出欄取中間值，維持終端預覽與程式碼區塊可讀寬度（兩者皆已有
-    overflow-x:auto 防禦，不受窄化影響可用性）。已知取捨：目錄欄變窄
-    後，該欄內 .threshold__buckets（單桶 min-width 260px）於部分視窗
-    寬度下可能退回 1 桶/行（T5.6 人工視覺確認項之一；T5.9 起目錄欄
-    改輕量常駐項、無完整控件列，此取捨屆時自然消解）。
-  */
-  main {
-    grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 3fr);
-    grid-template-areas:
-      'error error error'
-      'catalog selected aside';
-  }
+/* ---- 語言切換鈕（T5.4；magi/09-statusline-ux-refactor/PLAN.md §D5
+   A-1／A-4）：目前僅本工具頁支援語言切換，故未比照 .theme-toggle 收斂
+   進 src/style.css 共用五頁——樣式沿用該規則完全相同的 token 組合（見
+   src/style.css 該規則旁註解，對比值已隨全站色票驗證過），僅追加
+   margin-left 與緊鄰的 .theme-toggle 並列（兩者皆 inline-block，隨行內
+   流排列）。 ---- */
+.lang-toggle {
+  display: inline-block;
+  margin-top: 0.75rem;
+  margin-left: 0.5rem;
+  padding: 0.375rem 0.875rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--fg);
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.lang-toggle:hover {
+  border-color: var(--link);
 }

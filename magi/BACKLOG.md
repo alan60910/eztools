@@ -6,13 +6,14 @@ one into a new sprint.
 
 ## Pending
 <!-- /magi:commit appends C-class drift items here -->
-- [ ] **statusline-builder UX 重構（真機回饋批，可獨立成一個 sprint）**——使用者 2026-07-14 真機驗收後提出，第 2–6 點（第 1 點「無資料 `(n/a)`」已於 08 M6 當場修）：
-  - 分隔符改**逐列**設定（每列預設套用全域分隔符，但每列可各自覆寫）——現為全域單一設定
-  - segment 每個欄位後標示**預設值**，一看即知未改動處
-  - segment 上列改**拖移**（現為打勾；段數一多時打勾後不知落到哪一列）
-  - **即時預覽移到最上方且不被捲動遮蔽**（sticky）；「產出腳本」收斂為單一按鈕
-  - **i18n 語言切換**（新增英文）
-  > from 使用者真機驗收回報 `magi/08-statusline-catalog-expansion/WORKS.md` (2026-07-14)
+- [ ] **sprint 09 真機驗收批（遞延）**：T6.2-CHECKLIST.md A–F 區親測回報＋變體 A/B 圈選（現行 A）＋micro-fix-3 去留（行動版欄序 DOM 真搬，治 Tab/SR 序分歧＋列群組標題低於摺線 38–154px 殘餘）；僅真機能驗面清單見 MAGI_CODE_REVIEW「Untested paths」（頂帶 40dvh 量測／CSS order 摺線／原生 dialog 鏈）
+  > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
+- [ ] **sprint 09 測試網加固批**：i18n-meta-scan 補屬性巡檢（aria-label／placeholder／title／alt 含 CJK 未掛 data-i18n-attr 即紅——review Important #2）＋main.ts strip 窄盲點（字串內 `//`、同行 throw）＋windows CI leg `BASH.ok && PS1.ok` meta 守門＋複製內容 clipboard spy 斷言（三鈕對應內容＋成功/失敗分支）＋真 DnD × 非 inherit 覆寫值 e2e 組合
+  > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
+- [ ] statusline-builder 雙寫收斂＋footgun 加固：planSegmentMove 回傳形補 sourceRow/srcDrains（消 computeRowSeparatorsAfterMove 鏡射重算）＋config.ts export 單一 trim helper（消 normalizeRowSeparatorsField 雙寫）＋descriptor.label/ariaText「凍結 zh、顯示走 accessor」JSDoc 加固＋messages「零漂移」恆真測試改述或刪除＋emit-settings 三 hint 常數「UI 用」註解修正與 colorDisplayLabel default/auto 死分支清理
+  > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
+- [ ] 衛生殘項：失效行號引用 ×2（segment-defaults.ts:45 指已刪 VARIANT_LABELS／main.ts:426「既有」語意過時）＋sprint-05 dotfile 報告引用落空（main.ts:14-15／index.html:46 引用從未簽入的 `.t3X-report.md`）＋forailook/ 個人截圖處置（刪或 ignore）＋magi/05 遺留 untracked 清理
+  > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
 - [ ] statusline-builder：配置**匯入／匯出 UI**（現無檔案匯入，fixture 只能靠 localStorage 灌入——見 T5.4-CHECKLIST A 區）
   > from `magi/08-statusline-catalog-expansion/` T5.4 (2026-07-14)
 - [ ] statusline-builder：`(n/a)`（百分比段）與 `--`（token 段）兩種無資料標記並存（使用者拍板）——留背景註解或未來統一
@@ -28,8 +29,6 @@ one into a new sprint.
 - [ ] statusline-builder：倒數階梯邏輯 3 後端 × 2 視窗手抄 6+ 份——抽 `jqResetLadder(...)`／ps1 同理參數化（技術債）
   > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
 - [ ] statusline-builder：`toAriaLabel` 機械 enforcement 只覆蓋 PUA、不覆蓋 `█`/`░`（健壯性缺口）
-  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
-- [ ] statusline-builder：預覽固定 mock `now` vs 產出腳本真時鐘，倒數／重置段誤導性高——加常駐說明（可併 UX 重構 sprint）
   > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
 - [ ] statusline-builder：`MOTW_HINT`/`CHMOD_HINT`/`GPO` 提示常數有測試卻未接進 UI（S5 既有缺口）
   > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
@@ -104,6 +103,8 @@ one into a new sprint.
 
 ## Promoted to sprints
 <!-- /magi:plan moves consumed items here -->
+- ~~statusline-builder UX 重構（真機回饋批：逐列分隔符、欄位預設值標示、拖移上列、sticky 預覽＋單一產出鈕、i18n）~~ → `magi/09-statusline-ux-refactor/` (2026-07-17)
+- ~~statusline-builder：預覽固定 mock `now` vs 產出腳本真時鐘——加常駐說明~~ → `magi/09-statusline-ux-refactor/`（併入 G4，2026-07-17 拍板）
 - ~~APNG → GIF 轉換功能~~ → `magi/02-apng-to-gif/` (2026-07-03)
 - ~~statusline 引擎邊界補測：`toAnsi([])` 零列文件性測試＋多列 × `powerlineArrow=false` 真執行案~~ → `magi/08-statusline-catalog-expansion/`（06c 前置加固）(2026-07-12)
 - ~~補 jsdom 測試覆蓋 `renderRuns` spec→DOM；CDP 驗證腳本收編為可重跑整合案~~ → `magi/08-statusline-catalog-expansion/`（06c 前置加固）(2026-07-12)

@@ -209,6 +209,12 @@ describe('formatMoveAnnouncement（排序位置回饋播報文案）', () => {
     const result = computeRowSwap(segments, 'b', 'up')!
     expect(formatMoveAnnouncement('段 B', result)).toBe('段 B 移至第 1 列第 1 位（共 2）')
   })
+
+  it('T5.2：locale="en" → 英文句形（插值參數位置正確）', () => {
+    expect(formatMoveAnnouncement('Segment', { row: 2, position: 3, rowSize: 5 }, 'en')).toBe(
+      'Segment moved to row 2 position 3 (of 5)',
+    )
+  })
 })
 
 describe('computeCrossRowMove（跨列 drop＝實際移動；T5.10，PLAN Rev 5）', () => {

@@ -737,6 +737,171 @@ describe('row 清洗（多列佈局 T2.1；deserialize 路徑）', () => {
   })
 })
 
+describe('rowSeparators 清洗（T1.1，magi/09-statusline-ux-refactor/PLAN.md §D1 A-2；' +
+  '陣列級清洗＋sanitizeRowSeparator 元素清洗）', () => {
+  // 30 段假目錄（鏡射真 segments.ts 現役 30 段，同「row 清洗」describe 的
+  // ROW_CATALOG 慣例——各 describe 區塊獨立作用域各自宣告）：用於驗證陣列
+  // 長度 clamp 上界確為目錄段數 30，與具體數字對齊。
+  const THIRTY_SEG_CATALOG: SegmentCatalog = {
+    ids: Array.from({ length: 30 }, (_, i) => `seg-${i}`),
+    variantsById: {},
+    barEligibleIds: new Set(),
+    autoEligibleIds: new Set(),
+  }
+  const withRowSeparators = (rowSeparators: unknown): string =>
+    JSON.stringify({
+      version: 2,
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      lastArrowCap: true,
+      powerlineArrow: false,
+      segments: [],
+      rowSeparators,
+    })
+
+  it('非陣列（物件／字串／數字／null）→ 欄位缺席', () => {
+    for (const rowSeparators of [{}, 'nope', 42, null]) {
+      const result = deserializeConfig(withRowSeparators(rowSeparators), CATALOG)
+      expect('rowSeparators' in result, JSON.stringify(rowSeparators)).toBe(false)
+    }
+  })
+
+  it('鍵缺席 → 欄位缺席（v2 舊存檔無此欄讀取存活，不因缺欄而炸）', () => {
+    const json = JSON.stringify({
+      version: 2,
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      lastArrowCap: true,
+      powerlineArrow: false,
+      segments: [],
+    })
+    const result = deserializeConfig(json, CATALOG)
+    expect('rowSeparators' in result).toBe(false)
+  })
+
+  it('畸形元素退 null（未知 preset 值／custom 過長／未知 kind／顯式 null），好元素保留原位', () => {
+    // 用 30 段目錄（clamp 上界 30）——CATALOG 僅 4 段會讓 6 元素陣列先被
+    // 長度 clamp 截斷，與本案「元素級清洗」意圖混淆，故另用足量目錄。
+    const mixed = [
+      { kind: 'preset', value: '›' }, // 合法保留
+      { kind: 'preset', value: '#' }, // 未知 preset → null
+      { kind: 'custom', value: 'x'.repeat(9) }, // 過 R（too-long）→ null
+      null, // 顯式 null → null（繼承全域，與畸形同一出口）
+      { kind: 'fancy', value: '|' }, // 未知 kind → null
+      { kind: 'custom', value: '→' }, // 合法保留
+    ]
+    const json = JSON.stringify({
+      version: 2,
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      lastArrowCap: true,
+      powerlineArrow: false,
+      segments: [],
+      rowSeparators: mixed,
+    })
+    const result = deserializeConfig(json, THIRTY_SEG_CATALOG)
+    expect(result.rowSeparators).toEqual([
+      { kind: 'preset', value: '›' },
+      null,
+      null,
+      null,
+      null,
+      { kind: 'custom', value: '→' },
+    ])
+  })
+
+  it('尾端 null 修剪：末尾連續 null 去除，中段 null（非全 null 尾巴）保留', () => {
+    const raw = [{ kind: 'preset', value: '|' }, null, { kind: 'preset', value: '·' }, null, null]
+    const json = JSON.stringify({
+      version: 2,
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      lastArrowCap: true,
+      powerlineArrow: false,
+      segments: [],
+      rowSeparators: raw,
+    })
+    const result = deserializeConfig(json, THIRTY_SEG_CATALOG)
+    expect(result.rowSeparators).toEqual([
+      { kind: 'preset', value: '|' },
+      null,
+      { kind: 'preset', value: '·' },
+    ])
+  })
+
+  it('修剪後全 null／空陣列 → 省略欄位（回「全繼承」正規形，不留冗餘陣列）', () => {
+    for (const raw of [[null, null, null], [{ kind: 'fancy' }, { kind: 'preset', value: '#' }], []]) {
+      const result = deserializeConfig(withRowSeparators(raw), CATALOG)
+      expect('rowSeparators' in result, JSON.stringify(raw)).toBe(false)
+    }
+  })
+
+  it('長度 clamp 上界＝目錄段數：超長陣列截斷（30 段目錄 → clamp 30）', () => {
+    const oversized = Array.from({ length: 40 }, () => ({ kind: 'preset', value: '|' }))
+    const json = JSON.stringify({
+      version: 2,
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      lastArrowCap: true,
+      powerlineArrow: false,
+      segments: [],
+      rowSeparators: oversized,
+    })
+    const result = deserializeConfig(json, THIRTY_SEG_CATALOG)
+    expect(result.rowSeparators).toHaveLength(30)
+  })
+
+  it('clamp 上界以現役目錄段數計，不寫死 30（4 段假目錄 → clamp 4）', () => {
+    const oversized = Array.from({ length: 10 }, () => ({ kind: 'preset', value: '|' }))
+    const result = deserializeConfig(withRowSeparators(oversized), CATALOG)
+    expect(result.rowSeparators).toHaveLength(CATALOG.ids.length)
+  })
+
+  it('v1→v2 遷移：migrateConfig 分支不得產生此欄，即使 raw 湊巧夾帶合法 rowSeparators', () => {
+    const json = JSON.stringify({
+      version: 1,
+      mode: 'plain',
+      segments: [],
+      rowSeparators: [{ kind: 'preset', value: '|' }],
+    })
+    const result = deserializeConfig(json, CATALOG)
+    expect('rowSeparators' in result).toBe(false)
+  })
+
+  it('mode 為 powerline 時欄位保值不清除（惰性存續，比照既有 separator 慣例）', () => {
+    // 首位 null（非尾端）＋末位合法值，確保不與「尾端 null 修剪」規則相撞
+    // ——本案只驗證 mode 不觸發清除，非驗證修剪。
+    const config: BuilderConfig = {
+      ...defaultConfig(CATALOG),
+      mode: 'powerline',
+      rowSeparators: [null, { kind: 'preset', value: '·' }],
+    }
+    const result = deserializeConfig(serializeConfig(config), CATALOG)
+    expect(result.rowSeparators).toEqual([null, { kind: 'preset', value: '·' }])
+  })
+
+  it('清洗冪等：dirty rowSeparators 清洗一次後，再 serialize→deserialize 不再變形', () => {
+    const raw = [
+      { kind: 'preset', value: '|' },
+      { kind: 'fancy' },
+      { kind: 'preset', value: '·' },
+      { kind: 'custom', value: 'x'.repeat(9) },
+    ]
+    const once = deserializeConfig(withRowSeparators(raw), CATALOG)
+    expect(once.rowSeparators).toEqual([{ kind: 'preset', value: '|' }, null, { kind: 'preset', value: '·' }])
+    const twice = deserializeConfig(serializeConfig(once), CATALOG)
+    expect(twice).toEqual(once)
+  })
+
+  it('序列化正規形往返：滿配 rowSeparators（preset／custom／null 繼承混合）完整往返', () => {
+    const config: BuilderConfig = {
+      ...defaultConfig(CATALOG),
+      rowSeparators: [{ kind: 'preset', value: '›' }, null, { kind: 'custom', value: '⚡' }],
+    }
+    expect(deserializeConfig(serializeConfig(config), CATALOG)).toEqual(config)
+  })
+})
+
 describe('normalizeRows（純函式；正規化啟用段 row 為 0..N−1，停用段凍結）', () => {
   const seg = (id: string, enabled: boolean, row?: number): SegmentConfig => {
     const base: SegmentConfig = { id, enabled, icon: false, color: { kind: 'default' } }

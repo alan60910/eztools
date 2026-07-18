@@ -55,16 +55,25 @@ import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { ColorSpec } from './color.js'
 import type { BuilderConfig, SegmentConfig } from './config.js'
 import { toAnsi } from './emit-ansi.js'
 import { emitBash, type SegmentDescriptorCatalog } from './emit-bash.js'
 import { emitPs1 } from './emit-ps1.js'
 import { MOCK_SCENARIOS_BY_ID } from './mock-data.js'
-import { POWERLINE_ARROW, resolve } from './resolve.js'
+import { NA_TEXT, POWERLINE_ARROW, resolve } from './resolve.js'
 import { DESCRIPTORS_BY_ID, type StatusData } from './segments.js'
 import { THRESHOLD_TEMPLATES } from './threshold.js'
+
+// micro-fix（gate 基建修復）：本檔絕大多數案皆真 spawn 子程序（bash/jq、
+// powershell、pwsh、git）——全量 52 檔並行負載下，單一子程序 spawn 曾實測
+// 超過 vitest 預設 5000ms timeout（隔離跑 2.5s、負載下 5.1–5.9s，byte 對拍
+// 本身非迴歸，純屬負載期間排程延遲）。以檔案級 `vi.setConfig` 一次性把本
+// 檔全部 it／it.each 的 timeout 提升為 30s，取代逐案補第三參數——本檔案
+// vitest 預設隔離執行（無自訂 pool/isolate 設定，見 vite.config.ts 無 test
+// 區塊），此設定只影響本檔、不外溢其他測試檔。斷言與生產碼皆未變動。
+vi.setConfig({ testTimeout: 30_000 })
 
 const CATALOG: SegmentDescriptorCatalog = DESCRIPTORS_BY_ID
 const TRAFFIC = THRESHOLD_TEMPLATES.traffic
@@ -833,6 +842,67 @@ describe.skipIf(!(BASH.ok && PS1.ok))(
       assertRowLayout(b.stdout, 3, 'bash')
       assertRowLayout(p.stdout, 3, 'ps1')
     })
+  },
+)
+
+// ── rowSeparators 端到端（T1.6；magi/09-statusline-ux-refactor/PLAN.md §D1
+//    golden 策略）：整列執行期死亡＋後列覆寫 ──
+// resolve.test.ts「rowSeparators 啟用位映射」describe 的「整列執行期死亡
+// 對位案」（node 單元層級，resolve() 直接呼叫）已釘住：`rowSeparators` 的
+// 索引基準＝「config 正規化後的啟用列位」（enabledRowOrder），與「執行期
+// 存活列緊縮序」（renderRowOrder）分岔時不得混淆。本區塊補其端到端 byte-
+// exact 覆蓋（真跑 bash／ps1，非僅 TS 參考互證）：同一 config／scenario，
+// 證 emitBash／emitPs1 的逐列 SEP 展開對此分岔亦不混淆——若兩產生器誤以
+// 「存活列緊縮序」索引 rowSeparators（如直接以迴圈變數 r 取代啟用位），
+// 存活輸出的最後一列會誤取啟用位 1 的 null（退全域 '|'）而非啟用位 2 的
+// 覆寫 '›'，本案即可揪出。
+describe.skipIf(!(BASH.ok && PS1.ok))(
+  'rowSeparators 端到端（T1.6）：整列執行期死亡＋後列覆寫',
+  () => {
+    it(
+      '三列 plain：啟用位 0（session-name+vim-mode）於 early-null 情境全滅、' +
+        '啟用位 1（context-used+context-remaining，dash 政策，null 顯式繼承）／' +
+        '啟用位 2（git-branch+cost，覆寫「›」，亦為存活輸出最後一列）存活——' +
+        'bash/ps1 皆與 oracle byte-exact',
+      () => {
+        const EARLY = MOCK_SCENARIOS_BY_ID['early-null']
+        const config: BuilderConfig = {
+          ...cfgT('plain', [
+            segT('session-name', { row: 0 }),
+            segT('vim-mode', { row: 0 }),
+            segT('context-used', { row: 1 }),
+            segT('context-remaining', { row: 1 }),
+            segT('git-branch', { color: A(46), row: 2 }),
+            segT('cost', { color: A(220), row: 2 }),
+          ]),
+          rowSeparators: [
+            { kind: 'preset', value: '·' }, // 啟用位 0：全滅列的覆寫（distractor，不得滲入輸出）。
+            null, // 啟用位 1：null 顯式繼承全域 '|'。
+            { kind: 'preset', value: '›' }, // 啟用位 2：存活輸出最後一列，須用此覆寫。
+          ],
+        }
+        // git-branch 為真 shell-out 段：受控 clean repo（branch='main'）對齊
+        // EARLY.shell['git-branch']（沿 D1 gating 真執行覆蓋區塊的 repoClean 慣例）。
+        const dir = repoClean()
+        const stdin = JSON.stringify(EARLY.data)
+        const input = { data: EARLY.data, shell: EARLY.shell, env: EARLY.env, now: EARLY.now }
+        const o = Buffer.from(toAnsi(resolve(config, input)), 'utf8')
+        // 前置自檢：啟用位 0 全滅剔除、存活恰兩列；第一列（原啟用位 1）
+        // 用全域 '|'（null 繼承）、第二列（原啟用位 2，亦存活最後一列）
+        // 用覆寫 '›'（非誤用啟用位 1 的 null）。
+        assertRowLayout(o, 2, 'oracle 前置自檢')
+        expect(strip(o), '前置自檢：oracle 顯示').toBe(`${NA_TEXT}|${NA_TEXT}\nmain›$0.0000`)
+
+        const b = runBash(emitBash(config, CATALOG), stdin, dir)
+        const p = runPs1(PS1_EXE, emitPs1(config, CATALOG), stdin, dir)
+        expect(b.status, `bash stderr=${b.stderr}`).toBe(0)
+        expect(p.status, `ps1 stderr=${p.stderr}`).toBe(0)
+        expect(hexEqual(b.stdout, o), `bash≠oracle\n b=${b.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+        expect(hexEqual(p.stdout, o), `ps1≠oracle\n p=${p.stdout.toString('hex')}\n o=${o.toString('hex')}`).toBe(true)
+        assertRowLayout(b.stdout, 2, 'bash')
+        assertRowLayout(p.stdout, 2, 'ps1')
+      },
+    )
   },
 )
 

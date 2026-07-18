@@ -52,6 +52,7 @@
  */
 import { colorSpecToHex } from './color.js'
 import type { BuilderConfig } from './config.js'
+import { DEFAULT_LOCALE, t, type Locale } from './messages.js'
 import { MOCK_SCENARIOS, MOCK_SCENARIOS_BY_ID, type MockScenarioId } from './mock-data.js'
 import { POWERLINE_ARROW, resolve, toAriaLabel, type ResolveInput, type StyledRun } from './resolve.js'
 
@@ -77,11 +78,17 @@ export function themeModifierClass(theme: PreviewTheme): string {
  * 外層預覽容器（`role="group"`）的固定 aria-label（M4：PLAN §多列預覽
  * a11y）。與內容無關、不隨 resolve 結果重算——群組本身只是逐列子容器的
  * 容器，可及名稱由內部每列的 `role="img"` 子容器承載。
+ *
+ * T5.6（09-PLAN §D5 A-4「強制 preview 重 resolve」翻轉範圍；T5.5-report
+ * 交接）：字面來源改自 `messages.ts` 的 `previewAria` 域（取代原本硬編
+ * zh 字面），本常數固定取 `DEFAULT_LOCALE`（zh-Hant）值——與改動前的字面
+ * byte 相同，既有 import 此常數的呼叫端（`render-preview.test.ts`）零
+ * 改動仍過。locale 感知的實際輸出見 `buildPreviewSpec` 的 `locale` 參數。
  */
-export const PREVIEW_GROUP_LABEL = '狀態列預覽'
+export const PREVIEW_GROUP_LABEL = t(DEFAULT_LOCALE).previewAria.groupLabel
 
-/** 全隱藏（無存活段）時的預覽 aria-label fallback（避免 role=img 無名）。 */
-export const EMPTY_PREVIEW_LABEL = '狀態列預覽：未啟用任何區段'
+/** 全隱藏（無存活段）時的預覽 aria-label fallback（避免 role=img 無名）。同上，固定 DEFAULT_LOCALE 值。 */
+export const EMPTY_PREVIEW_LABEL = t(DEFAULT_LOCALE).previewAria.emptyLabel
 
 /** 箭頭三角形容器的 class（style.css `.preview-terminal__arrow` `::before` 三角）。 */
 export const PREVIEW_ARROW_CLASS = 'preview-terminal__arrow'
@@ -146,7 +153,7 @@ export interface PreviewSpec {
  * rows: StyledRun[][] → PreviewSpec（純函式，node 可測；DOM 組裝端只機械
  * 消費此規格）。
  *
- * 逐列 aria-label＝`第 N 列：${toAriaLabel(row)}`（N＝渲染列序，1 起算；
+ * 逐列 aria-label＝`${前綴}${toAriaLabel(row)}`（N＝渲染列序，1 起算；
  * toAriaLabel 簽章不變，只吃單列 StyledRun[]，前綴由本函式自加）。
  *
  * `[[]]`（resolve 全隱藏退化，恆單一空列）為結構性特例：外層 group 保留，
@@ -155,15 +162,27 @@ export interface PreviewSpec {
  * 種 `role="img"` 子容器形狀）。resolve() 的分組不變量保證：非此特例時，
  * 每個渲染列的 runs 恆非空（空桶不進 Map、不佔渲染列序），故一般分支不需
  * 另行處理逐列空陣列。
+ *
+ * T5.6（09-PLAN §D5 A-4「強制 preview 重 resolve」）：`locale` 選填、預設
+ * `DEFAULT_LOCALE`——群組/空預覽 label 與逐列前綴改查
+ * `t(locale).previewAria`，取代原本硬編 zh 字面；缺省時輸出與改動前
+ * byte 相同（既有 `render-preview.test.ts` 呼叫皆未傳 `locale`，零改動
+ * 仍過）。語言切換時main.ts 的「強制 preview 重 resolve」步驟經
+ * `PreviewController.setLocale` 傳入當下 `currentLocale()`，使此前綴／
+ * 群組 label 隨切換翻轉。
  */
-export function buildPreviewSpec(rows: readonly (readonly StyledRun[])[]): PreviewSpec {
+export function buildPreviewSpec(
+  rows: readonly (readonly StyledRun[])[],
+  locale: Locale = DEFAULT_LOCALE,
+): PreviewSpec {
+  const m = t(locale).previewAria
   const isEmptyFallback = rows.length === 1 && rows[0].length === 0
   return {
-    groupLabel: PREVIEW_GROUP_LABEL,
+    groupLabel: m.groupLabel,
     rows: isEmptyFallback
-      ? [{ ariaLabel: EMPTY_PREVIEW_LABEL, runs: [] }]
+      ? [{ ariaLabel: m.emptyLabel, runs: [] }]
       : rows.map((row, index) => ({
-          ariaLabel: `第 ${index + 1} 列：${toAriaLabel(row)}`,
+          ariaLabel: `${m.rowPrefix(index + 1)}${toAriaLabel(row)}`,
           runs: row,
         })),
   }
@@ -213,9 +232,16 @@ function buildRunSpan(run: StyledRun): HTMLSpanElement {
  * 吵雜（PLAN 明述；情境／深淺底切換亦不另行播報）。列內 span 為裝飾、
  * aria-hidden。`[[]]` 全隱藏 → 外層 group 保留、單一子容器承載
  * EMPTY_PREVIEW_LABEL（buildPreviewSpec 兜底，避免 role=img 無名）。
+ *
+ * T5.6：`locale` 選填、預設 `DEFAULT_LOCALE`，透傳給 `buildPreviewSpec`
+ * （見其文件）。
  */
-export function renderRuns(container: HTMLElement, rows: readonly (readonly StyledRun[])[]): void {
-  const spec = buildPreviewSpec(rows)
+export function renderRuns(
+  container: HTMLElement,
+  rows: readonly (readonly StyledRun[])[],
+  locale: Locale = DEFAULT_LOCALE,
+): void {
+  const spec = buildPreviewSpec(rows, locale)
   container.setAttribute('role', 'group')
   container.setAttribute('aria-label', spec.groupLabel)
   container.replaceChildren(
@@ -232,13 +258,18 @@ export function renderRuns(container: HTMLElement, rows: readonly (readonly Styl
 /**
  * config＋情境三通道（ResolveInput／MockScenario 結構子集） → 容器預覽。
  * 低階組合塊：resolve→renderRuns。main.ts 可直用，或用下方 controller。
+ *
+ * T5.6：`input.locale`（選填、預設 `DEFAULT_LOCALE`，見 resolve.ts
+ * `ResolveInput.locale` 文件）一併透傳給 `renderRuns`——確保 resolve()
+ * 產出的逐列 ariaText（如「重置」代換詞）與本模組自加的群組/逐列前綴
+ * 使用同一語系，不會出現「內容已翻、外殼未翻」的混語態。
  */
 export function renderPreview(
   container: HTMLElement,
   config: BuilderConfig,
   input: ResolveInput,
 ): void {
-  renderRuns(container, resolve(config, input))
+  renderRuns(container, resolve(config, input), input.locale ?? DEFAULT_LOCALE)
 }
 
 // ── Controller（main.ts 接線主介面） ──
@@ -255,6 +286,12 @@ export interface PreviewInit {
   scenarioId?: MockScenarioId
   /** 初始深/淺底（預設 dark，對齊 T3.1 初始 class）。 */
   theme?: PreviewTheme
+  /**
+   * T5.6（09-PLAN §D5 A-4）：初始語系（預設 `DEFAULT_LOCALE`）——main.ts
+   * 開機時傳入既有持久化語言（`currentLocale()`），使初始 render 與其餘
+   * clone 點一致（持久化 en 時開機即以 en 呈現，不需先手動切換一次）。
+   */
+  locale?: Locale
 }
 
 export interface PreviewController {
@@ -264,31 +301,39 @@ export interface PreviewController {
   setScenario(id: MockScenarioId): void
   /** 切深/淺底 → 僅切終端框 modifier class（不重播、不重 resolve、label 沿用）。 */
   setTheme(theme: PreviewTheme): void
+  /**
+   * T5.6（09-PLAN §D5 A-4「強制 preview 重 resolve」）：切換語系 → 重新
+   * resolve＋render，使逐列 aria-label（「重置」代換詞、`第 N 列：`／
+   * `Row N:` 前綴）與外層群組/空預覽 label 翻轉。main.ts 語言切換五步序
+   * 的第 (3) 步呼叫此方法（供語言鈕 click 後的重繪序使用）。
+   */
+  setLocale(locale: Locale): void
   /** 以當前 state 重繪（config 缺 → 空預覽）。 */
   render(): void
 }
 
 /**
- * 建立預覽 controller。持有 container／config／scenarioId／theme，setXxx 各自
- * 最小重繪：setTheme 不重 resolve（僅視覺），setConfig／setScenario 重
- * resolve＋刷 label。
+ * 建立預覽 controller。持有 container／config／scenarioId／theme／locale，
+ * setXxx 各自最小重繪：setTheme 不重 resolve（僅視覺），
+ * setConfig／setScenario／setLocale 重 resolve＋刷 label。
  */
 export function createPreview(init: PreviewInit): PreviewController {
   const { container } = init
   let config: BuilderConfig | null = init.config ?? null
   let scenarioId: MockScenarioId = init.scenarioId ?? MOCK_SCENARIOS[0].id
   let theme: PreviewTheme = init.theme ?? DEFAULT_PREVIEW_THEME
+  let locale: Locale = init.locale ?? DEFAULT_LOCALE
 
   applyTheme(container, theme)
 
   function render(): void {
     if (config === null) {
       // 空預覽：`[[]]` 兜底——外層 group 保留、單一子容器承載 EMPTY_PREVIEW_LABEL。
-      renderRuns(container, [[]])
+      renderRuns(container, [[]], locale)
       return
     }
     const scenario = MOCK_SCENARIOS_BY_ID[scenarioId]
-    renderPreview(container, config, scenario)
+    renderPreview(container, config, { ...scenario, locale })
   }
 
   render()
@@ -305,6 +350,10 @@ export function createPreview(init: PreviewInit): PreviewController {
     setTheme(next) {
       theme = next
       applyTheme(container, next) // 僅視覺；不重 resolve、不動 aria-label
+    },
+    setLocale(next) {
+      locale = next
+      render()
     },
     render,
   }

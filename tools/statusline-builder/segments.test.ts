@@ -27,6 +27,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { defaultConfig, deserializeConfig, serializeConfig } from './config.js'
+import { DEFAULT_LOCALE, t } from './messages.js'
 import { containsPua } from './resolve.js'
 import {
   CWD_VARIANTS,
@@ -43,6 +44,8 @@ import {
   formatValue,
   isValueDead,
   RATE_VARIANTS,
+  segmentAriaText,
+  segmentLabel,
   SEGMENT_CATALOG,
   SEGMENT_DESCRIPTORS,
   SEGMENT_IDS,
@@ -211,6 +214,47 @@ describe('icon（T1.5.2 ASCII 前綴化；magi/07-statusline-multirow-layout/pre
     const glyphs = SEGMENT_DESCRIPTORS.map((d) => d.icon.glyph)
     expect(new Set(glyphs).size).toBe(glyphs.length)
     expect(glyphs.length).toBe(30)
+  })
+})
+
+// ── locale 感知 accessor（T5.3；segmentLabel／segmentAriaText） ──
+
+describe('locale accessor（segmentLabel／segmentAriaText，T5.3）', () => {
+  it('缺省 locale＝DEFAULT_LOCALE（zh-Hant）：與 descriptor 現行欄位逐段一致', () => {
+    for (const d of SEGMENT_DESCRIPTORS) {
+      expect(segmentLabel(d.id), d.id).toBe(d.label)
+      expect(segmentAriaText(d.id), d.id).toBe(d.icon.ariaText)
+    }
+  })
+
+  it('兩語言 accessor 輸出與 messages.t(locale) 字典逐段一致（30 段全覆蓋）', () => {
+    for (const locale of ['zh-Hant', 'en'] as const) {
+      for (const id of SEGMENT_IDS) {
+        expect(segmentLabel(id, locale), `${locale}/${id}`).toBe(t(locale).segments[id].label)
+        expect(segmentAriaText(id, locale), `${locale}/${id}`).toBe(t(locale).segments[id].ariaText)
+      }
+    }
+  })
+
+  it('en 輸出確實不同於 zh-Hant（非退化為恆等函式，抽樣 model／cwd）', () => {
+    expect(segmentLabel('model', 'en')).toBe('Model')
+    expect(segmentLabel('model', 'en')).not.toBe(segmentLabel('model', 'zh-Hant'))
+    expect(segmentAriaText('cwd', 'en')).toBe('Current dir')
+    expect(segmentAriaText('cwd', 'en')).not.toBe(segmentAriaText('cwd', 'zh-Hant'))
+  })
+})
+
+// ── 單一事實來源反轉（T5.3）：descriptor.label／icon.ariaText 現由 ──
+// messages.ts zh-Hant 字典於模組初始化取得（見 segments.ts 檔內 `M` 常數）；
+// 本測試因反轉而由「兩處手抄需同步」轉為結構性恆真（messages 為源、
+// segments 為消費者，保留無妨——見 messages.test.ts 同名「零漂移」案）。
+describe('單一事實來源反轉：descriptor.label／icon.ariaText 與 messages zh-Hant 字典結構性恆等', () => {
+  it('30 段逐一比對', () => {
+    const zh = t(DEFAULT_LOCALE)
+    for (const d of SEGMENT_DESCRIPTORS) {
+      expect(d.label, d.id).toBe(zh.segments[d.id].label)
+      expect(d.icon.ariaText, d.id).toBe(zh.segments[d.id].ariaText)
+    }
   })
 })
 

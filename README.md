@@ -42,7 +42,9 @@ npm run test:e2e
 ## statusline-builder 注意事項
 
 statusline-builder 於瀏覽器端產生 Claude Code 自訂 statusline 的設定腳本
-（`.sh`／`.ps1`）與 `settings.json` 片段，所有處理皆在前端完成。
+（`.sh`／`.ps1`）與 `settings.json` 片段，所有處理皆在前端完成。介面支援
+正體中文／英文切換（header 語言鈕，偏好存於瀏覽器本機；產出腳本內容不受
+語言切換影響）。
 
 - **Segment schema 基準版**：segment 目錄依 Claude Code stdin JSON schema
   **v2.1.196**（官方文件宣稱版本）建立；changelog 實際複核至 **v2.1.169**，

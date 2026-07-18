@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ColorSpec } from './color.js'
-import type { BuilderConfig, SegmentConfig } from './config.js'
+import type { BuilderConfig, SegmentConfig, SeparatorConfig } from './config.js'
 import { emitPs1 } from './emit-ps1.js'
 import { toAnsi } from './emit-ansi.js'
 import { resolve, type ResolveInput } from './resolve.js'
@@ -221,6 +221,29 @@ const BAR_AUTO_POWERLINE_NOARROW: BuilderConfig = cfg({
   ],
 })
 
+// T1.6（magi/09-statusline-ux-refactor/PLAN.md §D1 golden 策略）：與
+// scripts/golden-statusline-ps1.mjs 內同名 config 逐字同步（golden 測試
+// 為漂移守門）。單列＋列 0（唯一啟用位）覆寫：全域 '|'、rowSeparators[0]
+// 覆寫為 preset '·'。
+const ROWSEP_SINGLE_OVERRIDE: BuilderConfig = cfg({
+  mode: 'plain',
+  rowSeparators: [{ kind: 'preset', value: '·' }],
+  segments: [
+    seg('model', { color: A(226) }),
+    seg('cost', { color: A(220) }),
+    seg('duration', { color: A(118) }),
+  ],
+})
+
+// 單列覆寫值為 custom 且含須逸出字元（單引號）：驗 psSingleQuote 對覆寫值
+// 本身的逸出（比照既有 escaping 案分隔符逸出精神，惟該案逸出全域
+// separator、本案逸出 rowSeparators 覆寫值）。
+const ROWSEP_CUSTOM_ESCAPE: BuilderConfig = cfg({
+  mode: 'plain',
+  rowSeparators: [{ kind: 'custom', value: "'" }],
+  segments: [seg('model', { prefix: "'$(x)", color: A(226) }), seg('version', {})],
+})
+
 const GOLDENS: ReadonlyArray<{ name: string; config: BuilderConfig }> = [
   { name: 'plain-full', config: PLAIN_FULL },
   { name: 'powerline-threshold', config: POWERLINE_THRESHOLD },
@@ -229,6 +252,8 @@ const GOLDENS: ReadonlyArray<{ name: string; config: BuilderConfig }> = [
   { name: 'bar-templates', config: BAR_TEMPLATES },
   { name: 'bar-auto-powerline-arrow', config: BAR_AUTO_POWERLINE_ARROW },
   { name: 'bar-auto-powerline-noarrow', config: BAR_AUTO_POWERLINE_NOARROW },
+  { name: 'rowsep-single-override', config: ROWSEP_SINGLE_OVERRIDE },
+  { name: 'rowsep-custom-escape', config: ROWSEP_CUSTOM_ESCAPE },
 ]
 
 // ── 1. 結構契約（跨平台） ──
@@ -792,6 +817,52 @@ describe('黃金比對（多列，emitPs1 === __golden__/multirow-*.ps1；Fix 2�
   })
 })
 
+// ── T1.6（09-PLAN §D1 golden 策略）：rowSeparators 對 powerline 惰性——
+// 機械證據（同 emit-bash.test.ts 對稱區塊；理由詳見該檔同名 describe 檔頭）。
+// ps1 側既有 powerline golden 檔集與 bash 側名稱不完全重疊（GOLDENS 為
+// 獨立 canonical 集，見檔頭「與 scripts/golden-statusline-ps1.mjs 逐字
+// 同步」），本檔明列各自實際集合（單列 4 個＋多列 2 個，合計 6 個 ps1
+// powerline 黃金檔；與 emit-bash.test.ts 明列的 8 個 .sh 為各自獨立事實
+// 來源，數字不必相等）。
+describe('rowSeparators 對 powerline 惰性（T1.6 機械證據；既有 powerline golden .ps1 零 diff 佐證）', () => {
+  const GARBAGE_ROW_SEPS: (SeparatorConfig | null)[] = [
+    { kind: 'custom', value: '###' },
+    { kind: 'preset', value: '·' },
+    null,
+  ]
+
+  it('單列來源（GOLDENS）：明列 4 個 powerline case，帶 rowSeparators 塞值 vs 不帶，emitPs1 產出逐位元組相同', () => {
+    const powerlineCases = GOLDENS.filter((c) => c.config.mode === 'powerline')
+    expect(powerlineCases.map((c) => c.name).sort()).toEqual(
+      [
+        'powerline-threshold',
+        'powerline-noarrow',
+        'bar-auto-powerline-arrow',
+        'bar-auto-powerline-noarrow',
+      ].sort(),
+    )
+    for (const { name, config } of powerlineCases) {
+      const withSeps: BuilderConfig = { ...config, rowSeparators: GARBAGE_ROW_SEPS }
+      expect(emitPs1(withSeps, CATALOG), `${name}：帶 rowSeparators 不應改變 powerline 輸出`).toEqual(
+        emitPs1(config, CATALOG),
+      )
+    }
+  })
+
+  it('多列來源（MULTIROW_GOLDEN_CASES）：明列 2 個 powerline case，帶 rowSeparators 塞值 vs 不帶，emitPs1 產出逐位元組相同', () => {
+    const powerlineCases = MULTIROW_GOLDEN_CASES.filter((c) => c.config.mode === 'powerline')
+    expect(powerlineCases.map((c) => c.name).sort()).toEqual(
+      ['multirow-powerline', 'multirow-powerline-noarrow'].sort(),
+    )
+    for (const { name, config } of powerlineCases) {
+      const withSeps: BuilderConfig = { ...config, rowSeparators: GARBAGE_ROW_SEPS }
+      expect(emitPs1(withSeps, CATALOG), `${name}：帶 rowSeparators 不應改變 powerline 輸出`).toEqual(
+        emitPs1(config, CATALOG),
+      )
+    }
+  })
+})
+
 // ── 多列展開（T3.2；四步展開結構斷言，PLAN §多列輸出／emit-ps1.ts 多列分支同構） ──
 
 describe('多列展開（T3.2）：plain 兩列', () => {
@@ -924,6 +995,94 @@ describe('多列展開（T3.2）：單列（含零啟用段）退化為既有扁
     expect(script).toContain('$Segs = @()')
     expect(script).not.toContain('$Segs0')
     expect(script).not.toContain('$Rows')
+  })
+})
+
+// ── T1.5（09-PLAN §D1 A-4）：emit-ps1 逐列傳參——joinPlain 兩呼叫點改傳
+// 逐列分隔符值（rowSeparators[啟用位] ?? config.separator），separatorExpr
+// 本身零改動（逐字元 ASCII／非 ASCII 分流展開機制不變，僅入參來源改變）。
+describe('逐列分隔符覆寫（T1.5：joinPlain 兩呼叫點傳參）', () => {
+  const TWO_ROW_BASE: Partial<BuilderConfig> = {
+    mode: 'plain',
+    separator: { kind: 'preset', value: '|' },
+    segments: [
+      seg('model', { icon: false, row: 0 }),
+      seg('cost', { icon: false, row: 0 }),
+      seg('git-branch', { icon: false, row: 1 }),
+      seg('duration', { icon: false, row: 1 }),
+    ],
+  }
+
+  it('no-override fast path：rowSeparators 缺席時多列輸出與既有（無此欄）逐 byte 相同', () => {
+    const withoutField = emitPs1(cfg(TWO_ROW_BASE), CATALOG)
+    // 兩列皆沿用全域分隔符 '|'——與 T3.2 既有多列案（無 rowSeparators 欄）同形。
+    expect(withoutField).toContain(`if ($i -gt 0) { $RowOut0 += "$e[0m" + '|' }`)
+    expect(withoutField).toContain(`if ($i -gt 0) { $RowOut1 += "$e[0m" + '|' }`)
+  })
+
+  it('no-override fast path：rowSeparators 全 null 與缺席欄產出逐 byte 相同（皆退全域）', () => {
+    const withoutField = emitPs1(cfg(TWO_ROW_BASE), CATALOG)
+    const allNull = emitPs1(cfg({ ...TWO_ROW_BASE, rowSeparators: [null, null] }), CATALOG)
+    expect(allNull).toEqual(withoutField)
+  })
+
+  it("多列＋第 2 列（row1）覆寫 preset 非 ASCII '·'：該列 join 用覆寫值＋separatorExpr 逐 codepoint 展開，row0 仍用全域 '|'", () => {
+    const script = emitPs1(
+      cfg({ ...TWO_ROW_BASE, rowSeparators: [null, { kind: 'preset', value: '·' }] }),
+      CATALOG,
+    )
+    // row0 無覆寫（null＝繼承全域）→ 仍是 '|'。
+    expect(script).toContain(`if ($i -gt 0) { $RowOut0 += "$e[0m" + '|' }`)
+    // row1 覆寫 '·'（U+00B7，非 ASCII）→ separatorExpr 逐 codepoint 跳脫形，純 ASCII、無原始字面。
+    expect(script).toContain(`if ($i -gt 0) { $RowOut1 += "$e[0m" + [char]0xB7 }`)
+    expect(script).not.toContain('·')
+  })
+
+  it("多列＋第 2 列（row1）覆寫 custom 混 ASCII／非 ASCII（'a›b'）：該列 join 用覆寫值、ASCII 段落單引號＋非 ASCII 逐 codepoint 以 + 相接", () => {
+    const script = emitPs1(
+      cfg({ ...TWO_ROW_BASE, rowSeparators: [null, { kind: 'custom', value: 'a›b' }] }),
+      CATALOG,
+    )
+    expect(script).toContain(`if ($i -gt 0) { $RowOut0 += "$e[0m" + '|' }`)
+    expect(script).toContain(`if ($i -gt 0) { $RowOut1 += "$e[0m" + 'a' + [char]0x203A + 'b' }`)
+    expect(script).not.toContain('›')
+  })
+
+  it('單列＋列 0 覆寫：既有扁平結構（$Segs／$out）之 join 用覆寫值，非全域分隔符', () => {
+    const script = emitPs1(
+      cfg({
+        mode: 'plain',
+        separator: { kind: 'preset', value: '|' },
+        rowSeparators: [{ kind: 'preset', value: '·' }],
+        segments: [seg('model', { icon: false }), seg('cost', { icon: false })],
+      }),
+      CATALOG,
+    )
+    // 單列扁平路徑走 $Segs／$out（非 $Segs0／$RowOut0）——沿既有 M3 acceptance。
+    expect(script).not.toContain('$Segs0')
+    expect(script).not.toContain('$RowOut0')
+    expect(script).toContain(`if ($i -gt 0) { $out += "$e[0m" + [char]0xB7 }`)
+    expect(script).not.toContain(`+ '|' }`)
+  })
+
+  it('powerline＋rowSeparators 存在（含覆寫）：輸出與無此欄完全相同（powerline 走 joinPowerline，零觸碰）', () => {
+    const POWERLINE_BASE = {
+      mode: 'powerline' as const,
+      powerlineArrow: true,
+      lastArrowCap: true,
+      segments: [
+        seg('model', { icon: false, row: 0, color: { kind: 'ansi256' as const, index: 226 } }),
+        seg('cost', { icon: false, row: 0, color: { kind: 'ansi256' as const, index: 16 } }),
+        seg('git-branch', { icon: false, row: 1, color: { kind: 'ansi256' as const, index: 46 } }),
+        seg('duration', { icon: false, row: 1, color: { kind: 'ansi256' as const, index: 99 } }),
+      ],
+    }
+    const withoutField = emitPs1(cfg(POWERLINE_BASE), CATALOG)
+    const withOverrides = emitPs1(
+      cfg({ ...POWERLINE_BASE, rowSeparators: [{ kind: 'custom', value: 'X' }, { kind: 'preset', value: '·' }] }),
+      CATALOG,
+    )
+    expect(withOverrides).toEqual(withoutField)
   })
 })
 

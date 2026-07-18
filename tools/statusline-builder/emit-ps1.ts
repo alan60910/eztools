@@ -994,6 +994,21 @@ function groupSegmentsByRow(config: BuilderConfig): RowGroup[] {
   return sortedKeys.map((key) => ({ key, segments: groups.get(key)! }))
 }
 
+/**
+ * T1.5（09-PLAN §D1 A-4）：第 `rowIndex`（啟用列位，即 `groupSegmentsByRow`
+ * 分組序——與 `rowSeparators` 索引基準 A-1 同一口徑，呼叫端 `rowGroups`
+ * 之陣列 index 本就是此值，免額外映射）列之有效 plain 分隔符值——
+ * `config.rowSeparators?.[rowIndex]` 存在（非 `null`／越界）則用其值，
+ * 否則退全域 `config.separator`。**no-override fast path**：
+ * `rowSeparators` 全 `null`／缺席（含整欄缺席）時，`?.[rowIndex]` 恆
+ * 回 `undefined`，`?? config.separator` 落回既有全域值——與改動前
+ * 逐 byte 相同。僅 plain 模式呼叫端（`joinPlain` 兩呼叫點）使用；
+ * powerline 走 `joinPowerline`，零觸碰此欄。
+ */
+function rowSeparatorValue(config: BuilderConfig, rowIndex: number): string {
+  return (config.rowSeparators?.[rowIndex] ?? config.separator).value
+}
+
 // ── now 注入（T4.4；sp2/REPORT.md §2.3 釘死 idiom，逐字抄） ──
 
 /**
@@ -1114,7 +1129,7 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
     const join =
       state.mode === 'powerline'
         ? joinPowerline(config.lastArrowCap, config.powerlineArrow, 'Segs', 'BgT', 'out')
-        : joinPlain(config.separator.value, 'Segs', 'out')
+        : joinPlain(rowSeparatorValue(config, 0), 'Segs', 'out')
     out.push(...join)
   } else {
     // 多列（四步展開；與 emit-bash 同構，見上方函式頭註解）。
@@ -1160,7 +1175,7 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
       const rowJoin =
         state.mode === 'powerline'
           ? joinPowerline(config.lastArrowCap, config.powerlineArrow, `Segs${k}`, `BgT${k}`, `RowOut${k}`)
-          : joinPlain(config.separator.value, `Segs${k}`, `RowOut${k}`)
+          : joinPlain(rowSeparatorValue(config, k), `Segs${k}`, `RowOut${k}`)
       out.push(...rowJoin)
     }
 
