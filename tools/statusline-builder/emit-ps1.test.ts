@@ -395,6 +395,21 @@ describe('D1 gating（powerlineArrow × lastArrowCap，emit-ps1）', () => {
     const plainScript = emitPs1(cfg({ mode: 'plain', segments: segs }), CATALOG)
     expect(plainScript).not.toContain(`+ ' '`)
   })
+
+  // T1.2（06a WORKS 死資料清理）：`$BgT`／`$BgT<k>` 只在 `joinPowerline` 的
+  // `if (powerlineArrow)` 區塊於 powerlineArrow=true 時被讀取——arrow=false
+  // 的 powerline 腳本不應再宣告／累加該死陣列。負向鎖：單列與多列各一案，
+  // 逐字 `not.toContain('$BgT')`（涵蓋宣告與累加兩面，任一處殘留即紅）。
+  it('powerlineArrow=false：單列腳本零 $BgT（宣告＋累加皆不 emit）', () => {
+    const script = emitPs1(pa(true, false), CATALOG)
+    expect(script).not.toContain('$BgT')
+  })
+
+  it('powerlineArrow=false：多列腳本零 $BgT<k>（宣告＋累加皆不 emit，跨列一致）', () => {
+    const multirowNoarrow = MULTIROW_GOLDEN_CASES.find((c) => c.name === 'multirow-powerline-noarrow')!
+    const script = emitPs1(multirowNoarrow.config, CATALOG)
+    expect(script).not.toContain('$BgT')
+  })
 })
 
 // ── icon glyph 純 ASCII escape（S1／T1.2 裁決） ──

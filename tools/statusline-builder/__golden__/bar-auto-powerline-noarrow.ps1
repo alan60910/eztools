@@ -33,7 +33,6 @@ if ([string]::IsNullOrEmpty($__nowEnv)) {
 }
 
 $Segs = @()
-$BgT = @()
 
 # effort — conditional/hide
 $Ac0Id = $d.effort.level
@@ -51,7 +50,6 @@ $v = $d.effort.level
 if ($null -ne $v -and $v -ne '') {
   $disp = [char]0x65 + [char]0x66 + [char]0x66 + [char]0x3A + ' ' + $v + ' '
   $Segs += $Ac0Px + $disp
-  $BgT += $Ac0Tail
 }
 
 # rate-7d — percentage/dash＋bar
@@ -86,14 +84,12 @@ if ($bucketFg -ne '') { $s += "$e[" + $bucketFg + 'm' }
 if ('5;88' -ne '') { $s += "$e[48;" + '5;88' + 'm' }
 $s += ' ' + $vt + ' '
 $Segs += $s
-$BgT += '5;88'
 
 # reset-7d — conditional/hide
 $v = $d.rate_limits.seven_day.resets_at
 if ($null -ne $v -and $Now -lt $v) {
   $disp = (Format-Reset7d $v $Now) + ' '
   $Segs += "$e[0m$e[38;5;16m$e[48;5;99m" + $disp
-  $BgT += '5;99'
 }
 
 $out = ''

@@ -43,7 +43,8 @@
       預覽 DOM 由 T3.2 的 render-preview.ts 填入。本檔只出「固定頁面
       骨架＋分區 landmark＋live region＋<template> 生成契約」；所有
       節點的 id/class/data-* 命名為與 T3.3／T3.2 對接的結構契約，
-      詳見 .t31-report.md 的「DOM 結構契約表」與各處內嵌註解。
+      無集中文件，詳見本檔（各 <template> 附近）與 main.ts 對應消費處
+      （instantiateTemplate／固定節點兩節）的內嵌註解。
 
       掛載點＝檔尾 <script type="module" src="./main.ts">（比照
       gif-editor：main.ts 以 import '../../src/style.css' + import
@@ -701,7 +702,8 @@
       不渲染，僅供 main.ts clone。id/for/name/aria-controls 內的
       __ID__／__PID__／__TID__ 為佔位 token：main.ts 每生成一實例即以
       唯一 key 取代（保證 id 全域唯一、label[for]／aria-controls 成對
-      重寫）。詳細生成契約見 .t31-report.md「DOM 結構契約表」。
+      重寫）。詳細生成契約見本檔各 <template> 附近註解與 main.ts
+      instantiateTemplate（token 取代機制）。
       ============================================================
     -->
 

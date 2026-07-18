@@ -23,7 +23,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const HTML_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'index.html')
 const RAW_HTML = readFileSync(HTML_PATH, 'utf-8')
@@ -186,5 +186,93 @@ describe('T4.2 三個 output-block 皆在 dialog 內 stacked（不分頁）＋�
     expect((document.getElementById('download-bash') as HTMLAnchorElement).href).toMatch(/^blob:/)
     expect((document.getElementById('download-ps1') as HTMLAnchorElement).href).toMatch(/^blob:/)
     expect((document.getElementById('download-settings') as HTMLAnchorElement).href).toMatch(/^blob:/)
+  })
+})
+
+/**
+ * sprint 12 review 裁決回退（2026-07-19，見 main.ts `UTF8_BOM` 常數
+ * JSDoc）：協調者以 PS 5.1 真機探針證實，copy 通道前置 U+FEFF 於使用者
+ * 依腳本頭指引「另存為 UTF-8（含 BOM）」存檔時會疊成雙 BOM，PS 5.1 將
+ * 第二個 U+FEFF 黏進首 token 致執行期噴錯——故 T1.1 當時讓複製通道對齊
+ * 下載 Blob（前置 BOM）的決定已回退：**複製通道刻意無 BOM**，三鈕
+ * payload 皆為 `lastOutputs` 原文（下載通道 BOM 不受影響，仍見
+ * emit-ps1.test.ts 既有斷言）。
+ *
+ * 上方「複製操作播報仍寫入 #output-status」一案（:140-151）刻意依賴
+ * jsdom 原生**沒有** `navigator.clipboard`（走 `copyOutput` 的 catch 分
+ * 支斷言「複製失敗」播報）。本 describe 需要 spy `navigator.clipboard.
+ * writeText` 才能斷言實際傳入的 payload 內容，故逐案以
+ * `Object.defineProperty` 安裝 stub、並在 `afterEach` 精確還原
+ * `navigator.clipboard` 的原始 property descriptor（jsdom 原生未定義此
+ * 屬性時直接 `delete`，不留下一個「值為 undefined 但屬性存在」的殘影）
+ * ——避免 stub 洩漏進其他檔案／案例、改變其原本依賴「無 clipboard」的
+ * 假設。
+ */
+describe('複製通道刻意無 BOM（回退裁決，見 UTF8_BOM 常數 JSDoc）', () => {
+  const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  let writeText: ReturnType<typeof vi.fn>
+
+  beforeEach(async () => {
+    await boot()
+    writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+  })
+
+  afterEach(() => {
+    if (originalClipboardDescriptor === undefined) {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    } else {
+      Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor)
+    }
+  })
+
+  it('click copy-ps1 → payload 無 BOM，內容與產出 ps1 全文一致', async () => {
+    openBtn().click()
+    document.getElementById('copy-ps1')!.click()
+    // copyOutput 為 async，讓 microtask 落定（同 :140-151 既有案手法）。
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const payload = writeText.mock.calls[0]?.[0] as string
+    expect(payload).not.toMatch(/^\uFEFF/)
+    const ps1Code = document.querySelector('#output-ps1 code')!.textContent ?? ''
+    expect(payload).toBe(ps1Code)
+  })
+
+  it('click copy-bash → payload 不以 U+FEFF 起始（bash 通道無 BOM）', async () => {
+    openBtn().click()
+    document.getElementById('copy-bash')!.click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const payload = writeText.mock.calls[0]?.[0] as string
+    expect(payload).not.toMatch(/^\uFEFF/)
+  })
+
+  it('click copy-settings → payload 不以 U+FEFF 起始（settings 通道無 BOM）', async () => {
+    openBtn().click()
+    document.getElementById('copy-settings')!.click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const payload = writeText.mock.calls[0]?.[0] as string
+    expect(payload).not.toMatch(/^\uFEFF/)
+  })
+
+  it('writeText 拒絕 → copy-ps1 播報「複製失敗」落於 #output-status（工作項 3）', async () => {
+    writeText.mockRejectedValue(new Error('x'))
+    openBtn().click()
+    const status = document.getElementById('output-status')!
+    expect(status.classList.contains('is-empty')).toBe(true)
+    document.getElementById('copy-ps1')!.click()
+    // copyOutput 為 async，讓 microtask（含 catch 分支）落定（同上既有案手法）。
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(status.classList.contains('is-empty')).toBe(false)
+    expect(status.textContent).toContain('複製失敗')
   })
 })

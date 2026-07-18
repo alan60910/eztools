@@ -365,7 +365,7 @@ export function createPreview(init: PreviewInit): PreviewController {
  * 填三份產出碼區塊（bash／ps1／settings）——**textContent 直塞**（非
  * innerHTML：產出碼含 `<`、`$`、glyph 等，textContent 零轉義／零注入面）。
  * 主軸為預覽渲染；此為便利函式，main.ts 可繞過直接 `el.textContent = code`
- * （T3.1 的 `<pre><code>` 結構＝傳入各 `<code>` 節點；見 .t32-report 約定）。
+ * （T3.1 的 `<pre><code>` 結構＝傳入各 `<code>` 節點，此為固定約定）。
  */
 export function renderOutputs(
   targets: { bash: HTMLElement; ps1: HTMLElement; settings: HTMLElement },

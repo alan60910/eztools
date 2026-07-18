@@ -6,14 +6,16 @@ one into a new sprint.
 
 ## Pending
 <!-- /magi:commit appends C-class drift items here -->
+- [ ] verify-dist `_probe` 洩漏防線加固：現行 `checkNoUnderscoreToolDirs` 僅偵測目錄形洩漏；chunk／import 形態（出貨頁誤 import `tools/_` 路徑 → 打進 `dist/assets/*.js`）無感——候選：assets 檔名掃描（限檔名勿全文 grep：`dist/vendor/ffmpeg/ffmpeg-core.wasm` 內含 av*probe 符號的 `_probe` 位元組字串，全文 grep 必誤報）或 source 側 import 斷言
+  > from `magi/12-hygiene-tail/DRIFT.md` (2026-07-19)
+- [ ] 同族 `.t<n>` 短形死指標順手清：`.t15`／`.t23` 等 12 處散布 emit-bash.ts／emit-ps1.ts／emit-settings.ts／emit-ps1.test.ts／pipeline.integration.test.ts（`-report` 後綴形已於 sprint 12 歸零；短形指涉同批從未簽入的 spike 報告）＋main.ts `T5.5-report` 字面
+  > from `magi/12-hygiene-tail/DRIFT.md` (2026-07-19)
 - [ ] **sprint 09 真機驗收批（遞延）**：T6.2-CHECKLIST.md A–F 區親測回報＋變體 A/B 圈選（現行 A）＋micro-fix-3 去留（行動版欄序 DOM 真搬，治 Tab/SR 序分歧＋列群組標題低於摺線 38–154px 殘餘）；僅真機能驗面清單見 MAGI_CODE_REVIEW「Untested paths」（頂帶 40dvh 量測／CSS order 摺線／原生 dialog 鏈）
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
   > sprint 10 併入（2026-07-18）：雙分頁互切主題即時同步＋OS 深淺切換即時跟隨（未手動切換過的分頁）＋聚焦 toggle 鈕時外部觸發 aria-pressed 變化之 SR 播報行為——見 `magi/10-theme-config-hardening/WORKS.md` M4 遞延記錄
 - [ ] **sprint 09 測試網加固批**：i18n-meta-scan 補屬性巡檢（aria-label／placeholder／title／alt 含 CJK 未掛 data-i18n-attr 即紅——review Important #2）＋main.ts strip 窄盲點（字串內 `//`、同行 throw）＋windows CI leg `BASH.ok && PS1.ok` meta 守門＋複製內容 clipboard spy 斷言（三鈕對應內容＋成功/失敗分支）＋真 DnD × 非 inherit 覆寫值 e2e 組合
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
 - [ ] statusline-builder 雙寫收斂＋footgun 加固：planSegmentMove 回傳形補 sourceRow/srcDrains（消 computeRowSeparatorsAfterMove 鏡射重算）＋config.ts export 單一 trim helper（消 normalizeRowSeparatorsField 雙寫）＋descriptor.label/ariaText「凍結 zh、顯示走 accessor」JSDoc 加固＋messages「零漂移」恆真測試改述或刪除＋emit-settings 三 hint 常數「UI 用」註解修正與 colorDisplayLabel default/auto 死分支清理
-  > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
-- [ ] 衛生殘項：失效行號引用 ×2（segment-defaults.ts:45 指已刪 VARIANT_LABELS／main.ts:426「既有」語意過時）＋sprint-05 dotfile 報告引用落空（main.ts:14-15／index.html:46 引用從未簽入的 `.t3X-report.md`）＋forailook/ 個人截圖處置（刪或 ignore）＋magi/05 遺留 untracked 清理
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
 - [ ] statusline-builder：配置**匯入／匯出 UI**（現無檔案匯入，fixture 只能靠 localStorage 灌入——見 T5.4-CHECKLIST A 區）
   > from `magi/08-statusline-catalog-expansion/` T5.4 (2026-07-14)
@@ -51,9 +53,6 @@ one into a new sprint.
   > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
 - [ ] `dragOrigin` 死狀態移除；相同播報文案 SR 不重讀（live region 尾端零寬變異等通用強化）
   > from `magi/07-statusline-multirow-layout/DRIFT.md` (2026-07-12)
-- [ ] 決定 `_probe` 的長期去留（保留為活範本，或於掃描時排除底線資料夾，避免探針頁長期公開於正式站）
-  > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
-  > 06a 更新：範本已補全 footer＋主題 boilerplate（更像真頁面，公開部署姿態未變）；另缺 style.css stub 使三件套不完整 — `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [ ] 引入 lint/format 工具（eslint/prettier）與對應 CI 檢查
   > from `magi/01-entry-page-skeleton/DRIFT.md` (2026-07-02)
 - [x] ~~README 的 License 段落補齊（目前為佔位符）~~（06a T5.2 已填 MIT＋howar31 註記，2026-07-11）
@@ -84,9 +83,6 @@ one into a new sprint.
   > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
 - [ ] statusline-builder：settings 路徑輸入未走驗證／無 shell 逸出（`quoteIfNeeded` 不逸出 `"`／`;`／`&`）——至少擋控制字元
   > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
-- [ ] statusline-builder：複製到剪貼簿的 `.ps1` 無 UTF-8 BOM（僅下載 Blob 帶）——複製亦前置 BOM 或 README 明示
-  > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
-  > 06a 更新：icon 與 preset 分隔符（'›'/'·'）已改 `[char]` 碼位跳脫、不再依賴 BOM；殘餘風險縮小至使用者自訂 prefix／自訂分隔符的非 ASCII 內容 — `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [x] ~~statusline-builder 預覽：default 色 powerline 箭頭渲染為透明三角，真終端會以預設前景繪出——`var(--arrow-fg, currentColor)` 對齊~~（sprint 07 交付，2026-07-11）
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [x] ~~statusline-builder：`applyPreviewFontFamily` 死重清理（inline style 蓋掉 CSS 較豐富字族棧）＋index.html 既存「24 段」註解修正（實為 25 段）~~（sprint 07 交付，2026-07-11）
@@ -94,6 +90,9 @@ one into a new sprint.
 
 ## Promoted to sprints
 <!-- /magi:plan moves consumed items here -->
+- ~~statusline-builder：複製到剪貼簿的 `.ps1` 無 UTF-8 BOM（殘餘：自訂 prefix／分隔符非 ASCII 內容）~~ → `magi/12-hygiene-tail/` (2026-07-18)
+- ~~決定 `_probe` 的長期去留（含 style.css stub 補件）~~ → `magi/12-hygiene-tail/` (2026-07-18)
+- ~~衛生殘項：失效行號引用 ×2＋sprint-05 dotfile 報告引用落空＋forailook/ 處置＋magi/05 遺留 untracked 清理~~ → `magi/12-hygiene-tail/` (2026-07-18)（註：forailook/ 於 promote 前已自然消解（已刪＋已 ignore）、magi/05 僅剩承重 sp5/ 依裁保留——兩者實為零動作結案）
 - ~~全站主題：OS 主題偏好即時跟隨（matchMedia change 監聽）＋跨分頁 storage 事件同步~~ → `magi/10-theme-config-hardening/` (2026-07-18)
 - ~~statusline-builder：CONFIG_VERSION 未來 bump 的「未知版本重置」資料損失陷阱——遷移階梯＋「v2 存檔存活」回歸測試~~ → `magi/10-theme-config-hardening/` (2026-07-18)
 - ~~verify-dist.mjs 補自動測試（合成 dist fixture）＋script 擷取 regex 嚴謹化~~ → `magi/10-theme-config-hardening/` (2026-07-18)

@@ -5,6 +5,7 @@
 import { initThemeSync, initThemeToggle } from '../../src/theme.js'
 
 import '../../src/style.css';
+import './style.css';
 
 // 主題切換鈕 wiring：本頁沒有其他「渲染」步驟先於此執行（見上方 import 註解）。
 initThemeToggle(document.querySelector('.theme-toggle') as HTMLButtonElement)

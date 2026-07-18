@@ -1,7 +1,8 @@
 /**
  * S5-T2.5（magi/05-statusline-builder/PLAN.md §產生器契約 1–12＋§格式化
- * 對等規則 ps1 面／.t23-report §5 join 虛擬碼＋§7 ps1 實測＋sp5/join.ps1
- * 藍本）：emitPs1——BuilderConfig → 自足 `.ps1` 腳本文字。
+ * 對等規則 ps1 面；join 虛擬碼＋ps1 實測要點定案經過見 magi/05-
+ * statusline-builder/WORKS.md「T2.3 DONE」節＋sp5/join.ps1 藍本）：
+ * emitPs1——BuilderConfig → 自足 `.ps1` 腳本文字。
  *
  * 產生器分工（emit 期 vs 執行期）：色值／autoFg／閾值桶陣列／glyph 碼位／
  * 前綴 escaping 全在 **emit 期以 TS 單源預算**（與 resolve.ts／emit-ansi
@@ -534,6 +535,15 @@ function pathEmit(seg: SegmentConfig): ValueEmit {
 
 // ── 段 emit（第一趟：存活評估＋累加器 push） ──
 
+/**
+ * T1.2（06a WORKS 死資料清理）：`$BgT`／`$BgT<k>` 累加僅在
+ * `powerlineArrow=true` 時才有意義——見 `joinPowerline` 的
+ * `if (powerlineArrow)` 區塊，只在該旗標為真時才索引 `$BgT`（段間箭頭交接／
+ * `lastArrowCap` 收尾）；arrow=false 的 powerline 腳本不需要背著一份從未被
+ * 讀的死陣列，故此處與宣告面（見 `emitPs1` 單列／多列各自的 `$BgT` 宣告處
+ * 註解）同步加上 `powerlineArrow` 門檻。`$Segs` 累加不受影響（plain／
+ * powerline 皆需要）。
+ */
 function pushLines(
   state: EmitState,
   segExpr: string,
@@ -541,7 +551,9 @@ function pushLines(
   indent: string,
 ): string[] {
   const out = [`${indent}$${state.rowVars.segs} += ${segExpr}`]
-  if (state.mode === 'powerline') out.push(`${indent}$${state.rowVars.bgt} += ${bgTailExpr}`)
+  if (state.mode === 'powerline' && state.powerlineArrow) {
+    out.push(`${indent}$${state.rowVars.bgt} += ${bgTailExpr}`)
+  }
   return out
 }
 
@@ -1118,7 +1130,10 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
     }
     out.push('')
     out.push('$Segs = @()')
-    if (state.mode === 'powerline') out.push('$BgT = @()')
+    // T1.2：`$BgT` 只在 arrow=true 時被 `joinPowerline` 的
+    // `if (powerlineArrow)` 區塊讀取，arrow=false 時不宣告，與累加面
+    // （pushLines）同門檻。
+    if (state.mode === 'powerline' && state.powerlineArrow) out.push('$BgT = @()')
 
     for (const block of segmentBlocks) {
       out.push('')
@@ -1160,7 +1175,8 @@ export function emitPs1(config: BuilderConfig, catalog: SegmentDescriptorCatalog
       out.push('')
       out.push(`# ── row ${k}（row=${rowGroups[k].key}） ──`)
       out.push(`$Segs${k} = @()`)
-      if (state.mode === 'powerline') out.push(`$BgT${k} = @()`)
+      // T1.2：同單列（上方 `$BgT` 宣告處註解）——arrow=false 不宣告。
+      if (state.mode === 'powerline' && state.powerlineArrow) out.push(`$BgT${k} = @()`)
       for (const block of segmentBlocksByRow[k]) {
         out.push('')
         out.push(block)

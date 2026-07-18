@@ -42,7 +42,7 @@
  * `literalPrefix`／`colorLiteral`（ansi256 swatch 名／truecolor hex）為
  * locale-invariant 原值，兩語言字典皆原樣顯示，不需查表。
  *
- * 原本地 `VARIANT_LABELS` 常數表（main.ts:122-128 的複製值）隨此改造移除
+ * 原 main.ts 本地 `VARIANT_LABELS` 常數表隨此改造移除
  * ——variant 欄不再自行查表組字串，只回傳原值供呼叫端經
  * `messages.variantLabel` 解讀，消除雙寫（`messages.ts` 為單一事實來源）。
  *

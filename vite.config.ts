@@ -14,6 +14,10 @@ function discoverToolEntries(): Record<string, string> {
 
   for (const dirent of readdirSync(toolsDir, { withFileTypes: true })) {
     if (!dirent.isDirectory()) continue;
+    // 底線前綴＝repo 內範本／探針頁（如 tools/_probe/），僅供起手複製、
+    // 不部署——2026-07-18 sprint 12 裁決。僅 build 輸入排除；`npm run dev`
+    // 仍可瀏覽 `/tools/_probe/`（活範本預覽）。
+    if (dirent.name.startsWith('_')) continue;
     const slug = dirent.name;
     const entryPath = resolve(toolsDir, slug, 'index.html');
     if (existsSync(entryPath)) {

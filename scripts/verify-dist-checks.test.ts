@@ -41,6 +41,7 @@ import {
   checkEntryInlineScripts,
   checkFfmpegVendorAssets,
   checkNerdFontRegression,
+  checkNoUnderscoreToolDirs,
   checkPackageJsonFontDeps,
   checkStatuslineCssChunk,
   checkToolPageSkeleton,
@@ -152,6 +153,38 @@ describe('checkToolPageSkeleton', () => {
     const distDir = makeTmpDir('vd-skel-ok-')
     writeFile(distDir, 'tools/foo/index.html', VALID_TOOL_HTML)
     expect(checkToolPageSkeleton(distDir)).toEqual([])
+  })
+})
+
+// --- checkNoUnderscoreToolDirs (sprint 12 T3.2) ------------------------------
+
+describe('checkNoUnderscoreToolDirs', () => {
+  it('returns [] when dist/tools/ does not exist at all', () => {
+    const distDir = makeTmpDir('vd-underscore-notools-')
+    expect(checkNoUnderscoreToolDirs(distDir)).toEqual([])
+  })
+
+  it('flags an underscore-prefixed tool directory (e.g. a leaked _probe/)', () => {
+    const distDir = makeTmpDir('vd-underscore-leak-')
+    writeFile(distDir, 'tools/_x/index.html', VALID_TOOL_HTML)
+    const messages = checkNoUnderscoreToolDirs(distDir)
+    expect(messages.some((m) => m.includes('dist/tools/_x/') && m.includes('must never ship'))).toBe(true)
+  })
+
+  it('passes when dist/tools/ only has ordinary (non-underscore) slugs', () => {
+    const distDir = makeTmpDir('vd-underscore-ok-')
+    writeFile(distDir, 'tools/apng-to-gif/index.html', VALID_TOOL_HTML)
+    expect(checkNoUnderscoreToolDirs(distDir)).toEqual([])
+  })
+
+  // Sprint 12 review pin (工作項 6): an underscore-prefixed *file* (not a
+  // directory) directly under dist/tools/ must NOT be flagged — this pins
+  // down the `entry.isDirectory()` guard in the implementation above, which
+  // only checks directory entries and deliberately ignores stray files.
+  it('does NOT flag an underscore-prefixed *file* (not a directory) directly under dist/tools/', () => {
+    const distDir = makeTmpDir('vd-underscore-file-')
+    writeFile(distDir, 'tools/_x', 'not a directory')
+    expect(checkNoUnderscoreToolDirs(distDir)).toEqual([])
   })
 })
 

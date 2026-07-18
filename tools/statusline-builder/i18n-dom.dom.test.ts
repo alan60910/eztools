@@ -242,16 +242,22 @@ describe('T5.4 語言切換鈕：初始態＋click 生效＋既有實例翻轉',
     expect(langToggleBtn().getAttribute('aria-label')).toBe(t('en').langToggle.ariaLabel)
   })
 
-  it('再次 click → 切回 zh-Hant，字面與開機字面 byte 一致', async () => {
-    await boot()
-    langToggleBtn().click()
-    langToggleBtn().click()
-    expect(localStorage.getItem(LANG_STORAGE_KEY)).toBe('zh-Hant')
-    expect(document.documentElement.getAttribute('lang')).toBe('zh-Hant')
-    expect(thresholdOptionText('traffic')).toBe('交通號誌（綠→黃→紅）')
-    expect(ansiIndexLabelText()).toBe('ANSI 索引（0–255）')
-    expect(langToggleBtn().textContent).toBe('EN')
-  })
+  // 工作項 4（magi/12-hygiene-tail sprint 12 review 裁決）：本案偶發 flake，
+  // 加顯式 timeout 緩解（vitest it 第三參數）；僅此一案，不動其餘案例。
+  it(
+    '再次 click → 切回 zh-Hant，字面與開機字面 byte 一致',
+    async () => {
+      await boot()
+      langToggleBtn().click()
+      langToggleBtn().click()
+      expect(localStorage.getItem(LANG_STORAGE_KEY)).toBe('zh-Hant')
+      expect(document.documentElement.getAttribute('lang')).toBe('zh-Hant')
+      expect(thresholdOptionText('traffic')).toBe('交通號誌（綠→黃→紅）')
+      expect(ansiIndexLabelText()).toBe('ANSI 索引（0–255）')
+      expect(langToggleBtn().textContent).toBe('EN')
+    },
+    20000,
+  )
 })
 
 describe('T5.4：main.ts 動態組句改查 t(currentLocale()) 取代原 THRESHOLD_TEMPLATE_LABELS 常數表', () => {

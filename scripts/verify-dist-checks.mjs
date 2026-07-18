@@ -97,6 +97,33 @@ export function checkToolPageSkeleton(distDir) {
   return messages
 }
 
+// --- Underscore-prefixed tool dirs must never ship into dist ----------------
+// sprint 12 (T3.2 裁決): `tools/_probe/`（及未來任何底線前綴目錄）是 repo
+// 內範本／探針頁，供新增工具時起手複製；vite.config.ts 的
+// discoverToolEntries() 已跳過底線前綴目錄，因此 dist/tools/ 下永遠不該出現
+// 這類目錄。此規則刻意寫成通用（比對 name.startsWith('_')），不寫死
+// "_probe" 字面，未來新增的任何 `_xxx` 範本目錄都會自動受檢。
+
+/**
+ * @param {string} distDir
+ * @returns {string[]}
+ */
+export function checkNoUnderscoreToolDirs(distDir) {
+  /** @type {string[]} */
+  const messages = []
+  const distToolsDir = resolve(distDir, 'tools')
+  if (!existsSync(distToolsDir)) return messages
+
+  for (const entry of readdirSync(distToolsDir, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name.startsWith('_')) {
+      messages.push(
+        `dist/tools/${entry.name}/ exists — underscore-prefixed directories are repo-only templates (e.g. tools/_probe/) and must never ship in dist (vite.config.ts's discoverToolEntries() should have skipped it)`,
+      )
+    }
+  }
+  return messages
+}
+
 // --- Entry-page inline <script> whitelist -----------------------------------
 // Fixed whitelist of inline <script> bodies the entry page is allowed to
 // carry. Anything else — a script whose (normalized) content doesn't match
@@ -509,6 +536,7 @@ export function runAllChecks(distDir, rootDir) {
   const messages = []
 
   messages.push(...checkToolPageSkeleton(distDir))
+  messages.push(...checkNoUnderscoreToolDirs(distDir))
 
   const { content: rootHtml, missingMessage } = readDistFile(distDir, 'index.html')
   if (missingMessage !== null) {

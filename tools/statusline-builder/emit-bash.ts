@@ -1,6 +1,7 @@
 /**
  * S5-T2.4（magi/05-statusline-builder/PLAN.md §產生器契約 1–12／§格式化
- * 對等規則／§D2／.t23-report §5 join 藍本）：emit-bash 產生器——吃
+ * 對等規則／§D2；join 兩趟藍本定案經過見 magi/05-statusline-builder/
+ * WORKS.md「T2.3 DONE」節）：emit-bash 產生器——吃
  * BuilderConfig＋descriptor catalog，吐**自足** bash 腳本字串。產出腳本
  * 執行後 stdout 與 `emit-ansi.toAnsi(resolve(config, scenario))` byte-exact
  * （SP-5 已證此可行；本檔的 join 演算法照 sp5/join.sh 同語意展開）。

@@ -29,7 +29,8 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   `src/style.css` token 呈現，各頁 `<head>` 另有防 FOUC 的 inline
   bootstrap script（見 Conventions／Architecture overview 的零框架 JS
   例外）
-- 工具頁範本 `tools/_probe/`（新增工具的起始骨架範本）
+- 工具頁範本 `tools/_probe/`（新增工具的起始骨架範本；僅 repo 內範本、不建進
+  dist——vite 掃描排除 `_` 前綴目錄）
 - APNG → GIF 轉換工具 — apng-js 解碼 → 共用 `src/lib/` 合成／編碼管線
   （module Web Worker）；位於 `tools/apng-to-gif/`
 - GIF 編輯工具 — gifuct-js 解碼＋走訪 application extension 抽 loop →

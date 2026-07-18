@@ -30,14 +30,12 @@ try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }
 
 # ── row 0（row=0） ──
 $Segs0 = @()
-$BgT0 = @()
 
 # model — always/empty
 $v = $d.model.display_name
 if ($null -ne $v -and $v -ne '') {
   $disp = $v + ' '
   $Segs0 += "$e[0m$e[38;5;231m$e[48;5;93m" + $disp
-  $BgT0 += '5;93'
 }
 
 # cwd — always/empty
@@ -48,19 +46,16 @@ if ($null -ne $v -and $v -ne '') {
   if ($parts.Count -gt 0) { $pv = $parts[$parts.Count - 1] }
   $disp = $pv + ' '
   $Segs0 += "$e[0m$e[38;5;231m$e[48;5;20m" + $disp
-  $BgT0 += '5;20'
 }
 
 # ── row 1（row=1） ──
 $Segs1 = @()
-$BgT1 = @()
 
 # cost — always/empty
 $v = $d.cost.total_cost_usd
 if ($null -ne $v) {
   $disp = (Format-Cost $v) + ' '
   $Segs1 += "$e[0m$e[38;5;16m$e[48;5;202m" + $disp
-  $BgT1 += '5;202'
 }
 
 # duration — always/empty
@@ -68,19 +63,16 @@ $v = $d.cost.total_duration_ms
 if ($null -ne $v) {
   $disp = (Format-Duration $v) + ' '
   $Segs1 += "$e[0m$e[38;5;16m$e[48;5;82m" + $disp
-  $BgT1 += '5;82'
 }
 
 # ── row 2（row=2） ──
 $Segs2 = @()
-$BgT2 = @()
 
 # context-used — percentage/dash＋threshold
 $v = $d.context_window.used_percentage
 if ($null -eq $v) {
   $disp = '(n/a)' + ' '
   $Segs2 += "$e[0m$e[38;5;231m$e[48;5;240m" + $disp
-  $BgT2 += '5;240'
 } else {
   $p = [double]$v
   $vt = ([string][long][math]::Floor($p)) + '%'
@@ -94,7 +86,6 @@ if ($null -eq $v) {
   if ($bg -ne '') { $s += "$e[48;" + $bg + 'm' }
   $s += $vt + ' '
   $Segs2 += $s
-  $BgT2 += $bg
 }
 
 # rate-5h — percentage/dash
@@ -106,7 +97,6 @@ if ($null -eq $v) {
 }
 $disp = $vt + ' '
 $Segs2 += "$e[0m$e[38;5;231m$e[48;5;129m" + $disp
-$BgT2 += '5;129'
 
 # ── row 0 join ──
 $RowOut0 = ''

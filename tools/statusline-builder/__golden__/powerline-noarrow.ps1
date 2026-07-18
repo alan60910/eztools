@@ -11,14 +11,12 @@ $d = $null
 try { $d = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }
 
 $Segs = @()
-$BgT = @()
 
 # model — always/empty
 $v = $d.model.display_name
 if ($null -ne $v -and $v -ne '') {
   $disp = [char]0x6D + [char]0x6F + [char]0x64 + [char]0x65 + [char]0x6C + [char]0x3A + ' ' + $v + ' '
   $Segs += "$e[0m$e[38;5;16m$e[48;5;226m" + $disp
-  $BgT += '5;226'
 }
 
 # session-name — conditional/hide
@@ -26,7 +24,6 @@ $v = $d.session_name
 if ($null -ne $v -and $v -ne '') {
   $disp = '[s]' + [char]0x73 + [char]0x65 + [char]0x73 + [char]0x73 + [char]0x3A + ' ' + $v + ' '
   $Segs += "$e[0m$e[38;5;16m$e[48;5;99m" + $disp
-  $BgT += '5;99'
 }
 
 # context-used — percentage/dash＋threshold
@@ -34,7 +31,6 @@ $v = $d.context_window.used_percentage
 if ($null -eq $v) {
   $disp = '(n/a)' + ' '
   $Segs += "$e[0m$e[38;5;231m$e[48;5;240m" + $disp
-  $BgT += '5;240'
 } else {
   $p = [double]$v
   $vt = ([string][long][math]::Floor($p)) + '%'
@@ -48,7 +44,6 @@ if ($null -eq $v) {
   if ($bg -ne '') { $s += "$e[48;" + $bg + 'm' }
   $s += $vt + ' '
   $Segs += $s
-  $BgT += $bg
 }
 
 # rate-5h — percentage/dash
@@ -60,7 +55,6 @@ if ($null -eq $v) {
 }
 $disp = $vt + ' '
 $Segs += "$e[0m$e[38;5;16m$e[48;5;99m" + $disp
-$BgT += '5;99'
 
 # git-branch — shell-out/hide
 $so = ''
@@ -68,7 +62,6 @@ try { $so = [string](& git branch --show-current 2>$null | Select-Object -First 
 if ($null -ne $so -and $so -ne '') {
   $disp = [char]0x67 + [char]0x69 + [char]0x74 + [char]0x3A + ' ' + $so + ' '
   $Segs += "$e[0m$e[38;5;16m$e[48;5;46m" + $disp
-  $BgT += '5;46'
 }
 
 $out = ''

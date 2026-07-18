@@ -11,8 +11,10 @@
  *
  * 單一真相＝BuilderConfig：localStorage 讀（deserializeConfig＋清洗，重整
  * 不丟）／寫（變更即存）；任何控件變動 → 改 config → persist → 刷預覽＋
- * 三產物。DOM 結構契約見 .t31-report.md §3（<template> 生成／token 取代／
- * 節點命名）；controller API 見 .t32-report.md §4。
+ * 三產物。DOM 結構契約（<template> 生成／token 取代／節點命名）無集中
+ * 文件，見 index.html 各 <template> 附近與本檔「<template> 實例化」
+ * ／「固定節點」兩節的內嵌註解；controller API 見 render-preview.ts
+ * 的 createPreview／PreviewController 型別定義。
  *
  * 掛載：檔尾 <script type="module">（deferred，執行時 DOM 已解析）；仍以
  * readyState 守衛使初始化嚴格於 DOMContentLoaded 後（PLAN 明訂）。
@@ -133,7 +135,20 @@ import { t, type Locale, type Messages } from './messages.js'
 /** localStorage 鍵（BuilderConfig 序列化存放）。 */
 const STORAGE_KEY = 'eztools:statusline-builder:config'
 
-/** UTF-8 BOM（U+FEFF）：前置於 .ps1 下載內容 → Blob 編碼為 EF BB BF（PLAN 契約 8）。 */
+/**
+ * UTF-8 BOM（U+FEFF）：前置於 .ps1 內容 → Blob 編碼為 EF BB BF（PLAN 契約
+ * 8）。**僅下載通道**（refreshOutputs 的下載 Blob 組裝處）前置此 BOM；
+ * **複製到剪貼簿通道刻意不加**（見 wireOutputActions 的 copy-ps1 掛點）。
+ *
+ * T1.1（magi/12-hygiene-tail/TICKET.md 工作面 1，06a DRIFT C）曾一度讓
+ * 兩通道對齊（複製亦前置 BOM），sprint 12 review 經協調者以 PS 5.1 真機
+ * 探針證實回退：使用者依產出腳本自帶「請以 UTF-8（含 BOM）儲存」指引
+ * 存檔時，若剪貼簿貼上內容已帶前置 U+FEFF，貼入編輯器存檔後會疊成
+ * **雙 BOM**——PS 5.1 把第二個 U+FEFF 黏進首 token（如 `?#`／
+ * `?Write-Output`，觸發 CommandNotFoundException），statusline 每次渲染
+ * 噴錯（字串中段 U+FEFF 則無害）。2026-07-19 使用者裁決回退：複製通道
+ * 不加 BOM，存檔編碼改由腳本頭既有指引引導，本 BOM 常數僅供下載 Blob 使用。
+ */
 const UTF8_BOM = String.fromCharCode(0xfeff)
 
 /** 分區顯示順序＝目錄類別序（永在→百分比→條件→shell-out）；DOM order 亦此序。 */
@@ -412,7 +427,8 @@ function contextSpan(scope: Element): HTMLElement {
  * 承載 accessible name，見 createColorPickerCore／.color-picker__legend，
  * 提示故置於 fieldset 外層 mount，不擾動 legend 內容）；threshold 傳其
  * disclosure `.threshold__toggle` 鈕（緊接「閾值變色設定」文字後）。
- * a11y 取捨見本檔 buildSegmentRow 呼叫處與 .t22-report.md。回傳建立的
+ * a11y 取捨（各欄位 container 選型理由）已詳述於上；buildSegmentRow 為
+ * 實際呼叫處。回傳建立的
  * span，供呼叫端存進 `defaultHintElements`（syncDefaultHintDims 之後據
  * 此同步「現值＝預設」淡化 class，PLAN 選項 C）。
  */
@@ -423,8 +439,10 @@ function contextSpan(scope: Element): HTMLElement {
  * defaults.ts 本身零 messages.ts import，維持純描述子模組定位，見其檔頭）。
  * 多數 kind 直接複用既有域，避免與 `messages.defaultDescriptor` 重複：
  * `firstRow`→`rowGroup.heading(1)`（與列群組標題同一份「第 N 列」字面，
- * 單一事實來源）、`variant`→`variantLabel[value]`（缺表退原值，同 main.ts
- * 既有 VARIANT_LABELS 缺表慣例）、`colorDefault`/`colorAuto`→
+ * 單一事實來源）、`variant`→`variantLabel[value]`（缺表退原值，同
+ * messages.ts `VARIANT_LABELS_ZH`/`VARIANT_LABELS_EN` 缺表慣例——原
+ * main.ts 本地版本已隨此改造移除，見 segment-defaults.ts 檔頭）、
+ * `colorDefault`/`colorAuto`→
  * `colorPicker.modeDefault`/`modeAuto`。`literalPrefix`／`colorLiteral`
  * 為使用者可見原值本身（前綴字面／ansi256 swatch 名或 hex），locale-
  * invariant，兩語言原樣顯示。窮盡 switch，無 default 分支（TS 覆蓋新增
@@ -478,7 +496,7 @@ function setHidden(el: HTMLElement, hidden: boolean): void {
   el.hidden = hidden
 }
 
-// ── 固定節點（頁面既有；main.ts 直接 query，見 .t31-report §3a） ──
+// ── 固定節點（index.html 靜態骨架既有節點，非 <template> 生成；main.ts 直接 query） ──
 
 const errorMessageEl = byId('error-message')
 const globalLiveStatusEl = byId('global-live-status')
@@ -559,7 +577,7 @@ const SEGMENT_LIST_BY_CATEGORY: Record<SegmentCategory, HTMLOListElement> = {
   'shell-out': byId<HTMLOListElement>('segment-list-shellout'),
 }
 
-// ── <template> 實例化（token 取代；見 .t31-report §3e） ──
+// ── <template> 實例化（token 取代；機制見下方 instantiateTemplate 文件） ──
 
 /**
  * clone 指定 <template> 並把其中所有 token（`__ID__`／`__PID__`／`__TID__`，
@@ -2499,7 +2517,9 @@ function refreshOutputs(): void {
   outputPs1CodeEl.textContent = ps1
   outputSettingsCodeEl.textContent = settings
 
-  // 下載 Blob 編碼契約（PLAN 產生器契約 8）：
+  // 下載 Blob 編碼契約（PLAN 產生器契約 8；BOM 僅本通道適用，複製通道
+  // 刻意不加，見 UTF8_BOM 常數 JSDoc 與 wireOutputActions 的 copy-ps1
+  // 掛點註解）：
   // - .sh：無 BOM＋LF（emitBash 已 LF；Blob 以 UTF-8 編碼、不加 BOM）。
   // - .ps1：UTF-8 BOM（前置 U+FEFF → EF BB BF；PS 5.1 無 BOM 會以 ANSI
   //   誤讀原始碼致 CJK/glyph 毀損）；LF（emitPs1 已 LF）。
@@ -2896,6 +2916,9 @@ function wireSkipToOutput(): void {
 
 function wireOutputActions(): void {
   copyBashEl.addEventListener('click', () => void copyOutput(lastOutputs.bash, msg().output.bashLabel))
+  // sprint 12 review 裁決回退（見 UTF8_BOM 常數 JSDoc）：複製通道刻意
+  // 不前置 BOM——三鈕 payload 一律用 lastOutputs 原文，行為一致（
+  // copyOutput 本身仍是通用函式，不在裡面塞 ps1 特判）。
   copyPs1El.addEventListener('click', () => void copyOutput(lastOutputs.ps1, msg().output.ps1Label))
   copySettingsEl.addEventListener('click', () => void copyOutput(lastOutputs.settings, msg().output.settingsLabel))
 }
