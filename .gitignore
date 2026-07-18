@@ -7,3 +7,4 @@ magi/**/tools/*.exe
 
 # xreview／review-code 暫存提示檔（每輪重建，慣例不簽入）
 **/.xreview-*.md
+forailook/
