@@ -600,13 +600,18 @@ describe('tokens 縮寫（結構斷言）', () => {
 })
 
 describe('倒數段（reset-5h／reset-7d；結構斷言）', () => {
-  it('全 jq pipeline：S2 now idiom＋strflocaltime＋通用死值規則（非 id 特判，兩段同一模板）', () => {
+  it('全 jq pipeline：S2 now idiom＋localtime|strftime＋通用死值規則（非 id 特判，兩段同一模板）', () => {
     const cfg = cfgT('plain', true, [segT('reset-5h', {}), segT('reset-7d', {})])
     const s = emitBash(cfg, CATALOG)
     expect(s).toContain('STATUSLINE_NOW_EPOCH // empty | tonumber?')
-    expect(s).toContain('now | floor) as $now')
-    expect(s).toContain('strflocaltime("%H:%M")')
-    expect(s).toContain('strflocaltime("%m/%d %H:%M")')
+    // magi/11-jq-countdown-ci-hotfix：`$now` 綁定式外層括號（jq 1.7.x／
+    // 1.8.x `// ... as $x` 運算子優先序歧義修正，見 emit-bash.ts nowAndR
+    // 檔頭註解）；HH:MM／MM:DD 改走 `localtime | strftime(fmt)`（jq 1.6+
+    // 通用 idiom，`strflocaltime` builtin 之展開，輸出恆等）。
+    expect(s).toContain('(now | floor)) as $now')
+    expect(s).toContain('localtime | strftime("%H:%M")')
+    expect(s).toContain('localtime | strftime("%m/%d %H:%M")')
+    expect(s).not.toContain('strflocaltime')
     expect(s).toContain('$now >= $r')
     expect(s).toContain('↺')
     // 通用死值規則：兩段皆用同一 jqResetCountdown* 模板（零 id 特判）——
@@ -643,6 +648,22 @@ function detectRealExec(): RealExec {
   const bash = detectBash()
   if (bash === undefined) return { ok: false, reason: 'Git Bash 不存在（SP5_BASH 可指定；PATH 上的 bash 可能為 WSL 不可用）' }
   if (process.platform === 'win32') {
+    // magi/11-jq-countdown-ci-hotfix（2026-07-18）單步定位發現：win32 leg
+    // 恆吃本機 05-sp5 spike 遺留的單一 bundled jq.exe（gitignored、不進
+    // repo），與 PATH 內容無關——HOTFIX.md「將 1.7.1 目錄前置 PATH 重跑」
+    // 之重現法對 win32 這支測試無效（PATH 從未被此分支讀取）；該重現法對
+    // 非 win32 leg（下方 `jq` PATH 探測）仍成立。`SP5_JQ_DIR` 為顯式
+    // opt-in 覆寫（比照既有 SP5_BASH 慣例）：指定含 jq.exe 之目錄即改吃
+    // 該目錄，供本機雙 jq 版本矩陣驗證用；未設時行為與改動前逐位元組相同
+    // （zero-risk，CI windows leg 不受影響）。
+    const overrideDir = process.env.SP5_JQ_DIR
+    if (overrideDir !== undefined && overrideDir !== '') {
+      const overrideBin = join(overrideDir, 'jq.exe')
+      if (!existsSync(overrideBin)) {
+        return { ok: false, reason: `SP5_JQ_DIR 指定目錄無 jq.exe（${overrideBin}）` }
+      }
+      return { ok: true, bash, jqDir: overrideDir }
+    }
     const jqBin = fileURLToPath(
       new URL('../../magi/05-statusline-builder/sp5/tools/jq-windows-amd64.exe', import.meta.url),
     )
@@ -1062,6 +1083,23 @@ function buildByteExactCombos(): ByteExactCombo[] {
   return combos
 }
 
+/**
+ * magi/11-jq-countdown-ci-hotfix：實測消費端真正呼叫到的 jq 二進位版本
+ * （非僅印路徑）——CI log 可稽，杜絕下次 jq 1.7.x／1.8.x 版本分岔盲飛
+ * （本 hotfix 起因即 CI ubuntu leg 內建 jq 1.7.x 與本機 1.8.1 分岔卻無
+ * log 線索）。win32：`jqDir` 恆非 undefined，二進位固定名 `jq.exe`；
+ * 非 win32：`jqDir` 為 undefined 時吃繼承 PATH 的 `jq`。
+ */
+function probeJqVersion(): string {
+  if (!REAL_EXEC.ok) return '(n/a)'
+  const jqCmd = REAL_EXEC.jqDir !== undefined ? join(REAL_EXEC.jqDir, 'jq.exe') : 'jq'
+  const r = spawnSync(jqCmd, ['--version'])
+  if (r.error !== undefined || r.status !== 0) {
+    return `(探測失敗：${r.error?.message ?? `exit ${String(r.status)}`})`
+  }
+  return (r.stdout ?? Buffer.alloc(0)).toString('utf8').trim()
+}
+
 // skip 時輸出 reason（PLAN §CI skipIf 不變量：skip 須有理由；本測本機在則跑，
 // CI ubuntu/windows leg 亦應為假——恆真死測由 T2.7 harness 的 meta 斷言把關）。
 it('端到端 byte-exact 環境自述', () => {
@@ -1069,7 +1107,7 @@ it('端到端 byte-exact 環境自述', () => {
     console.warn(`[emit-bash] 端到端 byte-exact 跳過：${REAL_EXEC.reason}`)
   } else {
     console.warn(
-      `[emit-bash] 端到端 byte-exact 啟用：bash=${REAL_EXEC.bash} jqDir=${REAL_EXEC.jqDir ?? '(系統 PATH)'}`,
+      `[emit-bash] 端到端 byte-exact 啟用：bash=${REAL_EXEC.bash} jqDir=${REAL_EXEC.jqDir ?? '(系統 PATH)'} jqVersion=${probeJqVersion()}`,
     )
   }
   expect(true).toBe(true)

@@ -156,6 +156,24 @@ function detectBashExec(): BashExec {
     return { ok: false, reason: 'Git Bash 不存在（SP5_BASH 可指定；PATH 上 bash 可能為 WSL 不可用）' }
   }
   if (process.platform === 'win32') {
+    // magi/11-jq-countdown-ci-hotfix：`SP5_JQ_DIR` 為顯式 opt-in 覆寫（比照
+    // emit-bash.test.ts detectRealExec／既有 SP5_BASH 慣例；本檔 detectBashExec
+    // 為獨立維護複本，見 fixtures.test.ts 同名複本互相 cross-ref）：指定含
+    // jq.exe 之目錄即改吃該目錄，供本機雙 jq 版本矩陣驗證用；未設時行為與
+    // 改動前逐位元組相同（zero-risk，CI windows leg 不受影響）。
+    const overrideDir = process.env.SP5_JQ_DIR
+    if (overrideDir !== undefined && overrideDir !== '') {
+      const overrideBin = join(overrideDir, 'jq.exe')
+      if (!existsSync(overrideBin)) {
+        return { ok: false, reason: `SP5_JQ_DIR 指定目錄無 jq.exe（${overrideBin}）` }
+      }
+      // 複製至暫存目錄（不可直接回傳 overrideDir）：本檔 afterAll 對
+      // `BASH.jqDir` 無條件 rmSync——若直吃使用者指定目錄，測試收尾會把
+      // SP5_JQ_DIR 來源目錄本身遞迴刪除（曾實際發生、已修正）。
+      const dir = mkdtempSync(join(tmpdir(), 'sl-jq-'))
+      copyFileSync(overrideBin, join(dir, 'jq.exe'))
+      return { ok: true, bash, jqDir: dir }
+    }
     const jqBin = fileURLToPath(
       new URL('../../magi/05-statusline-builder/sp5/tools/jq-windows-amd64.exe', import.meta.url),
     )
@@ -1055,8 +1073,14 @@ describe('skipIf meta（每後端至少一 leg 未 skip；present 卻 skip＝bug
 
   it('本機可用之 bash＋jq 不得 skip（.t23/.t24 環境前提）', () => {
     // detectBash 為新鮮探測；若 bash 二進位在（且 win32 便攜 jq 在），BASH.ok 必真。
+    // magi/11-jq-countdown-ci-hotfix：`SP5_JQ_DIR` 已設時本項不適用——覆寫
+    // 生效即改由該目錄決定 ok／skip（見 detectBashExec），與預設便攜 jq
+    // 是否存在無關；覆寫指向無 jq.exe 之目錄時刻意 skip 屬正確行為、非
+    // skipIf/偵測 bug（該負向情境由本 sprint 手動矩陣驗證覆蓋，非此不變量）。
+    const sp5JqDirOverride = process.env.SP5_JQ_DIR
+    const overrideActive = sp5JqDirOverride !== undefined && sp5JqDirOverride !== ''
     const bashPresent = detectBash() !== undefined
-    if (bashPresent && process.platform === 'win32') {
+    if (bashPresent && process.platform === 'win32' && !overrideActive) {
       const jqBin = fileURLToPath(
         new URL('../../magi/05-statusline-builder/sp5/tools/jq-windows-amd64.exe', import.meta.url),
       )

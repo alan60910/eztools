@@ -92,19 +92,19 @@ v=$(jq -r '.context_window.current_usage as $u | if ($u == null) or ($u.input_to
 texts+=('cache: '"$v"); fgs+=('38;5;214'); segstart+=(1)
 # rate-5h
 v=$(jq -r '.rate_limits.five_hour.used_percentage // "(n/a)" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
-sfx=$(jq -r '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then "" else ($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | if $diff >= 3600 then " ↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else " ↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
+sfx=$(jq -r '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then "" else ($r - $now) as $diff | ($r | localtime | strftime("%H:%M")) as $clock | if $diff >= 3600 then " ↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else " ↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
 texts+=('5h: '"$v$sfx"); fgs+=(''); segstart+=(1)
 # rate-7d
 v=$(jq -r '.rate_limits.seven_day.used_percentage // "(n/a)" | if type == "number" then (floor | tostring) + "%" else . end' <<<"$input")
-sfx=$(jq -r '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | (.rate_limits.seven_day.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then "" else ($r - $now) as $diff | ($r | strflocaltime("%m/%d %H:%M")) as $stamp | if $diff >= 86400 then " ↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" else " ↺ " + (($diff / 3600 | floor) | tostring) + "h" + ((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end' <<<"$input")
+sfx=$(jq -r '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | (.rate_limits.seven_day.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then "" else ($r - $now) as $diff | ($r | localtime | strftime("%m/%d %H:%M")) as $stamp | if $diff >= 86400 then " ↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" else " ↺ " + (($diff / 3600 | floor) | tostring) + "h" + ((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end' <<<"$input")
 texts+=('7d: '"$v$sfx"); fgs+=(''); segstart+=(1)
 # reset-5h
-v=$(jq -r '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | if $diff >= 3600 then "↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else "↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
+v=$(jq -r '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | localtime | strftime("%H:%M")) as $clock | if $diff >= 3600 then "↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else "↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
 if [ -n "$v" ]; then
   texts+=('r5h: '"$v"); fgs+=('38;5;99'); segstart+=(1)
 fi
 # reset-7d
-v=$(jq -r '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | (.rate_limits.seven_day.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | strflocaltime("%m/%d %H:%M")) as $stamp | if $diff >= 86400 then "↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" else "↺ " + (($diff / 3600 | floor) | tostring) + "h" + ((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end' <<<"$input")
+v=$(jq -r '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | (.rate_limits.seven_day.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | localtime | strftime("%m/%d %H:%M")) as $stamp | if $diff >= 86400 then "↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" else "↺ " + (($diff / 3600 | floor) | tostring) + "h" + ((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end' <<<"$input")
 if [ -n "$v" ]; then
   texts+=('r7d: '"$v"); fgs+=('38;5;99'); segstart+=(1)
 fi

@@ -32,10 +32,17 @@
  * 9  exit-0 不變量：禁 `set -e`；每個 shell-out `… 2>/dev/null || true`；
  *    結尾顯式 `exit 0`。
  * 10 shell-out 最小化：僅啟用段 emit 對應呼叫；jq 守衛條件 emit（見 2）。
- * 12 時間（resets_at 倒數；M6 C3 升級）：percent-reset variant 段於主值後
- *    emit resets 後綴——`jqResetSuffix5h`／`jqResetSuffix7d` 全 jq
- *    pipeline（kind 由 `descriptor.resetsAt.countdown` 驅動，零 id
- *    特判），`strflocaltime` 直吃 epoch（.t26 定案，jq 1.8.1 可用），
+ * 12 時間（resets_at 倒數；M6 C3 升級；magi/11 CI hotfix 修正）：
+ *    percent-reset variant 段於主值後 emit resets 後綴——
+ *    `jqResetSuffix5h`／`jqResetSuffix7d` 全 jq pipeline（kind 由
+ *    `descriptor.resetsAt.countdown` 驅動，零 id 特判），時間格式化改走
+ *    `localtime | strftime(fmt)`（jq 1.6+ 通用 idiom，`strflocaltime` 本即此
+ *    二步的 builtin 別名、輸出恆等；不再宣稱僅 1.8.1 可用），`$now`／`$r`
+ *    綁定式外層加括號（`((A // B)) as $now`）——jq 1.7.x 對 `//` 與 `as`
+ *    綁定的運算子優先序判定與 1.8.x 不同（`A // B as $x | BODY` 於 1.7.x
+ *    誤解析為 `A // (B as $x | BODY)`，令 LHS truthy 時整段 BODY 連同死值
+ *    判定被短路跳過、直接吐出 LHS 之 `$now` 原始值），外層括號消弭此歧義、
+ *    兩版本輸出一致（magi/11-jq-countdown-ci-hotfix/HOTFIX.md 單步定位）。
  *    死值（非 number／已過期）→ `''`（鏡像 resolve.ts resetsAtSuffix／
  *    emit-ps1 Format-ResetsAt；三後端同機同 TZ 一致）。後綴附於 value 部、
  *    與主值 dash 正交（`(n/a) ↺ 2h (16:00)`），閾值分裂時隨值色。
@@ -91,10 +98,13 @@
  * - **倒數段**（reset-5h／reset-7d，`expiresAtPath`＋兩套階梯格式）：
  *   `jqResetCountdown5h`／`jqResetCountdown7d` 全 jq pipeline——`$now`
  *   採 sp2/REPORT.md §3 S2 idiom（`STATUSLINE_NOW_EPOCH` 合法整數優先，
- *   否則 `now|floor`，非數字靜默 fallback）；通用死值規則（非 number 或
- *   `now>=resets_at` → `empty`）與格式化皆鏡像 resolve.ts
- *   `formatResetCountdown5h`/`7d`；HH:MM／MM:DD 用 jq `strflocaltime`
- *   直吃 epoch（同機同 TZ，sp6/REPORT.md 定案，不釘 CI 時區）。
+ *   否則 `now|floor`，非數字靜默 fallback，`nowAndR` 外層括號見 `nowAndR`
+ *   檔頭註解——jq 1.7.x／1.8.x 對 `// ... as $x` 運算子優先序判定不同，
+ *   缺括號會令 1.7.x 短路吐出 `$now` 原始值、通用死值規則與格式化全數
+ *   被跳過）；通用死值規則（非 number 或 `now>=resets_at` → `empty`）與
+ *   格式化皆鏡像 resolve.ts `formatResetCountdown5h`/`7d`；HH:MM／MM:DD 用
+ *   jq `localtime | strftime(fmt)`（`strflocaltime` builtin 別名之展開，
+ *   同機同 TZ，jq 1.6+ 通用、不釘 CI 時區）。
  *
  * ── M6 T6.2（magi/08-statusline-catalog-expansion/TASKS.md；使用者
  * 2026-07-14 拍板契約 C1–C3，見 resolve.ts 檔頭「T6.1」節與 WORKS.md 同日
@@ -237,9 +247,10 @@ function jqFormatSuffix(format: FormatKind, variant: string | undefined): string
       // tokens／reset-countdown-*（T4.3）比照 percentage／dirty／clock 的既有
       // 先例：不走 `// empty${suffix}` 的 hide/empty 組合——tokens 為 dash
       // 政策（emitOther dash 分支，見 emitSegment 尾段）、reset-countdown-*
-      // 需通用 expiresAtPath 死值規則＋S2 now idiom＋strflocaltime 的專屬
-      // 全 jq pipeline（jqResetCountdown5h／jqResetCountdown7d），皆在
-      // emitSegment 攔截、不呼叫本函式。
+      // 需通用 expiresAtPath 死值規則＋S2 now idiom＋localtime|strftime（時間
+      // 格式化 idiom 見 nowAndR 檔頭）的專屬全 jq pipeline
+      // （jqResetCountdown5h／jqResetCountdown7d），皆在 emitSegment 攔截、
+      // 不呼叫本函式。
       throw new TypeError(
         `jqFormatSuffix 不處理 ${format}（dash／shell-out／reset-countdown 另處理）`,
       )
@@ -258,23 +269,44 @@ const TOKENS_JQ_FORMAT =
 
 /**
  * reset-5h 倒數全 jq pipeline（FormatKind 'reset-countdown-5h'；T4.3，
- * 契約 12＋sp2/REPORT.md §3 idiom＋sp6/REPORT.md 同機 oracle 定案）：
+ * 契約 12＋sp2/REPORT.md §3 idiom＋sp6/REPORT.md 同機 oracle 定案；
+ * magi/11-jq-countdown-ci-hotfix 修正 nowAndR 括號與時間格式化 idiom）：
  * `$now`＝S2 idiom（`STATUSLINE_NOW_EPOCH` 合法整數優先，否則 jq
  * `now|floor`；非數字靜默 fallback，不硬錯，exit-0 不變量）。通用
  * expiresAtPath 死值規則（resolve.ts resolveSegment 同構、零 id
  * 特判）：resets_at 非 number 或 `now>=resets_at` → `empty`（整段剔除，
  * 沿既有 `[ -n "$v" ]` 判定）；否則依 resolve.ts formatResetCountdown5h
- * 兩階梯格式化（全 floor）。HH:MM 用 jq `strflocaltime` 直吃 epoch（同機
- * 同 TZ，sp6 定案）。`↺`＝U+21BA UTF-8 字面（sp7 真機驗證可用）。
+ * 兩階梯格式化（全 floor）。HH:MM 用 jq `localtime | strftime("%H:%M")`
+ * （同機同 TZ，見 nowAndR 檔頭 idiom 依據）。`↺`＝U+21BA UTF-8 字面（sp7
+ * 真機驗證可用）。
  */
 // M6 T6.2：`$now`／`$r` 綁定前綴＋通用死值判定抽為共用骨架——
 // jqResetCountdown5h/7d（整段死值＝`empty`）與下方 jqResetSuffix5h/7d
 // （後綴死值＝`''`，C3 新增）共用同一骨架，僅死活分支的產出相異（見
 // jqResetSuffix5h/7d 檔頭差異註解）。純字串組裝、抽出後兩既有函式輸出
 // byte-identical（emit-bash.test.ts『倒數段』結構斷言沿用不動）。
+//
+// magi/11-jq-countdown-ci-hotfix（2026-07-18）單步定位修正：`$now` 綁定式
+// 外層加一層括號——`((A // B)) as $now`，A＝`env.STATUSLINE_NOW_EPOCH //
+// empty | tonumber?`、B＝`now | floor`。根因（取代 HOTFIX.md 原「strflocaltime
+// 拒收 number」假說，該假說已由本機 jq 1.7.1 逐段隔離測試證偽——
+// `strflocaltime`／`localtime | strftime` 兩者在 1.7.1、1.8.1 對 number
+// 輸入行為一致，並非本 bug 根因）：jq 1.7.x 對「`A // B as $x | BODY`」
+// 的運算子優先序判定與 jq 1.8.x 不同——1.8.x 綁 `(A // B) as $x | BODY`，
+// 1.7.x 誤綁 `A // (B as $x | BODY)`（`as...|...` 被併入 `//` 右運算元）。
+// 本 idiom 恆有 `STATUSLINE_NOW_EPOCH`（byte-exact 測試／部分正式呼叫端）
+// 設定時，A 產出單一 truthy number，1.7.x 因此讓 `//` 短路直接輸出 A 本身
+// （即 `$now` 之值），B 連同其後整條 `as $r | if RESET_DEAD_COND then …
+// else …` 死值判定與格式化管線**完全未被求值**——此即 CI 紅／黃金檔全數
+// 退化為原始 epoch 整數字串的確切機制（多案例最終落地 raw 值恰為
+// `$now`，肉眼易與 `resets_at` 混淆，故 HOTFIX.md 原敘述以「resets_at
+// epoch」概括）。外層括號令兩版本皆綁 `(A // B) as $now`，消弭歧義、
+// 兩版輸出 byte-identical（含 null／expired 死值分支——一旦不再被短路，
+// 既有 `RESET_DEAD_COND` 判定即在兩版皆正確產出 `empty`／`''`，死值分支
+// 本身結構無需另外改動）。
 function nowAndR(jqPath: string): string {
   return (
-    '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | ' +
+    '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | ' +
     `(${jqPath}) as $r | `
   )
 }
@@ -286,7 +318,7 @@ function jqResetCountdown5h(jqPath: string): string {
   return (
     nowAndR(jqPath) +
     `if ${RESET_DEAD_COND} then empty else ` +
-    '($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | ' +
+    '($r - $now) as $diff | ($r | localtime | strftime("%H:%M")) as $clock | ' +
     'if $diff >= 3600 then "↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" ' +
     'else "↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end'
   )
@@ -295,14 +327,14 @@ function jqResetCountdown5h(jqPath: string): string {
 /**
  * reset-7d 倒數全 jq pipeline（FormatKind 'reset-countdown-7d'；T4.3；
  * 同上規則，resolve.ts formatResetCountdown7d 兩階梯：`diff≥86400→"↺ Xd
- * (…)"`、否則`"↺ XhYm (…)"`；`MM/DD HH:MM` 由 `strflocaltime("%m/%d
- * %H:%M")` 零填直出。
+ * (…)"`、否則`"↺ XhYm (…)"`；`MM/DD HH:MM` 由 `localtime | strftime("%m/%d
+ * %H:%M")` 零填直出（jq 1.6+ 通用 idiom，見 nowAndR 檔頭修正說明）。
  */
 function jqResetCountdown7d(jqPath: string): string {
   return (
     nowAndR(jqPath) +
     `if ${RESET_DEAD_COND} then empty else ` +
-    '($r - $now) as $diff | ($r | strflocaltime("%m/%d %H:%M")) as $stamp | ' +
+    '($r - $now) as $diff | ($r | localtime | strftime("%m/%d %H:%M")) as $stamp | ' +
     'if $diff >= 86400 then "↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" ' +
     'else "↺ " + (($diff / 3600 | floor) | tostring) + "h" + ' +
     '((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end'
@@ -323,7 +355,7 @@ function jqResetSuffix5h(jqPath: string): string {
   return (
     nowAndR(jqPath) +
     `if ${RESET_DEAD_COND} then "" else ` +
-    '($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | ' +
+    '($r - $now) as $diff | ($r | localtime | strftime("%H:%M")) as $clock | ' +
     'if $diff >= 3600 then " ↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" ' +
     'else " ↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end'
   )
@@ -334,7 +366,7 @@ function jqResetSuffix7d(jqPath: string): string {
   return (
     nowAndR(jqPath) +
     `if ${RESET_DEAD_COND} then "" else ` +
-    '($r - $now) as $diff | ($r | strflocaltime("%m/%d %H:%M")) as $stamp | ' +
+    '($r - $now) as $diff | ($r | localtime | strftime("%m/%d %H:%M")) as $stamp | ' +
     'if $diff >= 86400 then " ↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" ' +
     'else " ↺ " + (($diff / 3600 | floor) | tostring) + "h" + ' +
     '((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end'
@@ -759,7 +791,8 @@ function emitSegment(
 
   // hide／empty：jq `// empty`＋格式尾＋剔空。reset-countdown-* 走專屬全
   // jq pipeline（含通用 expiresAtPath 死值規則、S2 now idiom、
-  // strflocaltime；契約 12），其餘沿既有 jqFormatSuffix 鏈。
+  // localtime|strftime（時間格式化 idiom 見 nowAndR 檔頭）；契約 12），
+  // 其餘沿既有 jqFormatSuffix 鏈。
   const variant = seg.variant ?? defaultVariant(descriptor)
   const prog =
     descriptor.format === 'reset-countdown-5h'

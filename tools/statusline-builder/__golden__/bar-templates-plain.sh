@@ -70,7 +70,7 @@ texts+=("$empty"); fgs+=(''); segstart+=(0)
 texts+=(" $bval"); fgs+=("$bfg"); segstart+=(0)
 # rate-5h
 v=$(jq -r '.rate_limits.five_hour.used_percentage // empty' <<<"$input")
-sfx=$(jq -r '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then "" else ($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | if $diff >= 3600 then " ↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else " ↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
+sfx=$(jq -r '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then "" else ($r - $now) as $diff | ($r | localtime | strftime("%H:%M")) as $clock | if $diff >= 3600 then " ↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else " ↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
 if [ -z "$v" ]; then
   bn=0
   bval='(n/a)'

@@ -65,7 +65,7 @@ btext+="${ESC}[48;5;240m"
 btext+=" $bval"
 texts+=("$btext"); fgs+=('38;5;231'); bgs+=('5;240')
 # reset-5h
-v=$(jq -r '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | strflocaltime("%H:%M")) as $clock | if $diff >= 3600 then "↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else "↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
+v=$(jq -r '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | (.rate_limits.five_hour.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | localtime | strftime("%H:%M")) as $clock | if $diff >= 3600 then "↺ " + (($diff / 3600 | floor) | tostring) + "h (" + $clock + ")" else "↺ " + (($diff / 60 | floor) | tostring) + "m (" + $clock + ")" end end' <<<"$input")
 if [ -n "$v" ]; then
   texts+=("$v"); fgs+=('38;5;16'); bgs+=('5;99')
 fi

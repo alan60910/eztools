@@ -60,7 +60,7 @@ btext+="${ESC}[48;5;88m"
 btext+=" $bval "
 texts+=("$btext"); fgs+=('38;5;231'); bgs+=('5;88')
 # reset-7d
-v=$(jq -r '(env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor) as $now | (.rate_limits.seven_day.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | strflocaltime("%m/%d %H:%M")) as $stamp | if $diff >= 86400 then "↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" else "↺ " + (($diff / 3600 | floor) | tostring) + "h" + ((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end' <<<"$input")
+v=$(jq -r '((env.STATUSLINE_NOW_EPOCH // empty | tonumber?) // (now | floor)) as $now | (.rate_limits.seven_day.resets_at) as $r | if (($r | type) != "number") or ($now >= $r) then empty else ($r - $now) as $diff | ($r | localtime | strftime("%m/%d %H:%M")) as $stamp | if $diff >= 86400 then "↺ " + (($diff / 86400 | floor) | tostring) + "d (" + $stamp + ")" else "↺ " + (($diff / 3600 | floor) | tostring) + "h" + ((($diff % 3600) / 60 | floor) | tostring) + "m (" + $stamp + ")" end end' <<<"$input")
 if [ -n "$v" ]; then
   texts+=("$v "); fgs+=('38;5;16'); bgs+=('5;99')
 fi
