@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "node scripts/e2e-statusline.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.scripts.json",
     "verify:dist": "node scripts/verify-dist.mjs",
     "golden:update": "node scripts/golden-statusline.mjs && node scripts/golden-statusline-ps1.mjs"
   },

@@ -21,7 +21,10 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - 全站主題模組 `src/theme.ts`（唯一事實來源：三態主題邏輯——`<html>`
   無 `data-theme` 跟隨系統、`data-theme="dark"`／`"light"` 為手動覆寫，
   優先次序 localStorage＞系統偏好＞淺色預設；對外僅雙態的 toggle 切換、
-  `aria-pressed` 同步、localStorage 讀寫皆 best-effort）；五頁共用的
+  `aria-pressed` 同步、localStorage 讀寫皆 best-effort；matchMedia
+  change／storage 事件雙監聽（`initThemeSync`），OS 變更與跨分頁切換
+  即時同步 toggle 態；跨分頁 storage 清除（外部事件、非 toggle 路徑）
+  時回跟隨系統）；五頁共用的
   footer（作者／GitHub／授權連結）與主題切換鈕則以共用 markup＋
   `src/style.css` token 呈現，各頁 `<head>` 另有防 FOUC 的 inline
   bootstrap script（見 Conventions／Architecture overview 的零框架 JS
@@ -86,10 +89,12 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   時卡片才會產生連結）
 - 工具頁範本要點：`lang="zh-Hant"`、`../../` 返回入口連結、`main.ts` 以
   `import '../../src/style.css'` 消費共用樣式（入口頁零框架 JS，唯一
-  例外為主題切換 inline script（含 toggle 監聽），故改以 `<link>`
+  例外為主題切換 inline script（含 toggle 監聽及其同步機制——OS 偏好
+  變化、跨分頁切換），故改以 `<link>`
   消費樣式）；範本並含 `<meta name="color-scheme">`、換頁白閃防護
   critical style、header 尾端主題切換鈕（`.theme-toggle`）、`main.ts`
-  於任何渲染前 `import '../../src/theme.ts'`、五頁共用 footer 構成
+  於任何渲染前 `import '../../src/theme.ts'` 並於 `initThemeToggle` 後
+  呼叫 `initThemeSync`、五頁共用 footer 構成
   （隱私句＋作者／GitHub／授權連結）——以 `tools/_probe/` 為範本
 - 樣式策略：純手寫 CSS、不引入框架，a11y 基線（`:focus-visible`、WCAG AA、
   `prefers-reduced-motion`）全站適用
@@ -134,6 +139,9 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   一律走錨點、不依賴 DOM 結構路徑；e2e 斷言亦**不得依賴 i18n 可見
   文字**，位置／序數類斷言走 `data-*` 序數屬性（如 `data-row-index`）。
   此慣例為 sprint 09 新增（statusline-builder e2e 全 7 案為現行活例）
+- repo 以 `.gitattributes` `* text=auto` 為 EOL 基線；byte-exact
+  fixtures（golden、二進位測試輸入）須顯式 `-text`／`binary` 豁免，
+  新增此類檔案時同步補規則。此慣例為 sprint 10 新增
 
 ## Status
 入口頁骨架已完成（Vite MPA 架構、工具清單注入機制、a11y 基線）。部署
@@ -189,3 +197,26 @@ icon 沿用英文短 token 前綴體制）；百分比段新增 bar 正交欄
 `scripts/e2e-statusline.mjs`＋`npm run test:e2e`（本機限定，不進
 CI）。CONFIG_VERSION 維持 2（`bar`／`autoColor`／`expiresAtPath` 為
 既有版本內選填擴充，不 bump）。
+
+sprint 10（06 殘項批——主題即時同步、config 遷移階梯、verify-dist 測試網、
+repo 衛生）已交付：主題即時同步（`src/theme.ts` 新增 `initThemeSync`，
+matchMedia change／`window` storage 事件雙監聽，OS 偏好變更即時同步
+toggle 鈕 `aria-pressed`、跨分頁 storage 切換／清除即時反映；跨分頁
+storage 清除屬外部事件路徑，回跟隨系統、不改「對外僅雙態的 toggle
+切換」既有取捨）；五頁（四工具頁＋`tools/_probe/`）`main.ts` 於
+`initThemeToggle` 後接線 `initThemeSync`，入口頁 `<head>` inline script
+增補等價 vanilla 邏輯並同步 `ENTRY_ALLOWED_INLINE_SCRIPTS` 白名單；
+config 遷移階梯化（`MIGRATION_STEPS` 版本步進表＋while 鏈取代單次
+if 判斷，缺步進版本回落 `defaultConfig()`、不 throw）＋v2 存檔 canary
+回歸案（既有 `reference-7row.json`＋合成最小 v2 fixture，皆整份
+deepEqual 把關，堵未來 CONFIG_VERSION bump 忘寫遷移步驟的資料損失
+陷阱）；verify-dist 檢查邏輯抽為可 import 純函式
+（`scripts/verify-dist-checks.mjs`，CLI 殼薄化為彙整輸出的殼層）＋
+合成 dist fixture 正反向 39 案測試面，新增 `tsconfig.scripts.json`
+納入 `npm run typecheck` 第三鏈，script 擷取 regex 收嚴（大小寫不
+敏感、跳過 HTML 註解內容）；`.gitattributes` 補 `* text=auto` 全域
+EOL 基線＋byte-exact／二進位資產顯式例外（golden `-text` 維持、
+`*.jsonl eol=lf`、`*.apng`／`*.gif`／`*.mkv`／`*.webm`／`*.png` 標
+`binary`），拋棄分支 renormalize 實證零額外 churn；README 補 powerline
+關箭頭模式末段尾隨空格為契約行為之註記。CONFIG_VERSION 維持 2（本
+sprint 純遷移機制重構，不新增遷移步驟）。

@@ -58,6 +58,11 @@ statusline-builder 於瀏覽器端產生 Claude Code 自訂 statusline 的設定
   wrapper 形規避；若仍被擋，可對下載的腳本執行 `Unblock-File <路徑>`
   解除封鎖。受管環境若以群組原則（GPO）強制 `AllSigned`，wrapper 亦無效，
   需另行簽署腳本（不在目前保證範圍內）。
+- **powerline 關箭頭模式的尾隨空格**：`powerlineArrow: false`（色塊直接
+  相接＋每段右側 padding）時，產出腳本的最後一段末尾帶尾隨空格，
+  bash／ps1／settings.json 片段三後端一致，屬契約行為而非缺陷；部分
+  statusline 消費端（終端機／殼層）顯示時會將行尾空白右修剪，實際觀感
+  可能無感。
 
 ## Documentation
 - [SPEC.md](SPEC.md) — architecture and feature spec

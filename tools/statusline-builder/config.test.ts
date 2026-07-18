@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { type ColorSpec } from './color.js'
 import { THRESHOLD_TEMPLATES, type ThresholdBuckets } from './threshold.js'
 import {
+  _migrateConfigForTest,
   CONFIG_VERSION,
   defaultConfig,
   defaultSegmentConfig,
@@ -264,6 +265,166 @@ describe('v2 遷移（migrateConfig：v1→v2 powerlineArrow 派生／其他版�
     }
     const json = JSON.stringify({ version: 2, mode: 'powerline', powerlineArrow: true, segments: [] })
     expect(deserializeConfig(json, CATALOG).powerlineArrow).toBe(true)
+  })
+})
+
+/**
+ * T3.1（magi/10-theme-config-hardening/PLAN.md §Milestone 3；凍結測試
+ * 先行——寫在 MIGRATION_STEPS 階梯重構之前，先對現行單步 if 版
+ * `migrateConfig` 跑過確認即綠，重構後須繼續原樣綠）：v1→v2
+ * `powerlineArrow` 派生是**無條件覆寫**（依 `mode` 算出的值直接取代），
+ * **不是** fill-if-missing（僅在欄位缺席時才補值）——即使 v1 raw 湊巧
+ * 夾帶一個與 `mode` 矛盾的顯式 `powerlineArrow`，該值仍被無視、整個
+ * 覆寫為派生值。正反兩案鎖死此語意，任何把邏輯誤改成「僅缺欄才派生」
+ * 的重構都會在此變紅。
+ */
+describe('T3.1 凍結：v1→v2 powerlineArrow 派生為無條件覆寫（非 fill-if-missing）', () => {
+  it('v1 raw 夾帶顯式 powerlineArrow:false + mode:"powerline" → 仍派生覆寫為 true（忽略夾帶值）', () => {
+    const json = JSON.stringify({
+      version: 1,
+      mode: 'powerline',
+      powerlineArrow: false,
+      segments: [],
+    })
+    const result = deserializeConfig(json, CATALOG)
+    expect(result.powerlineArrow).toBe(true)
+  })
+
+  it('v1 raw 夾帶顯式 powerlineArrow:true + mode:"plain" → 仍派生覆寫為 false（忽略夾帶值）', () => {
+    const json = JSON.stringify({
+      version: 1,
+      mode: 'plain',
+      powerlineArrow: true,
+      segments: [],
+    })
+    const result = deserializeConfig(json, CATALOG)
+    expect(result.powerlineArrow).toBe(false)
+  })
+})
+
+/**
+ * T3.2（magi/10-theme-config-hardening/PLAN.md §Milestone 3）：
+ * `MIGRATION_STEPS` 階梯重構的核心防禦——缺步進函式（`raw.version` 非
+ * `number`，或雖為 `number` 但查無對應步進，如未來版本忘寫遷移步進時
+ * 的中繼態、或手動注入的非整數版本 `1.5`）一律視同未知版本、回傳
+ * `defaultConfig(catalog)`，**不得**對 `undefined` 求值拋出 TypeError
+ * （即不得寫成 `MIGRATION_STEPS[version](raw)` 而未先檢查
+ * `MIGRATION_STEPS[version]` 是否存在）。
+ */
+describe('T3.2 凍結：migrate 階梯缺步進中繼版本防禦', () => {
+  it('刻意呼叫缺步進中繼版本（人工注入 version:1.5）→ 不 throw、回傳預設 config', () => {
+    const json = JSON.stringify({
+      version: 1.5,
+      mode: 'powerline',
+      powerlineArrow: true,
+      segments: [],
+    })
+    expect(() => deserializeConfig(json, CATALOG)).not.toThrow()
+    // toStrictEqual（非 toEqual，MAGI_CODE_REVIEW.md Minority 4 採納）：見
+    // T3.3(b) canary 區塊註解，同一「整份 deepEqual」粒度收斂理由。
+    expect(deserializeConfig(json, CATALOG)).toStrictEqual(defaultConfig(CATALOG))
+  })
+})
+
+/**
+ * 多步遷移串接（MAGI_CODE_REVIEW.md「🟡 `migrateConfig` 多步串接（while
+ * ≥2 次迭代）零自動化覆蓋」採納項；magi/10-theme-config-hardening/
+ * MAGI_CODE_REVIEW.md）：真實 `MIGRATION_STEPS` 現僅鍵 `1`（v1→v2），所有
+ * 既有測試只走「單步」或「零步（缺步進退預設）」——「連續步進 ≥2 次」的
+ * 接力路徑（G2 存在的核心意義：新版本只加新鍵、不動舊步進）在 v3 首次
+ * bump 前無任何測試真的走過。本 describe 以 `_migrateConfigForTest` 注入
+ * 兩筆假步進，直接斷言：(1) 版本每步 +1、欄位經兩步後正確落地、迴圈
+ * 正常終止；(2) 兩步鏈中途缺第二步 → 卡在中繼版本、回 `defaultConfig`
+ * 不 throw（T3.2 缺步進防禦在多步情境下同樣成立，非僅零步／單步）。
+ *
+ * 假步進表刻意模擬真實 v1→v2 遷移的形狀（欄位搬遷＋依欄位無條件派生），
+ * 而非純標記欄位（如 `{ mark: true }`）——後者無法證明「前一步產出的欄位
+ * 確實能被下一步讀取並據以派生」，只能證明物件有被複製；用真實形狀的
+ * 假步進才貼近生產 `MIGRATION_STEPS` 未來新增鍵時的實際樣態。
+ */
+describe('多步遷移串接（migrateConfig while ≥2 次迭代，_migrateConfigForTest 注入假步進）', () => {
+  const FAKE_TWO_STEPS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
+    // 假 v0→v1：欄位搬遷（legacyMode → mode），模擬真實遷移常見形狀。
+    0: (raw) => {
+      const { legacyMode, ...rest } = raw
+      return { ...rest, mode: legacyMode === 'pl' ? 'powerline' : 'plain' }
+    },
+    // 假 v1→v2：依上一步產出的 mode 無條件派生 powerlineArrow（鏡射真實
+    // MIGRATION_STEPS[1] 的派生語意），證明第二步確實讀得到第一步的欄位。
+    1: (raw) => ({ ...raw, powerlineArrow: raw.mode === 'powerline' }),
+  }
+
+  it('v0→v1→v2 兩步接力成功：版本每步 +1、欄位經兩步後正確落地、迴圈終止', () => {
+    const raw = { version: 0, legacyMode: 'pl', segments: [] }
+    const result = _migrateConfigForTest(raw, CATALOG, FAKE_TWO_STEPS)
+    // 終止於 CONFIG_VERSION（非卡在中繼版本 1）。
+    expect(result.version).toBe(CONFIG_VERSION)
+    // 第一步落地：legacyMode:'pl' → mode:'powerline'。
+    expect(result.mode).toBe('powerline')
+    // 第二步落地：讀到第一步產出的 mode，派生 powerlineArrow true。
+    expect(result.powerlineArrow).toBe(true)
+  })
+
+  it('v0→v1→v2 兩步接力（legacyMode 非 "pl"）：mode 退 plain、powerlineArrow false', () => {
+    const raw = { version: 0, legacyMode: 'other', segments: [] }
+    const result = _migrateConfigForTest(raw, CATALOG, FAKE_TWO_STEPS)
+    expect(result.version).toBe(CONFIG_VERSION)
+    expect(result.mode).toBe('plain')
+    expect(result.powerlineArrow).toBe(false)
+  })
+
+  it('兩步中途缺第二步（steps 只給鍵 0）→ 卡在中繼版本 1、不 throw、回傳 defaultConfig', () => {
+    const partialSteps: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
+      0: FAKE_TWO_STEPS[0]!,
+      // 鍵 1 故意缺席——模擬「未來版本忘寫遷移步進」的中繼態。
+    }
+    const raw = { version: 0, legacyMode: 'pl', segments: [] }
+    expect(() => _migrateConfigForTest(raw, CATALOG, partialSteps)).not.toThrow()
+    expect(_migrateConfigForTest(raw, CATALOG, partialSteps)).toEqual(defaultConfig(CATALOG))
+  })
+})
+
+/**
+ * T3.3(b)（magi/10-theme-config-hardening/PLAN.md §Milestone 3；canary
+ * 回歸案之一——合成最小 v2 fixture）：涵蓋 v2 特徵欄（auto 配色、bar、
+ * 多列 row、rowSeparators）於單一最小 config 內，期望輸出凍結為字面值、
+ * 整份 deepEqual（非僅關鍵欄存活斷言——粗粒度漏得住部分欄位損失）。與
+ * `fixtures.test.ts` 內以 `reference-7row.json` 為本的 canary(a) 互補：
+ * (a) 走真實 30 段目錄、(b) 走本檔既有假 4 段目錄，兩者共同覆蓋「未來
+ * 版本忘寫遷移步進」的回歸偵測面。
+ */
+describe('T3.3(b) canary：合成最小 v2 fixture（auto／bar／多列 row／rowSeparators）', () => {
+  it('deserializeConfig 輸出與凍結期望整份 deepEqual', () => {
+    const fixture = {
+      version: 2,
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      lastArrowCap: true,
+      powerlineArrow: false,
+      rowSeparators: [null, { kind: 'preset', value: '·' }],
+      segments: [
+        { id: 'model', enabled: true, icon: true, color: { kind: 'auto' }, row: 0 },
+        { id: 'context-used', enabled: true, icon: true, color: { kind: 'default' }, bar: true, row: 1 },
+      ],
+    }
+    const expected: BuilderConfig = {
+      version: 2,
+      mode: 'plain',
+      separator: { kind: 'preset', value: '|' },
+      lastArrowCap: true,
+      powerlineArrow: false,
+      rowSeparators: [null, { kind: 'preset', value: '·' }],
+      segments: [
+        { id: 'model', enabled: true, icon: true, color: { kind: 'auto' }, row: 0 },
+        { id: 'context-used', enabled: true, icon: true, color: { kind: 'default' }, bar: true, row: 1 },
+        { id: 'cwd', enabled: false, icon: true, color: { kind: 'default' } },
+        { id: 'git-branch', enabled: false, icon: true, color: { kind: 'default' } },
+      ],
+    }
+    // toStrictEqual（非 toEqual，MAGI_CODE_REVIEW.md Minority 4 採納）：
+    // 「整份 deepEqual」的 PLAN 宣稱粒度須含「欄位留成 undefined」型部分
+    // 損失——toEqual 對此盲視（undefined 值視同欄位缺席），一字補滿粒度。
+    expect(deserializeConfig(JSON.stringify(fixture), CATALOG)).toStrictEqual(expected)
   })
 })
 

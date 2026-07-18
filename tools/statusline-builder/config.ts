@@ -394,24 +394,93 @@ function sanitizeConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): 
 }
 
 /**
- * migrate（v1→v2，PLAN §D2 06a）：raw.version===1（嚴格 ===）之存檔視為
- * 前代 schema——逐欄清洗與 sanitizeConfig 同一套 drop-unknown-and-continue
- * helper（`sanitizeConfigCore`：separator／segments／lastArrowCap 等），
- * 另補 v2 新欄 powerlineArrow：v1 無此欄，依 mode 派生——'powerline' 保留
- * 既有箭頭觀感（設 true，直到 T2.3 落地 gating 前 emitter 仍照 v1 全語意
- * 跑）、'plain' 或 mode 缺欄／非法 → false（sanitizeConfigCore 之 mode
- * 判定已等價 raw.mode === 'powerline' 之嚴格比對，此處直接讀已清洗之
- * mode 即可）。**不含 `rowSeparators`**（T1.1，09-PLAN §D1 A-2 補充
- * 契約）：呼叫 `sanitizeConfigCore` 而非 `sanitizeConfig`，v1 遷移產出
- * 恆不帶此 v2 專屬新欄，即使 raw 湊巧夾帶亦不遷移。
+ * migrate 階梯步進表（T3.2，magi/10-theme-config-hardening/PLAN.md
+ * §Milestone 3；階梯化取代原本 06a 的單步 `if (raw.version !== 1)`）：
+ * 鍵＝來源版本號（`raw.version`），值＝該版本→下一版本（鍵+1）的 raw
+ * 層轉換純函式——僅搬動／剝除／派生欄位，**不**呼叫任何 sanitize（收尾
+ * 統一由 `migrateConfig` 的 while 迴圈跑完全部步進後一次呼叫
+ * `sanitizeConfigCore`，見下方）。
  *
- * 其餘版本（0、3、字串、缺欄——非 v1）無前代 schema 可依，一律重置為
- * 預設（未來 v3 時在此加 v2→v3 分支，v1 分支不動）。
+ * v1→v2（沿用 06a 語意）：
+ * - 剝除 v2 專屬欄 `rowSeparators`（v1 無「config 正規化後啟用列位」這個
+ *   v2 概念可依附，即使 raw 湊巧夾帶亦不遷移——09-PLAN §D1 A-2 補充
+ *   契約，config.test.ts 「migrateConfig 分支不得產生此欄」凍結案）。
+ * - `powerlineArrow` 依 `mode` **無條件派生**、覆寫 raw 原夾帶值
+ *   （'powerline'→true——保留既有箭頭觀感；'plain' 或 mode 缺欄／非法
+ *   → false）——非 fill-if-missing，config.test.ts T3.1 凍結案（正反
+ *   兩案）明文鎖死此語意：即使 v1 raw 湊巧夾帶與 mode 矛盾的顯式
+ *   `powerlineArrow`，該值仍被無視、整個覆寫為派生值。
+ *
+ * 未來 v2→v3 時在此加鍵 `2:`，v1 分支（鍵 `1`）原封不動——階梯設計的
+ * 存在意義即令「新版本只加新鍵」，不需複製貼上舊清洗邏輯、不動舊步進。
  */
-function migrateConfig(raw: Record<string, unknown>, catalog: SegmentCatalog): BuilderConfig {
-  if (raw.version !== 1) return defaultConfig(catalog)
-  const sanitized = sanitizeConfigCore(raw, catalog)
-  return { ...sanitized, powerlineArrow: sanitized.mode === 'powerline' }
+const MIGRATION_STEPS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
+  1: (raw) => {
+    const { rowSeparators: _rowSeparators, ...rest } = raw
+    return { ...rest, powerlineArrow: rest.mode === 'powerline' }
+  },
+}
+
+/**
+ * migrate（版本階梯，T3.2 重構自 06a 單步 if）：從 `raw.version` 起步，
+ * 沿 `MIGRATION_STEPS` 逐版查表步進至 `CONFIG_VERSION`——每步僅在 raw
+ * 層搬動欄位（見上方步進表逐版說明），迴圈中**不**呼叫任何 sanitize，
+ * 避免中繼版本的半成品 raw 被提早清洗、吃掉尚待下一步讀取的欄位。
+ *
+ * **缺步進函式（`MIGRATION_STEPS[version]` 為 `undefined`）→ 視同未知
+ * 版本，回傳 `defaultConfig(catalog)`**（不得對 `undefined` 求值拋
+ * TypeError）：`version` 非 `number`（如字串 "1"、缺欄）或雖為 `number`
+ * 但查無對應步進（如未來 v3 忘寫 2→3 步進時卡在中繼態、或人工注入的
+ * 非整數版本 `1.5`）皆走此出口——config.test.ts 有一條獨立測試（T3.2）
+ * 直接斷言此路徑不 throw、回預設。到達 `CONFIG_VERSION` 後跳出迴圈，
+ * 收尾呼叫 `sanitizeConfigCore`（**絕不呼叫 `sanitizeConfig`**——
+ * `rowSeparators` 為 v2 專屬新欄，v1 遷移產出恆不帶此欄，即使 raw 湊巧
+ * 夾帶亦不遷移，09-PLAN §D1 A-2 補充契約；config.test.ts 「migrateConfig
+ * 分支不得產生此欄」凍結案）；派生欄（`powerlineArrow`）已於步進函式內
+ * 寫入 raw、以布林值存在，`sanitizeConfigCore` 讀取時直接原樣搬運，故
+ * 此處不需額外覆寫。
+ *
+ * 其餘版本（0、3、字串、缺欄——非可步進之版本）無前代 schema 可依，一律
+ * 經上述缺步進出口重置為預設。
+ *
+ * 第三參數 `steps`（選填、預設 `MIGRATION_STEPS`）：唯一目的是供下方
+ * `_migrateConfigForTest` 注入假步進表，讓測試能不依賴真實版本 bump 就走出
+ * 「連續步進 ≥2 次」的接力路徑；本函式的唯一生產呼叫端（`deserializeConfig`）
+ * 永遠不傳第三參數，行為與新增此參數前完全一致。
+ */
+function migrateConfig(
+  raw: Record<string, unknown>,
+  catalog: SegmentCatalog,
+  steps: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = MIGRATION_STEPS,
+): BuilderConfig {
+  let current: Record<string, unknown> = raw
+  while (current.version !== CONFIG_VERSION) {
+    const version = current.version
+    if (typeof version !== 'number') return defaultConfig(catalog)
+    const step = steps[version]
+    if (step === undefined) return defaultConfig(catalog)
+    current = { ...step(current), version: version + 1 }
+  }
+  return sanitizeConfigCore(current, catalog)
+}
+
+/**
+ * 測試專用注入面（MAGI_CODE_REVIEW.md「🟡 `migrateConfig` 多步串接（while
+ * ≥2 次迭代）零自動化覆蓋」採納項）：讓 config.test.ts 能注入假步進表，
+ * 直接斷言 while 鏈「連續步進 ≥2 次」的接力正確性——真實 `MIGRATION_STEPS`
+ * 現僅鍵 `1`（v1→v2），v3 首次 bump 前無法透過真實遷移走出多步鏈，只能靠
+ * 假步進表提前驗證版本遞增／欄位接力／終止三件事。**僅供測試呼叫**——
+ * 生產路徑（`deserializeConfig` → `migrateConfig`）恆用預設參數
+ * （`MIGRATION_STEPS`），不經此函式；`migrateConfig` 本身簽章新增的第三個
+ * 選填參數對生產呼叫端零改動，`deserializeConfig` 對外行為與既有測試零
+ * 變動。
+ */
+export function _migrateConfigForTest(
+  raw: Record<string, unknown>,
+  catalog: SegmentCatalog,
+  steps: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>>,
+): BuilderConfig {
+  return migrateConfig(raw, catalog, steps)
 }
 
 /**

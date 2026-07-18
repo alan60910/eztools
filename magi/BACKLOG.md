@@ -8,6 +8,7 @@ one into a new sprint.
 <!-- /magi:commit appends C-class drift items here -->
 - [ ] **sprint 09 真機驗收批（遞延）**：T6.2-CHECKLIST.md A–F 區親測回報＋變體 A/B 圈選（現行 A）＋micro-fix-3 去留（行動版欄序 DOM 真搬，治 Tab/SR 序分歧＋列群組標題低於摺線 38–154px 殘餘）；僅真機能驗面清單見 MAGI_CODE_REVIEW「Untested paths」（頂帶 40dvh 量測／CSS order 摺線／原生 dialog 鏈）
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
+  > sprint 10 併入（2026-07-18）：雙分頁互切主題即時同步＋OS 深淺切換即時跟隨（未手動切換過的分頁）＋聚焦 toggle 鈕時外部觸發 aria-pressed 變化之 SR 播報行為——見 `magi/10-theme-config-hardening/WORKS.md` M4 遞延記錄
 - [ ] **sprint 09 測試網加固批**：i18n-meta-scan 補屬性巡檢（aria-label／placeholder／title／alt 含 CJK 未掛 data-i18n-attr 即紅——review Important #2）＋main.ts strip 窄盲點（字串內 `//`、同行 throw）＋windows CI leg `BASH.ok && PS1.ok` meta 守門＋複製內容 clipboard spy 斷言（三鈕對應內容＋成功/失敗分支）＋真 DnD × 非 inherit 覆寫值 e2e 組合
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
 - [ ] statusline-builder 雙寫收斂＋footgun 加固：planSegmentMove 回傳形補 sourceRow/srcDrains（消 computeRowSeparatorsAfterMove 鏡射重算）＋config.ts export 單一 trim helper（消 normalizeRowSeparatorsField 雙寫）＋descriptor.label/ariaText「凍結 zh、顯示走 accessor」JSDoc 加固＋messages「零漂移」恆真測試改述或刪除＋emit-settings 三 hint 常數「UI 用」註解修正與 colorDisplayLabel default/auto 死分支清理
@@ -86,23 +87,18 @@ one into a new sprint.
 - [ ] statusline-builder：複製到剪貼簿的 `.ps1` 無 UTF-8 BOM（僅下載 Blob 帶）——複製亦前置 BOM 或 README 明示
   > from `magi/05-statusline-builder/DRIFT.md` (2026-07-09)
   > 06a 更新：icon 與 preset 分隔符（'›'/'·'）已改 `[char]` 碼位跳脫、不再依賴 BOM；殘餘風險縮小至使用者自訂 prefix／自訂分隔符的非 ASCII 內容 — `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
-- [ ] statusline-builder：CONFIG_VERSION 未來 bump 的「未知版本重置」是資料損失型陷阱——v3 時需 v2→v3 遷移階梯＋「v2 存檔存活」回歸測試（考慮 while 階梯式遷移）
-  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
-- [ ] 全站主題：OS 主題偏好即時跟隨（matchMedia change 監聽）＋跨分頁 storage 事件同步
-  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
-- [ ] verify-dist.mjs 補自動測試（合成 dist fixture：白名單正規化／遞迴掃描／負向斷言）＋script 擷取 regex 嚴謹化（大小寫不敏感、跳過 HTML 註解）
-  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
-- [ ] repo 級 `.gitattributes` 基線（如 `* text=auto`）——其他簽入 fixtures（jsonl 等）仍暴露於 CRLF checkout 轉換類 bug（目前無 byte-exact 消費者，屬預防）
-  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [x] ~~statusline-builder 預覽：default 色 powerline 箭頭渲染為透明三角，真終端會以預設前景繪出——`var(--arrow-fg, currentColor)` 對齊~~（sprint 07 交付，2026-07-11）
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 - [x] ~~statusline-builder：`applyPreviewFontFamily` 死重清理（inline style 蓋掉 CSS 較豐富字族棧）＋index.html 既存「24 段」註解修正（實為 25 段）~~（sprint 07 交付，2026-07-11）
   > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
-- [ ] statusline-builder：powerline 無箭頭模式末段帶尾隨空格（三後端一致、契約如此）——使用者文件一句話註記（部分 statusline 消費端會視覺右修剪）
-  > from `magi/06-statusline-ui-refresh/DRIFT.md` (2026-07-11)
 
 ## Promoted to sprints
 <!-- /magi:plan moves consumed items here -->
+- ~~全站主題：OS 主題偏好即時跟隨（matchMedia change 監聽）＋跨分頁 storage 事件同步~~ → `magi/10-theme-config-hardening/` (2026-07-18)
+- ~~statusline-builder：CONFIG_VERSION 未來 bump 的「未知版本重置」資料損失陷阱——遷移階梯＋「v2 存檔存活」回歸測試~~ → `magi/10-theme-config-hardening/` (2026-07-18)
+- ~~verify-dist.mjs 補自動測試（合成 dist fixture）＋script 擷取 regex 嚴謹化~~ → `magi/10-theme-config-hardening/` (2026-07-18)
+- ~~repo 級 `.gitattributes` 基線（`* text=auto`＋例外盤點）~~ → `magi/10-theme-config-hardening/` (2026-07-18)
+- ~~statusline-builder：powerline 無箭頭模式末段尾隨空格——使用者文件一句話註記~~ → `magi/10-theme-config-hardening/` (2026-07-18)
 - ~~statusline-builder UX 重構（真機回饋批：逐列分隔符、欄位預設值標示、拖移上列、sticky 預覽＋單一產出鈕、i18n）~~ → `magi/09-statusline-ux-refactor/` (2026-07-17)
 - ~~statusline-builder：預覽固定 mock `now` vs 產出腳本真時鐘——加常駐說明~~ → `magi/09-statusline-ux-refactor/`（併入 G4，2026-07-17 拍板）
 - ~~APNG → GIF 轉換功能~~ → `magi/02-apng-to-gif/` (2026-07-03)

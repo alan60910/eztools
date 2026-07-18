@@ -95,6 +95,32 @@ describe('reference-7row fixture — sanitizeConfig 往返冪等', () => {
   })
 })
 
+/**
+ * canary — migration-forgotten path 防護（T3.3(a)，magi/10-theme-config-
+ * hardening/PLAN.md §Milestone 3）：與上方「sanitizeConfig 往返冪等」
+ * 檢驗的維度不同——冪等測的是「清洗是否穩定」，本案測的是「未來版本忘寫
+ * 遷移步進時是否亮紅」。
+ *
+ * **bump CONFIG_VERSION 時勿重生本 fixture**：`reference-7row.json` 內的
+ * `version: 2` 永久凍結，本檔代表一份「舊存檔」。未來 CONFIG_VERSION 升
+ * 至 3 時，本檔會因 `raw.version(2) !== CONFIG_VERSION(3)` 而改走
+ * `migrateConfig`（config.ts `MIGRATION_STEPS` 階梯，T3.2）；若忘寫
+ * `MIGRATION_STEPS[2]`（2→3 步進），依 T3.2 契約 migrate 會回傳
+ * `defaultConfig(catalog)`（30 段全停用），與下方凍結的期望（7 列滿配
+ * ＝fixture 本身）相差懸殊，本斷言即由綠翻紅、逼出忘寫——這正是本檔
+ * 「不得重生」的理由：一旦用當時最新的 sanitizeConfig 輸出覆寫重生，
+ * canary 就永遠測不到「舊存檔走 migrate」這條路徑。
+ */
+describe('canary — migration-forgotten path 防護（T3.3(a)）', () => {
+  it('reference-7row fixture：deserializeConfig 輸出與凍結期望（fixture 本身＝現行 sanitizeConfig 輸出）整份 deepEqual', () => {
+    const result = deserializeConfig(JSON.stringify(rawFixture), SEGMENT_CATALOG)
+    // toStrictEqual（非 toEqual，MAGI_CODE_REVIEW.md Minority 4 採納）：
+    // 「整份 deepEqual」的 PLAN 宣稱粒度須含「欄位留成 undefined」型部分損失
+    // ——toEqual 對此盲視（undefined 值視同欄位缺席）。
+    expect(result).toStrictEqual(rawFixture)
+  })
+})
+
 const CONFIG: BuilderConfig = deserializeConfig(JSON.stringify(rawFixture), SEGMENT_CATALOG)
 
 // ── 2. 7 列結構＋逐列段序機械比對（檔頭對映表的可執行版本） ──

@@ -10,7 +10,8 @@
   `tools/*/index.html` 組成 `rollupOptions.input`；`base: './'`（相對路徑）
 - inline plugin `inject-tool-list`：於 `transformIndexHtml` 建置／開發期將
   `src/tools.ts` 清單經 `src/render.ts` 注入根 `index.html`（靜態優先，
-  入口頁零框架 JS；唯一例外為主題切換 inline script）
+  入口頁零框架 JS；唯一例外為主題切換 inline script（含 toggle 監聽及其
+  同步機制））
 - runtime dependencies：`apng-js@1.1.5`／`gifenc@1.0.3`（exact pin、MIT、
   零 transitive 依賴）；`gifuct-js@2.1.2`（exact pin、MIT、自帶型別、
   一顆 transitive dep `js-binary-schema-parser@^2.0.3`——lockfile 鎖定

@@ -21,7 +21,7 @@
 // import——<head> 的 inline script 已在解析階段套用 data-theme（防 FOUC），
 // 這裡只需接上 toggle 鈕的 wiring 與 aria-pressed 同步，故在檔案最上方、
 // 其餘功能邏輯（含下方 init() 的實際渲染）之前完成。
-import { initThemeToggle } from '../../src/theme.js'
+import { initThemeSync, initThemeToggle } from '../../src/theme.js'
 // T5.4（magi/09-statusline-ux-refactor/PLAN.md §D5 A-3／A-4）：i18n
 // DOM-facing 套用器——同上，於檔案最上方接上語言鈕 wiring；`applyI18n`／
 // `currentLocale` 供下方 clone 點（buildSegmentRow／createColorPickerCore／
@@ -534,6 +534,8 @@ const segmentHiddenPoolEl = byId('segment-hidden-pool')
 // 主題切換鈕 wiring：模組層級立即執行，早於下方 init()（無論 init() 是同步
 // 立即跑或掛在 DOMContentLoaded，這行都先執行——見上方 import 註解）。
 initThemeToggle(queryOne<HTMLButtonElement>('.theme-toggle'))
+// magi/10 里程碑 2：OS 偏好變更／其他分頁 storage 事件即時同步 toggle 鈕。
+initThemeSync(queryOne<HTMLButtonElement>('.theme-toggle'))
 
 // T5.4（09-PLAN §D5 A-4）：語言啟動同步——依已持久化的語言（預設
 // DEFAULT_LOCALE＝zh-Hant）同步 <html lang> 並對整份主文件樹套用一次

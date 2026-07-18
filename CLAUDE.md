@@ -20,6 +20,8 @@ npm run test:e2e # CDP 整合案（本機限定，需 Edge/Chromium，不進 CI�
 - 全靜態前端：所有處理皆在瀏覽器端完成，不得依賴後端服務
 - 產出必須可直接由 GitHub Pages 託管（純靜態檔案）
 - 新增工具：建立 `tools/<slug>/` 並在 `src/tools.ts` 登記，詳見 SPEC.md
+- 入口頁主題 inline script 須與 `src/theme.ts` 邏輯對齊，修改須同步兩處＋
+  `scripts/verify-dist-checks.mjs` 白名單
 
 ## Workflow rules
 - Don't commit on the user's behalf without explicit confirmation.

@@ -54,7 +54,7 @@ const CJK = /[　-〿一-鿿＀-￯]/
 function stripNonRuntime(src: string): string {
   return src
     .replace(/\/\*[\s\S]*?\*\//g, '') // block／JSDoc 註解
-    .split('\n')
+    .split(/\r?\n/) // CRLF checkout 健壯性：殘尾 \r 會使 /\/\/.*$/ 的 $ 錨定失效、行註解剝除 no-op
     .map((line) => {
       if (/throw new Error\(/.test(line)) return '' // 開發者不變量錯誤（見檔頭排除 2）
       return line.replace(/\/\/.*$/, '') // line 註解
