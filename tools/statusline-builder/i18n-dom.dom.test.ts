@@ -25,6 +25,39 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { t, type Locale } from './messages.js'
 import { LANG_STORAGE_KEY, applyI18n, currentLocale, setLocale } from './i18n-dom.js'
 
+// T1.4（magi/13-test-hardening/TICKET.md 工作面 6；sprint 12 遞延的
+// i18n-dom flake 根因治本）：本檔第三段（clone 時序＋整頁切換）每案皆
+// 透過 `boot()`（見下）以 `vi.resetModules()` + 動態 `import('./main.js')`
+// 換取「全新模組實例」，藉此驗證 main.ts 模組層級的 locale 偵測／clone
+// 初始化行為不受前一案殘留狀態污染——這是本檔測試意圖的一部分，不是
+// 可省的重工。
+//
+// 量測（2026-07-19，本機隔離跑 `vitest run i18n-dom.dom.test.ts
+// --reporter=verbose`，對 boot() 插樁 performance.now() 分段，量完即
+// 移除插樁）：
+//   - clear()+innerHTML 灌注：      32–44ms（可忽略）
+//   - vi.resetModules()：           0.0–0.1ms（可忽略——非熱點）
+//   - await import('./main.js')：  588–966ms（主熱點——重新執行 main.ts
+//     全依賴圖，含 init() 建置 30 段目錄／row groups 等真實 DOM 樹，
+//     06c 段目錄由 25→30 後單次建置成本隨之提高）
+//   - 語言鈕 click() 觸發整頁 re-render：~650–700ms／次（同樣是被測的
+//     真實行為，非測試面浪費）
+// 單案隔離總時：674–2106ms（其中「再次 click」案含 boot + 兩次 click，
+// 隔離約 2106ms）。全套並行負載下重跑同一批案（`npm test`
+// --reporter=verbose），同一批案膨脹至 1112–3583ms（「再次 click」案
+// 3583ms，逼近 vitest 預設 5000ms testTimeout），與 sprint 12「四輪 2
+// 紅 2 綠、單檔隔離穩綠」病史一致——純屬 worker 並行資源競爭下的排程
+// 延遲，非邏輯迴歸。
+//
+// 結論：resetModules() 開銷可忽略，熱點在被測本體（main.ts 全頁初始化
+// ／re-render）本質厚重，boot 共用化會破壞「每案全新模組實例」這項測試
+// 意圖並有跨案狀態污染風險——故不採 boot 減重，改採檔級 testTimeout 體
+// 制化（比照 lang-switch.dom.test.ts／pipeline.integration.test.ts 既有
+// 先例，同以 30_000 收斂，一次覆蓋全檔，取代逐案補第三參數）。sprint 12
+// 加在單案的 20000 第三參數已隨此收斂而移除（不再需要逐案覆寫，檔級設
+// 定已含更寬裕的安全邊際）。
+vi.setConfig({ testTimeout: 30_000 })
+
 const HTML_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'index.html')
 const RAW_HTML = readFileSync(HTML_PATH, 'utf-8')
 const BODY_MATCH = /<body[^>]*>([\s\S]*)<\/body>/.exec(RAW_HTML)
@@ -242,22 +275,20 @@ describe('T5.4 語言切換鈕：初始態＋click 生效＋既有實例翻轉',
     expect(langToggleBtn().getAttribute('aria-label')).toBe(t('en').langToggle.ariaLabel)
   })
 
-  // 工作項 4（magi/12-hygiene-tail sprint 12 review 裁決）：本案偶發 flake，
-  // 加顯式 timeout 緩解（vitest it 第三參數）；僅此一案，不動其餘案例。
-  it(
-    '再次 click → 切回 zh-Hant，字面與開機字面 byte 一致',
-    async () => {
-      await boot()
-      langToggleBtn().click()
-      langToggleBtn().click()
-      expect(localStorage.getItem(LANG_STORAGE_KEY)).toBe('zh-Hant')
-      expect(document.documentElement.getAttribute('lang')).toBe('zh-Hant')
-      expect(thresholdOptionText('traffic')).toBe('交通號誌（綠→黃→紅）')
-      expect(ansiIndexLabelText()).toBe('ANSI 索引（0–255）')
-      expect(langToggleBtn().textContent).toBe('EN')
-    },
-    20000,
-  )
+  // 工作項 4（magi/12-hygiene-tail sprint 12 review 裁決）曾在此案單獨加
+  // 20000 第三參數緩解 flake；T1.4（13-test-hardening）量測根因後改採
+  // 檔頭 `vi.setConfig({ testTimeout: 30_000 })` 體制化覆蓋全檔，本案
+  // 逐案覆寫已收斂移除（理由與量測數據見檔頭）。
+  it('再次 click → 切回 zh-Hant，字面與開機字面 byte 一致', async () => {
+    await boot()
+    langToggleBtn().click()
+    langToggleBtn().click()
+    expect(localStorage.getItem(LANG_STORAGE_KEY)).toBe('zh-Hant')
+    expect(document.documentElement.getAttribute('lang')).toBe('zh-Hant')
+    expect(thresholdOptionText('traffic')).toBe('交通號誌（綠→黃→紅）')
+    expect(ansiIndexLabelText()).toBe('ANSI 索引（0–255）')
+    expect(langToggleBtn().textContent).toBe('EN')
+  })
 })
 
 describe('T5.4：main.ts 動態組句改查 t(currentLocale()) 取代原 THRESHOLD_TEMPLATE_LABELS 常數表', () => {

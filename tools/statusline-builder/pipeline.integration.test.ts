@@ -1041,15 +1041,35 @@ describe.skipIf(!(BASH.ok && PS1.ok))(
   },
 )
 
-// ── 7. skipIf meta（CI 設定不變量；PLAN §CI 拓撲） ──
-
-describe('skipIf meta（每後端至少一 leg 未 skip；present 卻 skip＝bug）', () => {
-  it('環境自述（各後端 enable／reason）', () => {
+// ── 7. skipIf meta（CI 設定不變量；PLAN §CI 拓撲／magi/13-test-hardening
+//    T2.1・T2.2：CI 跨後端 gate meta 守門，08 DRIFT 同族合帳） ──
+//
+// T2.1 真值表（本機 win32 實測；CI 兩 leg 由 test.yml＋本檔 detect* 邏輯推導，
+// 標「推導」；完整逐環境對照落 magi/13-test-hardening/WORKS.md）：
+//   | gate                        | 本機 win32 | CI ubuntu | CI windows |
+//   |------------------------------|-----------|-----------|------------|
+//   | BASH.ok（bash+jq）           | true（實測）| true（推導：Ensure jq step）| false（推導：sp5 便攜 jq gitignored、SP5_JQ_DIR 未設） |
+//   | PS1.ok（ps1 5.1）            | true（實測）| false（推導：detectPs1 非 win32 短路）| true（推導：powershell.exe 內建） |
+//   | PWSH7.ok（pwsh 7）           | true（實測）| 推導不確定（未鎖，見下）    | true（推導：test.yml 檔頭註解明文「runner 預裝」） |
+//   | BASH.ok && PS1.ok（9 個跨後端等價案 describe 之門——見全檔 9 個
+//     `describe.skipIf(!(BASH.ok && PS1.ok))`，grep 可得；標題錨點例：
+//     「resets 後綴 — bash==ps1==oracle（同機同 TZ byte-exact）」／
+//     「shell-out 等價 — bash vs ps1（真 git repo）」） | true（實測） | false（PS1.ok 恆假） | false（BASH.ok 恆假） |
+// 「BASH.ok && PS1.ok」兩 leg 皆恆假＝「僅本機雙後端環境可跑」，非無聲消失
+// ——本節新增守門明文標記＋鎖住此拓撲（見下方新增二案）。
+describe('skipIf meta（每後端至少一 leg 未 skip；present 卻 skip＝bug；T2.2 拓撲鎖）', () => {
+  it('環境自述（各後端 enable／reason＋跨後端組合門）', () => {
     const say = (name: string, e: { ok: boolean; reason?: string }): void =>
       console.warn(`[t27] ${name}: ${e.ok ? 'ENABLED' : `SKIP（${(e as { reason: string }).reason}）`}`)
     say('bash+jq', BASH)
     say('ps1 5.1', PS1)
     say('pwsh 7', PWSH7)
+    const dual = BASH.ok && PS1.ok
+    console.warn(
+      `[t27] cross-backend combo (BASH.ok && PS1.ok，9 個跨後端等價案 describe 之門): ${
+        dual ? 'ENABLED（本機雙後端）' : 'SKIP（僅本機雙後端環境可跑；CI 兩 leg 依已知拓撲恆假，非 bug——見下方拓撲鎖斷言）'
+      }`,
+    )
     expect(true).toBe(true)
   })
 
@@ -1087,6 +1107,64 @@ describe('skipIf meta（每後端至少一 leg 未 skip；present 卻 skip＝bug
       if (existsSync(jqBin)) {
         expect(BASH.ok, 'bash＋便攜 jq 在卻 skip（skipIf/偵測 bug）').toBe(true)
       }
+    }
+  })
+
+  // ── T2.2 新增：CI leg 專屬拓撲守門（GITHUB_ACTIONS 辨識現在跑在哪個
+  //    leg；本機無此 env、恆不觸發下列斷言本體，if 條件本身非恆真——見
+  //    T2.1 真值表；CI 上依 leg 觸發對應分支）──
+  const isCi = process.env.GITHUB_ACTIONS === 'true'
+  const isWin = process.platform === 'win32'
+
+  // ubuntu leg 不斷言之理由：test.yml 檔頭註解僅明文保證 windows runner
+  // 「預裝」pwsh 7，未對 ubuntu leg 做同等承諾——若在此對 ubuntu leg 也斷言
+  // PWSH7.ok，一旦 ubuntu runner image 未附 pwsh（非本專案控制範圍）即會
+  // 平白翻紅，故本案刻意只鎖 windows leg（防誤紅）。
+  it('windows leg（CI）：pwsh 7 present 卻 skip＝bug（test.yml 檔頭註解明文「runner 預裝」）', () => {
+    if (isCi && isWin) {
+      expect(
+        PWSH7.ok,
+        `windows leg pwsh 7 present 卻 skip（skipIf bug）：${PWSH7.ok ? '' : (PWSH7 as { reason: string }).reason}`,
+      ).toBe(true)
+    }
+  })
+
+  it('跨後端等價案門（BASH.ok && PS1.ok）之 CI 拓撲鎖：兩 leg 皆恆假為既有刻意拓撲，非無聲消失', () => {
+    // 鎖住現況（非鎖死改動）：若未來拓撲改變（如 CI 誤設 SP5_JQ_DIR、jq 二進位
+    // 被誤 commit、windows runner 開始內建 jq），本斷言會翻紅逼出人工覆核並
+    // 更新 T2.1 真值表／本斷言——而非讓 9 個跨後端等價案 describe 悄悄從
+    // 「僅本機可跑」變成「CI 亦可跑」卻無人知曉（或反之，悄悄失去 CI 覆蓋）。
+    if (isCi && isWin) {
+      expect(
+        BASH.ok,
+        `windows leg BASH.ok 預期為 false（sp5 便攜 jq gitignored、SP5_JQ_DIR 未設）；若為 true 代表拓撲已改變，需人工覆核並更新 WORKS 真值表` +
+          '（或本機誤設 GITHUB_ACTIONS env——非 CI 環境請先 unset 再判斷）',
+      ).toBe(false)
+      // reason 字串全集（本檔 detectBashExec win32 分支可能產生，抄錄自其
+      // 實作字面）：
+      //   - 'Git Bash 不存在（SP5_BASH 可指定；PATH 上 bash 可能為 WSL 不可用）'（bash 二進位未偵得）
+      //   - `SP5_JQ_DIR 指定目錄無 jq.exe（${overrideBin}）`（顯式覆寫但該目錄缺 jq.exe）
+      //   - `jq-windows-amd64.exe 不存在（${jqBin}）`（預設路徑；CI windows
+      //     leg 現行既有拓撲之預期落點）
+      // 下方 regex 僅鎖後兩者（現行已知拓撲）：此分支本機零執行覆蓋、首次
+      // 真驗＝CI windows leg 首跑；不符時放寬 regex 而非改拓撲。
+      if (!BASH.ok) {
+        expect(
+          (BASH as { reason: string }).reason,
+          `windows leg BASH skip 理由須匹配已知原因（jq 便攜檔缺席），實際：${(BASH as { reason: string }).reason}`,
+        ).toMatch(/jq-windows-amd64\.exe 不存在|SP5_JQ_DIR/)
+      }
+    }
+    if (isCi && !isWin) {
+      // ubuntu leg：PS1.ok 恆假為 detectPs1() 對非 win32 之短路（程式邏輯
+      // 事實，非環境探測結果）——仍明文斷言，防未來改動誤放寬此短路而未察覺。
+      expect(PS1.ok, 'ubuntu leg PS1.ok 預期為 false（detectPs1 對非 win32 短路）').toBe(false)
+    }
+    if (isCi) {
+      expect(
+        BASH.ok && PS1.ok,
+        '跨後端等價案門（BASH.ok && PS1.ok）於 CI 兩 leg 依現況拓撲皆應為 false（僅本機雙後端環境可跑）',
+      ).toBe(false)
     }
   })
 })

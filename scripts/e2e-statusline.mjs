@@ -56,6 +56,28 @@
  *      Event('close'))` 模擬的邏輯層驗證），確認 `wireOutputDialog` 的
  *      `close` 監聽器在真實瀏覽器下確實把焦點還原至開鈕。
  *
+ * T3.1（magi/13-test-hardening/TASKS.md M3，09 review 缺口——jsdom 層
+ * `catalog-drag.dom.test.ts` 僅模擬 DnD、無真機覆蓋「非 inherit 覆寫值 ×
+ * 真拖曳」組合）追加一案，七案→八案：
+ *   8. 非 inherit 覆寫（色＋variant）× 真 DnD 跨列拖曳存活：`cwd` 段（唯一
+ *      三段可設 variant 之一，見 segments.ts CWD_VARIANTS）主色設為
+ *      ansi256 索引 3（非 `{kind:'default'}`）＋ variant 設為 `basename`
+ *      （非預設 `full`），皆透過真實 DOM 事件（radio/checkbox `.checked`
+ *      ＋`change` 事件，比照既有 `selectMove` 手法，非 jsdom 模擬——本腳本
+ *      全案皆走真 Chromium）。真拖曳（`dragBySelector`，同案 2/5/6 手法）
+ *      把 `cwd` 握把跨列拖至另一列列尾，斷言：(a) UI 控件（色選 mode
+ *      radio／ANSI 索引 spinbutton／variant `<select>`）與 localStorage
+ *      config 中的覆寫值拖後不變、僅 `row` 變；(b) 產出 bash 腳本（`
+ *      #output-bash code`，main.ts `refreshOutputs` 隨每次 `commitConfig`
+ *      即時更新，不需開 dialog）內 `cwd` 專屬區塊（`emit-bash.ts`
+ *      `emitSegment` 恆以 `# <id>` 起頭、區塊內部行皆不以 `#` 開頭，見
+ *      `extractSegmentBlock` 文件）含覆寫指紋（ansi256 fg SGR 字面
+ *      `'38;5;3'`＋`basename` variant 專屬 jq `split("[/…` 片段）；拖前拖後
+ *      兩份區塊逐字比較——去除多列陣列變數列位尾碼（`texts_N`／`fgs_N`／
+ *      `segstart_N`，見 `emit-bash.ts` `pushLine`／`rowSuffix`）後必須逐字
+ *      相同（`normalizeRowSuffix`），去除前必須不同（證明列位確實有變、
+ *      非恆真空比對）。
+ *
  * 用法：
  *   node scripts/e2e-statusline.mjs      # 或 npm run test:e2e
  *   E2E_HEADED=1 node scripts/e2e-statusline.mjs   # 人工除錯用 headed
@@ -335,6 +357,47 @@ const SNAPSHOT_EXPR = `
   })
 `
 
+// ── 段落區塊擷取（T3.1 新案專用；純字串處理，跑在 Node 端而非瀏覽器內，
+// 不需另外進 evaluate） ──
+//
+// emit-bash.ts `emitSegment` 恆以 `# <id>`（單行，無前後綴）起頭；區塊
+// 內部各行（jq 賦值／if-fi／push 陳述式）皆不以 `# ` 起首——僅下一個段的
+// `# <nextId>` 或該列收尾的 `# -- row N join --` 會再次以 `# ` 起首（見
+// emit-bash.ts emitSegment／groupByRow 檔頭文件），故「找下一個 `# `
+// 開頭行」對任一段皆為安全邊界，不需複刻 emit-bash.ts 的分組演算法。
+
+/** 從完整 bash 產出腳本擷取 `segmentId` 專屬區塊；找不到回 null。 */
+function extractSegmentBlock(script, segmentId) {
+  const lines = script.split('\n')
+  const startIdx = lines.findIndex((line) => line === `# ${segmentId}`)
+  if (startIdx === -1) return null
+  let endIdx = lines.length
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (lines[i].startsWith('# ')) {
+      endIdx = i
+      break
+    }
+  }
+  // 多列展開時，若該段恰為所屬列群組最後一個段，`emitBash` 會在其後補一個
+  // 空行（列緩衝迴圈收尾）才輪到下一個 `# ` 開頭行——與該段是否列首/列尾
+  // 無關的純結構性尾巴，比較「僅列位差異」前先修剪掉，否則會被誤判為內容
+  // 差異（見本案 run() 內註解）。
+  const slice = lines.slice(startIdx, endIdx)
+  while (slice.length > 0 && slice[slice.length - 1] === '') slice.pop()
+  return slice.join('\n')
+}
+
+/**
+ * 多列展開時，段自身 push 陳述式的陣列變數帶列位尾碼（`texts_0`／`fgs_1`／
+ * `segstart_2` 等，見 emit-bash.ts `pushLine`／`rowSuffix`）——這是「同一
+ * 段搬到另一列」時腳本區塊唯一應該改變之處。比對「除列位外覆寫值／格式
+ * 是否存活」前，先把尾碼正規化掉（統一換成 `_R`），使兩份區塊只在與列位
+ * 無關的內容上比較。
+ */
+function normalizeRowSuffix(block) {
+  return block.replace(/(texts|fgs|bgs|segstart)_\d+/g, '$1_R')
+}
+
 // ── 五案定義 ───────────────────────────────────────────────────────────
 
 // 1. 多列拖曳基本盤：同列相鄰兩段拖曳互換順序。
@@ -570,6 +633,179 @@ const caseOutputDialogEscFocusReturn = {
   },
 }
 
+// 8. T3.1（magi/13-test-hardening/TASKS.md M3）：非 inherit 覆寫（色＋
+//    variant）× 真 DnD 跨列拖曳存活——見檔頭文件「T3.1」節。段選擇＝
+//    `cwd`（segments.ts 三個可設 variant 的段之一，且不在 barEligibleIds／
+//    autoEligibleIds，主色 picker 為既有三態封閉版 createColorPicker，無
+//    auto/bar 正交干擾）。seed 刻意讓 cwd 原列（row 0）尚有另一段
+//    （duration）同列——跨列拖出 cwd 後來源列仍是真實列（非 pending 占位
+//    列），聚焦本案主旨（覆寫存活），不與已由案 2/5 覆蓋的 drain/pending
+//    語意重複。
+const caseColorVariantOverrideSurvivesDrag = {
+  id: 'color-variant-override-survives-drag',
+  label: 'T3.1：非 inherit 覆寫（色＋variant）× 真 DnD 跨列拖曳存活',
+  seed: { cwd: 0, duration: 0, cost: 1 },
+  async run({ evaluate, dragBySelector, delayFn }) {
+    // 設非 inherit 覆寫：真實 DOM 事件（比照既有 selectMove 手法：直接改
+    // 控件狀態＋dispatch 'change'，非 CDP 座標點擊——picker 面板以
+    // `hidden` 屬性隱藏未選中模式，座標點擊需先切模式才能命中，徒增
+    // flake 面而不增測試價值，本案價值在「覆寫存活於真 DnD」而非「picker
+    // 本身可點擊」，後者已有 default-hint/auto-color-duplicate-hint 等
+    // dom.test.ts 覆蓋）。
+    await evaluate(`
+      (() => {
+        const li = document.querySelector('[data-testid="segment-row"][data-segment-id="cwd"]');
+        const picker = li.querySelector('.segment-row__color-mount .color-picker');
+        const modeRadio = picker.querySelector('.color-picker__mode[value="ansi256"]');
+        modeRadio.checked = true;
+        modeRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        const swatchInput = picker.querySelectorAll('[data-swatch-container] input')[3];
+        swatchInput.checked = true;
+        swatchInput.dispatchEvent(new Event('change', { bubbles: true }));
+        return 'color-set';
+      })()
+    `)
+    await evaluate(`
+      (() => {
+        const sel = document.getElementById('cwd-variant');
+        sel.value = 'basename';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        return sel.value;
+      })()
+    `)
+    await delayFn(300)
+
+    const overrideExpr = `
+      (() => {
+        const li = document.querySelector('[data-testid="segment-row"][data-segment-id="cwd"]');
+        const picker = li.querySelector('.segment-row__color-mount .color-picker');
+        const modeRadio = picker.querySelector('.color-picker__mode:checked');
+        const spinValue = picker.querySelector('.color-spinbutton__value');
+        const variantSelect = document.getElementById('cwd-variant');
+        return {
+          colorMode: modeRadio ? modeRadio.value : null,
+          ansiIndex: spinValue ? Number(spinValue.textContent) : null,
+          variant: variantSelect ? variantSelect.value : null,
+        };
+      })()
+    `
+    const storedExpr = `
+      (() => {
+        const cfg = JSON.parse(localStorage.getItem('eztools:statusline-builder:config'));
+        const seg = cfg.segments.find((s) => s.id === 'cwd');
+        return { color: seg.color, variant: seg.variant, row: seg.row };
+      })()
+    `
+    const expectedOverride = { colorMode: 'ansi256', ansiIndex: 3, variant: 'basename' }
+
+    const beforeUi = await evaluate(overrideExpr)
+    if (JSON.stringify(beforeUi) !== JSON.stringify(expectedOverride)) {
+      return { ok: false, symptom: `UI override state before drag not applied: ${JSON.stringify(beforeUi)} (expected ${JSON.stringify(expectedOverride)})` }
+    }
+    const beforeStored = await evaluate(storedExpr)
+    if (beforeStored.color?.kind !== 'ansi256' || beforeStored.color.index !== 3 || beforeStored.variant !== 'basename' || beforeStored.row !== 0) {
+      return { ok: false, symptom: `stored config before drag not applied: ${JSON.stringify(beforeStored)}` }
+    }
+
+    const beforeSnapshot = await evaluate(SNAPSHOT_EXPR)
+    const expectedBeforeSnapshot = [
+      { kind: 'real', rowIndex: 1, segs: ['cwd', 'duration'], separatorOverride: 'inherit' },
+      { kind: 'real', rowIndex: 2, segs: ['cost'], separatorOverride: 'inherit' },
+    ]
+    if (JSON.stringify(beforeSnapshot) !== JSON.stringify(expectedBeforeSnapshot)) {
+      return { ok: false, symptom: `unexpected row snapshot before drag: ${JSON.stringify(beforeSnapshot)} (expected ${JSON.stringify(expectedBeforeSnapshot)})` }
+    }
+
+    const beforeScript = await evaluate(`document.querySelector('#output-bash code').textContent`)
+    const beforeBlock = extractSegmentBlock(beforeScript, 'cwd')
+    if (beforeBlock === null) {
+      return { ok: false, symptom: `cwd block not found in bash output before drag; full script: ${beforeScript}` }
+    }
+    // 指紋字面說明＋耦合意圖：`'38;5;3'` 為 ANSI 256 色前景 SGR 組碼字面
+    // （`38;5;<idx>`，對應上方 seed 指定的 ansi256 index=3）；`split("[/`
+    // 為 `basename` variant 專屬的 jq 片段開頭（cwd 段取路徑 basename 用，
+    // 見 emit-bash.ts 對應 emitSegment 分支）。兩者皆是對 emit-bash 具體
+    // 輸出格式的字面 snapshot——emit-bash 輸出格式（SGR 組碼寫法／jq 片段
+    // 寫法）未來若改動，本案（案 #8）此處與下方拖曳後同款檢查應同步更新，
+    // 否則會產生假陰性（指紋永遠找不到、誤判為「覆寫遺失」而非「格式已變」）。
+    if (!beforeBlock.includes("'38;5;3'") || !beforeBlock.includes('split("[/')) {
+      return { ok: false, symptom: `cwd block before drag missing override fingerprints (fg SGR '38;5;3' / basename split jq): ${beforeBlock}` }
+    }
+
+    // 真 DnD：cwd 握把拖至 cost 所在列列尾（同案 2/5/6 手法：dragBySelector
+    // + gripPointExpr/liPointExpr(0.75)＝插入目標列尾）。
+    const dragResult = await dragBySelector(gripPointExpr('cwd'), liPointExpr('cost', 0.75))
+    if (!dragResult.ok) return dragResult
+
+    const afterUi = await evaluate(overrideExpr)
+    if (JSON.stringify(afterUi) !== JSON.stringify(expectedOverride)) {
+      return { ok: false, symptom: `UI override state changed after drag: ${JSON.stringify(afterUi)} (expected unchanged ${JSON.stringify(expectedOverride)})` }
+    }
+    const afterStored = await evaluate(storedExpr)
+    if (afterStored.color?.kind !== 'ansi256' || afterStored.color.index !== 3 || afterStored.variant !== 'basename') {
+      return { ok: false, symptom: `stored color/variant changed after drag (expected unchanged): ${JSON.stringify(afterStored)}` }
+    }
+    if (afterStored.row !== 1) {
+      return { ok: false, symptom: `expected cwd row to change 0→1 after cross-row drag, got row=${afterStored.row}` }
+    }
+
+    const afterSnapshot = await evaluate(SNAPSHOT_EXPR)
+    const expectedAfterSnapshot = [
+      { kind: 'real', rowIndex: 1, segs: ['duration'], separatorOverride: 'inherit' },
+      { kind: 'real', rowIndex: 2, segs: ['cost', 'cwd'], separatorOverride: 'inherit' },
+    ]
+    if (JSON.stringify(afterSnapshot) !== JSON.stringify(expectedAfterSnapshot)) {
+      return { ok: false, symptom: `unexpected row snapshot after drag: ${JSON.stringify(afterSnapshot)} (expected ${JSON.stringify(expectedAfterSnapshot)})` }
+    }
+
+    const afterScript = await evaluate(`document.querySelector('#output-bash code').textContent`)
+    const afterBlock = extractSegmentBlock(afterScript, 'cwd')
+    if (afterBlock === null) {
+      return { ok: false, symptom: `cwd block not found in bash output after drag; full script: ${afterScript}` }
+    }
+    // 指紋字面同上（拖曳前 beforeBlock 檢查處）之說明，此處為拖曳後複驗、
+    // 同一組耦合意圖（emit-bash 輸出格式改動時本檢查亦須同步更新）。
+    if (!afterBlock.includes("'38;5;3'") || !afterBlock.includes('split("[/')) {
+      return { ok: false, symptom: `cwd block after drag missing override fingerprints (fg SGR '38;5;3' / basename split jq): ${afterBlock}` }
+    }
+
+    // 後綴身分一致性（🟢-8 補強，封「混寫迴歸雙過兩道檢查」縫隙）：下方
+    // normalizeRowSuffix 把 texts_N/fgs_N/bgs_N/segstart_N 全部收斂成 _R
+    // 才比對「除列位外是否相同」——若把 beforeBlock／afterBlock 兩側誤混寫
+    // （例如兩側其實代入了同一份 block），收斂後仍可能逐字相同，「正規化後
+    // 相同」這道檢查本身測不出這種誤植。故先各自驗證 raw 列位尾碼的身分：
+    // beforeBlock 應恆為 `_0`（cwd 種子在 row 0，見上方 seed／beforeStored.row
+    // 斷言）；afterBlock 應恆為 `_1`（cwd 真拖曳落點在 cost 所在 row 1，見
+    // 上方 afterStored.row 斷言）——先證兩側確實取自不同列位，下方正規化
+    // 比對才有意義。
+    const beforeSuffixes = beforeBlock.match(/(?:texts|fgs|bgs|segstart)_\d+/g) ?? []
+    const afterSuffixes = afterBlock.match(/(?:texts|fgs|bgs|segstart)_\d+/g) ?? []
+    if (beforeSuffixes.length === 0 || !beforeSuffixes.every((s) => s.endsWith('_0'))) {
+      return { ok: false, symptom: `beforeBlock row-suffixes should all be _0 (cwd seeded at row0): ${JSON.stringify(beforeSuffixes)}` }
+    }
+    if (afterSuffixes.length === 0 || !afterSuffixes.every((s) => s.endsWith('_1'))) {
+      return { ok: false, symptom: `afterBlock row-suffixes should all be _1 (cwd dragged to row1): ${JSON.stringify(afterSuffixes)}` }
+    }
+
+    // (b) 產出腳本含該覆寫＋拖前拖後僅列位差異：先證兩份區塊確實不同
+    // （排除「腳本壓根沒變、比較恆真」的假陽性），再證去除列位尾碼
+    // （texts_N/fgs_N/segstart_N）後逐字相同。
+    if (beforeBlock === afterBlock) {
+      return { ok: false, symptom: 'cwd block byte-identical before/after drag — expected row-suffix (texts_N/fgs_N/segstart_N) to differ since row grouping changed' }
+    }
+    const normalizedBefore = normalizeRowSuffix(beforeBlock)
+    const normalizedAfter = normalizeRowSuffix(afterBlock)
+    if (normalizedBefore !== normalizedAfter) {
+      return {
+        ok: false,
+        symptom: `cwd block differs beyond row position after normalizing row suffix:\nbefore: ${normalizedBefore}\nafter: ${normalizedAfter}`,
+      }
+    }
+
+    return { ok: true }
+  },
+}
+
 const CASES = [
   caseSameRowSwap,
   caseS1CrossRowDrain,
@@ -578,6 +814,7 @@ const CASES = [
   caseS7DragDrainReload,
   caseCatalogDragIntoRow,
   caseOutputDialogEscFocusReturn,
+  caseColorVariantOverrideSurvivesDrag,
 ]
 
 // ── 單案執行器：全新瀏覽器＋全新 user-data-dir ─────────────────────────

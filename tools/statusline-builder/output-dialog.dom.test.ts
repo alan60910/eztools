@@ -242,7 +242,7 @@ describe('複製通道刻意無 BOM（回退裁決，見 UTF8_BOM 常數 JSDoc�
     expect(payload).toBe(ps1Code)
   })
 
-  it('click copy-bash → payload 不以 U+FEFF 起始（bash 通道無 BOM）', async () => {
+  it('click copy-bash → payload 無 BOM，內容與產出 bash 全文一致', async () => {
     openBtn().click()
     document.getElementById('copy-bash')!.click()
     await Promise.resolve()
@@ -250,9 +250,11 @@ describe('複製通道刻意無 BOM（回退裁決，見 UTF8_BOM 常數 JSDoc�
     expect(writeText).toHaveBeenCalledTimes(1)
     const payload = writeText.mock.calls[0]?.[0] as string
     expect(payload).not.toMatch(/^\uFEFF/)
+    const bashCode = document.querySelector('#output-bash code')!.textContent ?? ''
+    expect(payload).toBe(bashCode)
   })
 
-  it('click copy-settings → payload 不以 U+FEFF 起始（settings 通道無 BOM）', async () => {
+  it('click copy-settings → payload 無 BOM，內容與產出 settings 片段全文一致', async () => {
     openBtn().click()
     document.getElementById('copy-settings')!.click()
     await Promise.resolve()
@@ -260,6 +262,8 @@ describe('複製通道刻意無 BOM（回退裁決，見 UTF8_BOM 常數 JSDoc�
     expect(writeText).toHaveBeenCalledTimes(1)
     const payload = writeText.mock.calls[0]?.[0] as string
     expect(payload).not.toMatch(/^\uFEFF/)
+    const settingsCode = document.querySelector('#output-settings code')!.textContent ?? ''
+    expect(payload).toBe(settingsCode)
   })
 
   it('writeText 拒絕 → copy-ps1 播報「複製失敗」落於 #output-status（工作項 3）', async () => {

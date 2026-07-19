@@ -424,11 +424,66 @@ describe.skipIf(!IS_WIN)('auto 預覽 vs 產出腳本一致 — PowerShell 5.1 �
   }, 30_000)
 })
 
-describe('real-exec skip 環境自述（診斷用，恆過）', () => {
+// ── skipIf meta（magi/13-test-hardening T2.1・T2.2：CI 跨後端 gate 守門，
+//    08 DRIFT 同族合帳） ──
+//
+// T2.1 真值表（本機 win32 實測；CI 兩 leg 由 test.yml＋detectBashExec 邏輯
+// 推導，標「推導」；完整逐環境對照落 magi/13-test-hardening/WORKS.md）：
+//   | gate                          | 本機 win32 | CI ubuntu | CI windows |
+//   |--------------------------------|-----------|-----------|------------|
+//   | BASH.ok（bash+jq 真執行）      | true（實測）| true（推導：Ensure jq step） | false（推導：sp5 便攜 jq gitignored、SP5_JQ_DIR 未設） |
+//   | IS_WIN（ps1 5.1，僅平台旗標、無真偵測） | true（實測） | false（推導） | true（推導：process.platform 恆 win32） |
+// 本檔 ps1 gate（`IS_WIN`）與 pipeline.integration.test.ts 的 `PS1.ok`（真
+// spawn 偵測）不同——僅平台旗標即開跑，windows leg 不可能靜默跳過（無需
+// 額外守門解跳）；bash gate 才有靜默跳過風險，故本節守門聚焦 BASH.ok。
+describe('real-exec skip 環境自述（診斷用）', () => {
   it('bash／ps1 real-exec 啟用狀態', () => {
     console.warn(`[fixtures] bash+jq: ${BASH.ok ? 'ENABLED' : `SKIP（${(BASH as { reason: string }).reason}）`}`)
     console.warn(`[fixtures] ps1 5.1: ${IS_WIN ? 'ENABLED（win32）' : 'SKIP（非 win32）'}`)
     expect(true).toBe(true)
+  })
+
+  // T2.2 新增：CI leg 專屬拓撲守門（GITHUB_ACTIONS 辨識現在跑在哪個 leg；
+  // 本機無此 env、if 條件不觸發下列斷言本體——本機 win32 若誤觸發會因
+  // BASH.ok 現為 true 而翻紅，見 DONE 報告「非恆真紅證」段落）。
+  const isCi = process.env.GITHUB_ACTIONS === 'true'
+
+  it('ubuntu leg（CI 非 win32）：bash+jq 為該 leg 唯一真執行載重，present 卻 skip＝bug（不得靜默跳過）', () => {
+    if (isCi && !IS_WIN) {
+      expect(
+        BASH.ok,
+        `ubuntu leg BASH.ok 應為 true；若 skip：${BASH.ok ? '' : (BASH as { reason: string }).reason}`,
+      ).toBe(true)
+    }
+  })
+
+  it('windows leg（CI）：BASH.ok 依既有刻意拓撲恆假（sp5 便攜 jq gitignored）——鎖住此拓撲、reason 須為已知原因', () => {
+    if (isCi && IS_WIN) {
+      expect(
+        BASH.ok,
+        'windows leg BASH.ok 預期為 false（jq 便攜檔缺席）；若為 true 代表拓撲已改變，需人工覆核並更新 WORKS 真值表' +
+          '（或本機誤設 GITHUB_ACTIONS env——非 CI 環境請先 unset 再判斷）',
+      ).toBe(false)
+      // reason 字串全集（本檔 detectBashExec win32 分支可能產生，抄錄自其
+      // 實作字面）：
+      //   - 'Git Bash 不存在（SP5_BASH 可指定）'（bash 二進位未偵得）
+      //   - `SP5_JQ_DIR 指定目錄無 jq.exe（${overrideBin}）`（顯式覆寫但該目錄缺 jq.exe）
+      //   - `jq-windows-amd64.exe 不存在（${jqBin}）`（預設路徑；CI windows
+      //     leg 現行既有拓撲之預期落點）
+      // 下方 regex 僅鎖後兩者（現行已知拓撲）：此分支本機零執行覆蓋、首次
+      // 真驗＝CI windows leg 首跑；不符時放寬 regex 而非改拓撲。
+      if (!BASH.ok) {
+        expect(
+          (BASH as { reason: string }).reason,
+          `windows leg BASH skip 理由須匹配已知原因，實際：${(BASH as { reason: string }).reason}`,
+        ).toMatch(/jq-windows-amd64\.exe 不存在|SP5_JQ_DIR/)
+      }
+      // ps1 gate（IS_WIN）本身不可能靜默跳過（見檔頭說明），此處仍補一道
+      // 獨立新鮮探測防線（比照 pipeline.integration.test.ts 同慣例）：
+      // windows runner 恆有 powershell.exe，若探測失敗代表 runner 拓撲異常。
+      const fresh = spawnSync('powershell', ['-NoProfile', '-Command', 'exit 0'])
+      expect(fresh.error === undefined && fresh.status === 0, 'windows leg 應有 powershell.exe').toBe(true)
+    }
   })
 })
 

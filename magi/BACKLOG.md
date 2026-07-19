@@ -6,6 +6,12 @@ one into a new sprint.
 
 ## Pending
 <!-- /magi:commit appends C-class drift items here -->
+- [ ] statusline 測試 detect 複本可攜性：三份 `detectBashExec`／`detectRealExec` win32 候選硬編個人路徑 `C:\Users\alan6\scoop\...`——改 PATH 探測＋`SP5_BASH`／`SP5_JQ_DIR` env 覆寫文件化（對其他協作者機器是地雷；單人 repo 現況無實害）
+  > from `magi/13-test-hardening/DRIFT.md` (2026-07-19)
+- [ ] 備忘：CI 拓撲鎖（sprint 13 meta 守門）設計為「拓撲變更時 CI 先紅、逼人工覆核」——日後動 CI 拓撲（如讓 windows leg 跑 bash 案）的 sprint TICKET 須預記「連動更新三檔拓撲鎖與真值表」，免誤判迴歸
+  > from `magi/13-test-hardening/DRIFT.md` (2026-07-19)
+- [ ] `emit-ps1.test.ts` 真執行 spawn 檔補檔級 timeout 體制（culture-invariance 案於全套並行負載下踩 5s 兩次——sprint 13 實測；同構先例：i18n-dom／lang-switch／pipeline 的 `vi.setConfig({ testTimeout: 30_000 })`，一行補強）
+  > from `magi/13-test-hardening/DRIFT.md` (2026-07-19)
 - [ ] verify-dist `_probe` 洩漏防線加固：現行 `checkNoUnderscoreToolDirs` 僅偵測目錄形洩漏；chunk／import 形態（出貨頁誤 import `tools/_` 路徑 → 打進 `dist/assets/*.js`）無感——候選：assets 檔名掃描（限檔名勿全文 grep：`dist/vendor/ffmpeg/ffmpeg-core.wasm` 內含 av*probe 符號的 `_probe` 位元組字串，全文 grep 必誤報）或 source 側 import 斷言
   > from `magi/12-hygiene-tail/DRIFT.md` (2026-07-19)
 - [ ] 同族 `.t<n>` 短形死指標順手清：`.t15`／`.t23` 等 12 處散布 emit-bash.ts／emit-ps1.ts／emit-settings.ts／emit-ps1.test.ts／pipeline.integration.test.ts（`-report` 後綴形已於 sprint 12 歸零；短形指涉同批從未簽入的 spike 報告）＋main.ts `T5.5-report` 字面
@@ -13,8 +19,6 @@ one into a new sprint.
 - [ ] **sprint 09 真機驗收批（遞延）**：T6.2-CHECKLIST.md A–F 區親測回報＋變體 A/B 圈選（現行 A）＋micro-fix-3 去留（行動版欄序 DOM 真搬，治 Tab/SR 序分歧＋列群組標題低於摺線 38–154px 殘餘）；僅真機能驗面清單見 MAGI_CODE_REVIEW「Untested paths」（頂帶 40dvh 量測／CSS order 摺線／原生 dialog 鏈）
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
   > sprint 10 併入（2026-07-18）：雙分頁互切主題即時同步＋OS 深淺切換即時跟隨（未手動切換過的分頁）＋聚焦 toggle 鈕時外部觸發 aria-pressed 變化之 SR 播報行為——見 `magi/10-theme-config-hardening/WORKS.md` M4 遞延記錄
-- [ ] **sprint 09 測試網加固批**：i18n-meta-scan 補屬性巡檢（aria-label／placeholder／title／alt 含 CJK 未掛 data-i18n-attr 即紅——review Important #2）＋main.ts strip 窄盲點（字串內 `//`、同行 throw）＋windows CI leg `BASH.ok && PS1.ok` meta 守門＋複製內容 clipboard spy 斷言（三鈕對應內容＋成功/失敗分支）＋真 DnD × 非 inherit 覆寫值 e2e 組合
-  > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
 - [ ] statusline-builder 雙寫收斂＋footgun 加固：planSegmentMove 回傳形補 sourceRow/srcDrains（消 computeRowSeparatorsAfterMove 鏡射重算）＋config.ts export 單一 trim helper（消 normalizeRowSeparatorsField 雙寫）＋descriptor.label/ariaText「凍結 zh、顯示走 accessor」JSDoc 加固＋messages「零漂移」恆真測試改述或刪除＋emit-settings 三 hint 常數「UI 用」註解修正與 colorDisplayLabel default/auto 死分支清理
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
 - [ ] statusline-builder：配置**匯入／匯出 UI**（現無檔案匯入，fixture 只能靠 localStorage 灌入——見 T5.4-CHECKLIST A 區）
@@ -24,8 +28,6 @@ one into a new sprint.
 - [ ] statusline-builder：非整數 `STATUSLINE_NOW_EPOCH`／`resets_at` 三後端分岔（不可達，真資料恆整數）——補固定案鎖「一致」或文件化 backend-defined
   > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
 - [ ] statusline-builder：bar 百分比路徑缺 `type=="number"` 閘（字串型主值三向分歧，不可達）
-  > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
-- [ ] statusline-builder：CI 跨後端 byte-exact 等價案以 `(BASH.ok && PS1.ok)` gate 在 CI 拓撲恆假、全靜默跳過，meta 斷言查不到共存缺失——補守衛或 PLAN 文件化 CI gate 矩陣
   > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
 - [ ] statusline-builder：git shell-out 段執行期輸出在 CI 零有效真執行覆蓋（既有盲區）
   > from `magi/08-statusline-catalog-expansion/DRIFT.md` (2026-07-15)
@@ -90,6 +92,8 @@ one into a new sprint.
 
 ## Promoted to sprints
 <!-- /magi:plan moves consumed items here -->
+- ~~sprint 09 測試網加固批（i18n-meta-scan 屬性巡檢＋strip 盲點＋CI gate meta 守門＋clipboard spy 對帳＋真 DnD e2e 組合＋i18n-dom flake 根因）~~ → `magi/13-test-hardening/` (2026-07-19)
+- ~~statusline-builder：CI 跨後端 byte-exact 等價案 `(BASH.ok && PS1.ok)` gate 靜默跳過——補守衛~~ → `magi/13-test-hardening/`（與 09 加固批同族合帳）(2026-07-19)
 - ~~statusline-builder：複製到剪貼簿的 `.ps1` 無 UTF-8 BOM（殘餘：自訂 prefix／分隔符非 ASCII 內容）~~ → `magi/12-hygiene-tail/` (2026-07-18)
 - ~~決定 `_probe` 的長期去留（含 style.css stub 補件）~~ → `magi/12-hygiene-tail/` (2026-07-18)
 - ~~衛生殘項：失效行號引用 ×2＋sprint-05 dotfile 報告引用落空＋forailook/ 處置＋magi/05 遺留 untracked 清理~~ → `magi/12-hygiene-tail/` (2026-07-18)（註：forailook/ 於 promote 前已自然消解（已刪＋已 ignore）、magi/05 僅剩承重 sp5/ 依裁保留——兩者實為零動作結案）

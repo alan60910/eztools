@@ -1102,6 +1102,19 @@ function probeJqVersion(): string {
 
 // skip 時輸出 reason（PLAN §CI skipIf 不變量：skip 須有理由；本測本機在則跑，
 // CI ubuntu/windows leg 亦應為假——恆真死測由 T2.7 harness 的 meta 斷言把關）。
+//
+// ── skipIf meta（magi/13-test-hardening T2.1・T2.2：CI 跨後端 gate 守門，
+//    08 DRIFT 同族合帳） ──
+//
+// T2.1 真值表（本機 win32 實測；CI 兩 leg 由 test.yml＋detectRealExec 邏輯
+// 推導，標「推導」；完整逐環境對照落 magi/13-test-hardening/WORKS.md）：
+//   | gate                   | 本機 win32 | CI ubuntu | CI windows |
+//   |-------------------------|-----------|-----------|------------|
+//   | REAL_EXEC.ok（bash+jq） | true（實測）| true（推導：Ensure jq step） | false（推導：sp5 便攜 jq gitignored、SP5_JQ_DIR 未設） |
+// 本檔僅 bash＋jq 一路（無 ps1 概念）——windows leg 恆假即整份「端到端
+// byte-exact」「T4.3 倒數段」兩個 describe.skipIf 區塊於該 leg 恆靜默跳過
+// （既有刻意拓撲，見 test.yml 檔頭註解；非 bug）；ubuntu leg 為該 leg 唯一
+// 真執行載重，present 卻 skip＝bug。
 it('端到端 byte-exact 環境自述', () => {
   if (!REAL_EXEC.ok) {
     console.warn(`[emit-bash] 端到端 byte-exact 跳過：${REAL_EXEC.reason}`)
@@ -1111,6 +1124,51 @@ it('端到端 byte-exact 環境自述', () => {
     )
   }
   expect(true).toBe(true)
+})
+
+describe('skipIf meta（T2.2；REAL_EXEC 拓撲守門——本檔僅 bash＋jq 一路，無 ps1）', () => {
+  // GITHUB_ACTIONS 辨識現在跑在哪個 leg；本機無此 env，if 條件不觸發下列
+  // 斷言本體（本機 win32 若誤觸發會因 REAL_EXEC.ok 現為 true 而翻紅，見
+  // DONE 報告「非恆真紅證」段落）。
+  const isCi = process.env.GITHUB_ACTIONS === 'true'
+  const isWin = process.platform === 'win32'
+
+  it('ubuntu leg（CI 非 win32）：bash+jq 為該 leg 唯一真執行載重，present 卻 skip＝bug（不得靜默跳過）', () => {
+    if (isCi && !isWin) {
+      expect(
+        REAL_EXEC.ok,
+        `ubuntu leg REAL_EXEC.ok 應為 true；若 skip：${REAL_EXEC.ok ? '' : (REAL_EXEC as { reason: string }).reason}`,
+      ).toBe(true)
+    }
+  })
+
+  it('windows leg（CI）：REAL_EXEC.ok 依既有刻意拓撲恆假（sp5 便攜 jq gitignored）——鎖住此拓撲、reason 須為已知原因', () => {
+    // 鎖住現況（非鎖死改動）：若未來拓撲改變（CI 誤設 SP5_JQ_DIR、jq 二進位
+    // 被誤 commit、windows runner 開始內建 jq），本斷言會翻紅逼出人工覆核
+    // 並更新 T2.1 真值表——而非讓本檔兩個 describe.skipIf 區塊悄悄從「windows
+    // leg 不可跑」變成「可跑」卻無人知曉（或反之，悄悄失去該 leg 覆蓋）。
+    if (isCi && isWin) {
+      expect(
+        REAL_EXEC.ok,
+        'windows leg REAL_EXEC.ok 預期為 false（jq 便攜檔缺席）；若為 true 代表拓撲已改變，需人工覆核並更新 WORKS 真值表' +
+          '（或本機誤設 GITHUB_ACTIONS env——非 CI 環境請先 unset 再判斷）',
+      ).toBe(false)
+      // reason 字串全集（本檔 detectRealExec win32 分支可能產生，抄錄自其
+      // 實作字面）：
+      //   - 'Git Bash 不存在（SP5_BASH 可指定；PATH 上的 bash 可能為 WSL 不可用）'（bash 二進位未偵得）
+      //   - `SP5_JQ_DIR 指定目錄無 jq.exe（${overrideBin}）`（顯式覆寫但該目錄缺 jq.exe）
+      //   - `jq-windows-amd64.exe 不存在（${jqBin}）`（預設路徑；CI windows
+      //     leg 現行既有拓撲之預期落點）
+      // 下方 regex 僅鎖後兩者（現行已知拓撲）：此分支本機零執行覆蓋、首次
+      // 真驗＝CI windows leg 首跑；不符時放寬 regex 而非改拓撲。
+      if (!REAL_EXEC.ok) {
+        expect(
+          (REAL_EXEC as { reason: string }).reason,
+          `windows leg REAL_EXEC skip 理由須匹配已知原因，實際：${(REAL_EXEC as { reason: string }).reason}`,
+        ).toMatch(/jq-windows-amd64\.exe 不存在|SP5_JQ_DIR/)
+      }
+    }
+  })
 })
 
 describe.skipIf(!REAL_EXEC.ok)('端到端 byte-exact（bash＋jq 真執行）', () => {

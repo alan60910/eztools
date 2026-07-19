@@ -243,6 +243,16 @@ export function renderRuns(
 ): void {
   const spec = buildPreviewSpec(rows, locale)
   container.setAttribute('role', 'group')
+  // 雙寫入者註解（magi/13-test-hardening 🟢-4）：外層容器的 `aria-label`
+  // （i18n key＝`previewAria.groupLabel`）在本專案有兩個寫入者——
+  // (1) index.html `#preview-terminal` 的靜態 `data-i18n-attr=
+  // "aria-label:previewAria.groupLabel"`（由 applyI18n 於 boot／切語言時
+  // 寫入）；(2) 此處每次 resolve 後的執行期覆寫（同一 key，取值來源同為
+  // `t(locale).previewAria.groupLabel`，見上方 buildPreviewSpec／檔頭
+  // PREVIEW_GROUP_LABEL）。同 key 同值收斂＝良性冗餘，非衝突：靜態掛標
+  // 滿足「HTML 自洽＋巡檢工具（如 i18n-meta-scan）可直接讀出 aria-label
+  // 對應 i18n key」之需求（sprint 13），執行期覆寫則確保實際渲染值真的
+  // 跟著 resolve 所用語系走。兩者職責不同、改動任一側時勿誤刪另一側。
   container.setAttribute('aria-label', spec.groupLabel)
   container.replaceChildren(
     ...spec.rows.map((rowSpec) => {
