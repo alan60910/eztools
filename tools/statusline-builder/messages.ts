@@ -214,6 +214,26 @@ export interface Messages {
   /** T5.5：catalog-item-template 靜態文案。 */
   catalog: {
     addedBadge: string
+    /**
+     * T3.2（magi/14-statusline-ux-round2/PLAN.md §D2′；TASKS.md T3.2）：
+     * 目錄列樣例值 fallback 文案——sample-values.ts 逐段合成擲空／整批
+     * 擲錯時皆改顯此文案（locale 相依）。
+     */
+    sampleUnavailable: string
+  }
+  /**
+   * T3.6（magi/14-statusline-ux-round2/PLAN.md §D5；TASKS.md T3.6）：拖曳
+   * 教學帶（tutorial-band）靜態文案——index.html `data-i18n="tutorial.
+   * dragHint"`／`data-i18n="tutorial.dismiss"` 掛標對應鍵，`applyI18n`
+   * 開機與切換語言時寫回。dismiss 鈕定案沿用「可見文字即可及名稱」慣例
+   * （同 `#output-dialog-close`），不另掛 `aria-label`／`data-i18n-attr`
+   * （T2.6 留白至此定案，見 index.html 該處註解）。
+   */
+  tutorial: {
+    /** 教學帶主文案：一句話說明拖曳段名可排序與移列。 */
+    dragHint: string
+    /** dismiss 鈕可見文字（同時作為其可及名稱）。 */
+    dismiss: string
   }
   /**
    * T5.4：header 語言切換鈕文案——皆以「目前生效語言」為準記錄「切至
@@ -522,6 +542,11 @@ const zhHant: Messages = {
   },
   catalog: {
     addedBadge: '已加入',
+    sampleUnavailable: '（無樣例）',
+  },
+  tutorial: {
+    dragHint: '拖曳段名可排序與移列',
+    dismiss: '知道了',
   },
   langToggle: {
     shortLabel: 'EN',
@@ -753,6 +778,11 @@ const en: Messages = {
   },
   catalog: {
     addedBadge: 'Added',
+    sampleUnavailable: '(no sample)',
+  },
+  tutorial: {
+    dragHint: 'Drag a segment name to reorder or move it to another row',
+    dismiss: 'Got it',
   },
   langToggle: {
     shortLabel: '中',

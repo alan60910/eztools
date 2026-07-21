@@ -6,6 +6,18 @@ one into a new sprint.
 
 ## Pending
 <!-- /magi:commit appends C-class drift items here -->
+- [ ] statusline-builder review 尾批小修包（sprint 14 復核 notes 整併）：wireMoveRevealModality 註解作用域改述＋「move-reveal 新案斷言前顯式派發模態事件」慣例成文、`mediaBlockRange` 括號計數不防註解內孤立大括號備忘、style.css 行動版註解「不落入任何規則」過度陳述修辭、`shrinkRowGroupContainers` 防禦 fallback 入池補 strip 一行（理論不可達）、e2e Node 版本 gate 對 23.0–23.5 放行縫（23.x 已 EOL）、e2e `seedTutorial`/`dismissTutorial` 命名統一＋`#list-column.scrollTop` 後備分支加除錯輸出、`sweepOrphanBrowser` 僅掃 msedge 備忘
+  > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
+- [ ] statusline-builder main.ts 下沉與介面氣味收斂：`wireMoveRevealModality`（含模組層模態旗標）抽獨立模組＋test-only reset hook（連動收斂模態旗標跨測試案殘留的隔離問題）；`getSampleValues` 快取命中忽略 `resolveFn` 的「參數有時無效」氣味——resolveFn 移入 test-only 注入口
+  > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
+- [ ] statusline-builder 測試網小補強：樣例值「零控制碼」（升級 S2 一次性結論為常駐斷言）＋「全空白 `text.trim()`」fallback 判準兩條、move-reveal 跨列 focus 轉移 dom 案（focusout relatedTarget 分支唯一未直接證明路徑）、`handleLocaleSwitch` 尾端補 `syncColumnTop()`（近零成本消切語後 `--column-top` 陳舊）
+  > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
+- [ ] **statusline-builder 第三輪真機驗收批（sprint 14 版面終形）**：觸控 move 鈕不可達（pointerdown 恆判 mouse＋收納態 pointer-events:none，「行動斷點恆顯」media 後備已列 PLAN 備忘——高優先）＋行動版捲動下 sticky 預覽繪序完整性（z-index:2 修法真機確認）＋行動版中欄 sticky 佔位可接受度＋教學帶出現時序目視＋`↺`(U+21BA) 跨字型字寬＋windows-cjk 長路徑 compact 列 CSS 截斷＋Firefox 異質引擎（move 鈕四斷言／拖曳邊緣捲動，S3-RESULT 附人工配方）——完整清單見 `magi/14-statusline-ux-round2/WORKS.md`「⏸️ 停點」節手動驗證清單
+  > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
+- [ ] dist 建置頁 1400px viewport 下 `max-width:1360px` media 覆寫疑未生效——疑似 sprint 14 之前既有問題，DevTools 對帳定性（本頁 local override 於 ≥1100px 放寬 1360px、≥1400px 再放寬 1800px，1400px 恰為斷點邊界，疑與量測條件有關）
+  > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
+- [ ] statusline-builder flake 殘餘二案檔級 timeout：catalog-sample-values.dom.test.ts（T3.4 語言切換重渲染案）＋layout-columns.dom.test.ts（T2.2 header 高度變動案）於全套並行負載下偶踩 5000ms——同構解＝檔級 `vi.setConfig({ testTimeout: 30_000 })`（sprint 13 先例）；順手項：教學帶 `infinite` 動畫省電微調（有限次數／首次互動即停）候選
+  > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
 - [ ] statusline 測試 detect 複本可攜性：三份 `detectBashExec`／`detectRealExec` win32 候選硬編個人路徑 `C:\Users\alan6\scoop\...`——改 PATH 探測＋`SP5_BASH`／`SP5_JQ_DIR` env 覆寫文件化（對其他協作者機器是地雷；單人 repo 現況無實害）
   > from `magi/13-test-hardening/DRIFT.md` (2026-07-19)
 - [ ] 備忘：CI 拓撲鎖（sprint 13 meta 守門）設計為「拓撲變更時 CI 先紅、逼人工覆核」——日後動 CI 拓撲（如讓 windows leg 跑 bash 案）的 sprint TICKET 須預記「連動更新三檔拓撲鎖與真值表」，免誤判迴歸
@@ -16,9 +28,10 @@ one into a new sprint.
   > from `magi/12-hygiene-tail/DRIFT.md` (2026-07-19)
 - [ ] 同族 `.t<n>` 短形死指標順手清：`.t15`／`.t23` 等 12 處散布 emit-bash.ts／emit-ps1.ts／emit-settings.ts／emit-ps1.test.ts／pipeline.integration.test.ts（`-report` 後綴形已於 sprint 12 歸零；短形指涉同批從未簽入的 spike 報告）＋main.ts `T5.5-report` 字面
   > from `magi/12-hygiene-tail/DRIFT.md` (2026-07-19)
-- [ ] **sprint 09 真機驗收批（遞延）**：T6.2-CHECKLIST.md A–F 區親測回報＋變體 A/B 圈選（現行 A）＋micro-fix-3 去留（行動版欄序 DOM 真搬，治 Tab/SR 序分歧＋列群組標題低於摺線 38–154px 殘餘）；僅真機能驗面清單見 MAGI_CODE_REVIEW「Untested paths」（頂帶 40dvh 量測／CSS order 摺線／原生 dialog 鏈）
+- [ ] **sprint 09 真機驗收批（遞延）**：T6.2-CHECKLIST.md A–F 區親測回報＋變體 A/B 圈選（現行 A）＋~~micro-fix-3 去留（行動版欄序 DOM 真搬，治 Tab/SR 序分歧＋列群組標題低於摺線 38–154px 殘餘）~~（sprint 14 已落地行動版 DOM 真搬：index.html 源序「設定→預覽→清單」＋原生單一 DOM 序，兩斷點 DOM 序＝視覺序＝Tab 序，零 JS 搬移，見 `magi/14-statusline-ux-round2/` S5 定案與 T2.1–T2.3，micro-fix-3 就此收斂、去留問題消滅，2026-07-21）；僅真機能驗面清單見 MAGI_CODE_REVIEW「Untested paths」（頂帶 40dvh 量測／CSS order 摺線／原生 dialog 鏈）
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
   > sprint 10 併入（2026-07-18）：雙分頁互切主題即時同步＋OS 深淺切換即時跟隨（未手動切換過的分頁）＋聚焦 toggle 鈕時外部觸發 aria-pressed 變化之 SR 播報行為——見 `magi/10-theme-config-hardening/WORKS.md` M4 遞延記錄
+  > sprint 14 註記（2026-07-21）：本批版面重排（三欄終形、頂帶降級入中欄、右欄同居單一捲動容器）使 T6.2-CHECKLIST A/C/F 區部分項目失效——「頂帶 40dvh 量測」「CSS order 摺線」等真機驗項對應的實作已不存在（40dvh 預算改掛預覽終端框、CSS order 手法由 DOM 真搬取代）；日後承接本條目時應先對 checklist 逐項重盤有效性，再排真機驗收。
 - [ ] statusline-builder 雙寫收斂＋footgun 加固：planSegmentMove 回傳形補 sourceRow/srcDrains（消 computeRowSeparatorsAfterMove 鏡射重算）＋config.ts export 單一 trim helper（消 normalizeRowSeparatorsField 雙寫）＋descriptor.label/ariaText「凍結 zh、顯示走 accessor」JSDoc 加固＋messages「零漂移」恆真測試改述或刪除＋emit-settings 三 hint 常數「UI 用」註解修正與 colorDisplayLabel default/auto 死分支清理
   > from `magi/09-statusline-ux-refactor/DRIFT.md` (2026-07-18)
 - [ ] statusline-builder：配置**匯入／匯出 UI**（現無檔案匯入，fixture 只能靠 localStorage 灌入——見 T5.4-CHECKLIST A 區）

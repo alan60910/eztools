@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>S1/S5 PoC — statusline-builder 三欄複合版面（sprint 14 round-2, Lane A T1.1/T1.2/T1.6）</title>
+<!--
+  ============================================================================
+  磁碟位置：magi/14-statusline-ux-round2/spikes/s1-layout-poc.html
+  用途：Milestone 1 Lane A（T1.1／T1.2／T1.6）PoC——驗證 PLAN.md Rev 4 D2 節
+  三欄終形版面幾何是否成立，結論回填 spikes/S1-RESULT.md、spikes/S5-RESULT.md。
+
+  完全自足：inline CSS/JS，零外部資源（零 <link>／零 <script src>／零字型
+  請求／零 network fetch）。不引用任何 tools/statusline-builder/ 或 src/ 下
+  的出貨檔案——本檔為獨立驗證品，不入 dist、不進建置流程。
+
+  假資料來源：tools/statusline-builder/segments.ts 的 30 個真實 segment id
+  （id 清單已逐一核對，本檔僅為每個 id 配上 PoC 用示意中文標籤／樣例值，
+  非真正 i18n 文案，不代表 M3 樣例值合成鏈的實際輸出——樣例值合成機制屬
+  D2′／T3.2 範圍，不在本 lane）。
+
+  色彩 token：inline 複製自 src/style.css :root（淺色）與
+  :root[data-theme='dark']（深色）數值，供 SVG currentColor／主題切換
+  demo 使用；本檔為獨立檔案，讀取複製值而非 import 原檔（零外部資源
+  規則不允許 <link>）。
+
+  幾何契約來源：magi/14-statusline-ux-round2/PLAN.md Rev 4 §D2（三欄終形）：
+    - 左欄＝全域設定（一般流內，非 sticky）。
+    - 中欄＝預覽＋產出鈕，欄內 `position: sticky; top: 0`；預覽終端框
+      `max-height: 40dvh`、內部捲動。
+    - 右欄＝單一捲動容器本身：
+      `position: sticky; top: 0; max-height: 100dvh; overflow-y: auto;
+       overscroll-behavior: contain`；內容序＝教學帶→目錄 compact 列→
+      已選擇清單，全在文件流內。
+    - 破口後備：`max-height: calc(100dvh - var(--column-top))`
+      （--column-top 為頁首高度，JS 於 load 時依假頁首實際 offsetHeight
+      寫入，見下方 script；頁首高度於 load 後為靜態值，不隨捲動變動，故
+      一次性寫入即可，不需在 scroll 事件中重算）。
+    - move 鈕收納態＝`opacity:0; pointer-events:none`（佔位、零版面躍動、
+      留 Tab 序）；`.row:has(:focus-visible)` 觸發浮現。
+    - 教學帶＝抓取圖示＋一句文案＋SVG 迷你動畫（inline、aria-hidden、
+      focusable="false"、currentColor）＋「知道了」dismiss 鈕；
+      prefers-reduced-motion 停格。
+    - 行動版（<1100px）：摺疊序＝設定→預覽→清單（清單節＝教學帶＋目錄＋
+      已選擇整節），media query 內解除右欄 max-height／sticky。
+
+  T1.6 佈局方案決策（本檔即為該決策的具體實作，非另一套假設）：
+    見下方 <main class="builder-columns"> 標記——三個 <section> 在 DOM
+    原始順序即為「設定→預覽→清單」，desktop 3 欄 grid 採「無 order／
+    無 grid-area 欄位重映射」的自然文件序放置（grid auto-placement 依
+    DOM 序落欄），行動斷點只把 grid 換成 flex column 單欄堆疊——同一份
+    DOM 序在兩種斷點下視覺序恆等於 DOM 序，**不需任何 JS 節點搬移**
+    （PLAN 候選「原生單一 DOM 序天然滿足兩形」）。結論與證據見
+    spikes/S5-RESULT.md。
+  ============================================================================
+-->
+<style>
+  /* ---- 色彩 token（複製自 src/style.css :root／:root[data-theme='dark']，
+     僅本檔測試用途——數值來源見檔頭註解） ---- */
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --fg-muted: #4b5563;
+    --link: #1d4ed8;
+    --border: #e5e7eb;
+    --border-strong: #d1d5db;
+    --surface: #ffffff;
+    --surface-dim: #f9fafb;
+    --accent-fill: #1d4ed8;
+    --accent-fill-hover: #1e40af;
+    --accent-fill-fg: #ffffff;
+    --badge-bg: #e5e7eb;
+    --badge-fg: #374151;
+    --badge-ok-bg: #dcfce7;
+    --badge-ok-fg: #166534;
+
+    --dark-bg: #0f1419;
+    --dark-fg: #e6edf3;
+    --dark-fg-muted: #9ba3af;
+    --dark-link: #60a5fa;
+    --dark-border: #30363d;
+    --dark-border-strong: #3d444d;
+    --dark-surface: #0f1419;
+    --dark-surface-dim: #161b22;
+    --dark-accent-fill: #2563eb;
+    --dark-accent-fill-hover: #2f6fdb;
+    --dark-accent-fill-fg: #ffffff;
+    --dark-badge-bg: #30363d;
+    --dark-badge-fg: #c9d1d9;
+    --dark-badge-ok-bg: #14532d;
+    --dark-badge-ok-fg: #86efac;
+
+    /* 破口後備 calc() 用；JS 於 load 後依假頁首實測 offsetHeight 覆寫。
+       236px 為 CDP 對 dist 建置頁面實測 `header` 高度的初始近似值
+       （量測指令與輸出見 S1-RESULT.md 檢核 3），JS 覆寫前的暫時值。 */
+    --column-top: 236px;
+  }
+
+  html[data-theme='dark'] {
+    --bg: var(--dark-bg);
+    --fg: var(--dark-fg);
+    --fg-muted: var(--dark-fg-muted);
+    --link: var(--dark-link);
+    --border: var(--dark-border);
+    --border-strong: var(--dark-border-strong);
+    --surface: var(--dark-surface);
+    --surface-dim: var(--dark-surface-dim);
+    --accent-fill: var(--dark-accent-fill);
+    --accent-fill-hover: var(--dark-accent-fill-hover);
+    --accent-fill-fg: var(--dark-accent-fill-fg);
+    --badge-bg: var(--dark-badge-bg);
+    --badge-fg: var(--dark-badge-fg);
+    --badge-ok-bg: var(--dark-badge-ok-bg);
+    --badge-ok-fg: var(--dark-badge-ok-fg);
+  }
+
+  * { box-sizing: border-box; }
+  /* 讓 `hidden` 屬性語意可靠：同 src/style.css 既有防禦（本檔獨立複製，
+     零外部資源規則不得 <link> 該檔）——作者級 `.tutorial-band{display:flex}`
+     與 UA `[hidden]{display:none}` 同 specificity（皆 0,1,0），cascade
+     順序後者（作者樣式表）會贏，若不補這條 `!important`，dismiss 後
+     `hidden` 屬性不會真的隱藏教學帶（CDP 實測抓到此坑，見 S1-RESULT.md
+     檢核 3 過程記錄）。 */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    font-family: 'Noto Sans TC', 'Microsoft JhengHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: var(--fg);
+    background-color: var(--bg);
+    line-height: 1.5;
+  }
+  h1, h2, h3, p, ul { margin: 0; }
+  ul { list-style: none; padding: 0; }
+  button { font: inherit; cursor: pointer; }
+  svg { display: block; }
+
+  /* ---- PoC 專用測試控制面板（非出貨 UI 一部分；position:fixed 脫離文件流，
+     不影響任何幾何量測——column-top／sticky 行為皆只量測 <header> 與
+     <main> 的三欄，不含本面板） ---- */
+  .poc-panel {
+    position: fixed;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 999;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    max-width: 260px;
+    padding: 0.625rem;
+    background: var(--surface);
+    border: 2px dashed var(--border-strong);
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+    font-size: 0.75rem;
+  }
+  .poc-panel__title {
+    width: 100%;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+  }
+  .poc-panel button {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.25rem;
+    background: var(--surface-dim);
+    color: var(--fg);
+  }
+  #poc-status {
+    width: 100%;
+    color: var(--fg-muted);
+    white-space: pre-wrap;
+  }
+
+  /* ---- 假頁首（模擬 HEAD 現況：header 全寬 border-bottom，內含返回
+     連結／標題／說明／主題切換／語言切換；padding-block 與字級與
+     tools/statusline-builder/index.html 現行 header 對齊，CDP 對 dist
+     建置頁面實測本頁首在 1400x1000 viewport 下高度 ≈236.4px，見
+     S1-RESULT.md 檢核 3 佐證） ---- */
+  header.fake-header {
+    max-width: 1600px;
+    margin-inline: auto;
+    padding: 2rem 1.5rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+  header.fake-header h1 { font-size: 1.75rem; font-weight: 700; color: var(--fg); }
+  header.fake-header p { margin-top: 0.375rem; color: var(--fg-muted); font-size: 1rem; max-width: 60ch; }
+  header.fake-header .back-link { color: var(--link); font-size: 0.875rem; }
+  header.fake-header .theme-toggle,
+  header.fake-header .lang-toggle {
+    display: inline-block;
+    margin-top: 0.75rem;
+    margin-right: 0.5rem;
+    padding: 0.375rem 0.875rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--fg);
+    background-color: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+  }
+
+  /* ============================================================
+     三欄終形（T1.6 佈局方案：無 order／無 grid-area 欄位重映射，
+     grid auto-placement 依 DOM 原始序落欄 → DOM 序＝視覺序，
+     見檔頭「T1.6 佈局方案決策」區塊）
+     ============================================================ */
+  main.builder-columns {
+    max-width: 1600px;
+    margin-inline: auto;
+    padding: 1.5rem;
+  }
+
+  @media (min-width: 1100px) {
+    main.builder-columns {
+      display: grid;
+      grid-template-columns: minmax(240px, 0.85fr) minmax(340px, 1.3fr) minmax(320px, 1.15fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+  }
+
+  @media (max-width: 1099.98px) {
+    main.builder-columns {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+  }
+
+  .col { min-width: 0; }
+
+  /* ---- 左欄：全域設定（一般流內，非 sticky） ---- */
+  .col--settings h2 { font-size: 1.125rem; margin-bottom: 0.75rem; }
+  .settings-field { margin-bottom: 0.875rem; }
+  .settings-field label { display: block; font-size: 0.875rem; margin-bottom: 0.25rem; color: var(--fg-muted); }
+  .settings-field select,
+  .settings-field input[type="text"] {
+    width: 100%;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--fg-muted);
+    border-radius: 0.25rem;
+    background: var(--surface);
+    color: var(--fg);
+  }
+  .settings-field .inline-choice { display: flex; align-items: center; gap: 0.375rem; font-size: 0.875rem; color: var(--fg); }
+  fieldset.settings-field { border: 0; padding: 0; }
+  fieldset.settings-field legend { font-size: 0.875rem; color: var(--fg-muted); padding: 0; margin-bottom: 0.25rem; }
+  fieldset.settings-field .radio-row { display: flex; gap: 1rem; font-size: 0.875rem; }
+
+  /* ---- 中欄：預覽＋產出鈕（欄內 sticky top:0；40dvh 預算掛在終端框） ---- */
+  .preview-sticky {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    padding-bottom: 0.75rem;
+    z-index: 3;
+  }
+  .preview-sticky h2 { font-size: 1.125rem; margin-bottom: 0.5rem; }
+  .preview-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .preview-controls .segmented { display: inline-flex; border: 1px solid var(--fg-muted); border-radius: 999px; overflow: hidden; }
+  .preview-controls .segmented button {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8125rem;
+    border: 0;
+    background: var(--surface);
+    color: var(--fg);
+  }
+  .preview-controls .segmented button[aria-pressed="true"] { background: var(--accent-fill); color: var(--accent-fill-fg); }
+  .preview-controls .output-open {
+    margin-left: auto;
+    padding: 0.375rem 0.875rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent-fill-fg);
+    background: var(--accent-fill);
+    border: 0;
+    border-radius: 0.375rem;
+  }
+  .preview-terminal {
+    max-height: 40dvh;
+    overflow-y: auto;
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+    background-color: #1e1e1e;
+    color: #e6e6e6;
+    font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
+    font-size: 0.875rem;
+    white-space: pre;
+  }
+  .preview-terminal div { padding-block: 0.125rem; }
+
+  /* ============================================================
+     右欄：單一捲動容器本身（教學帶→目錄→已選擇，全在文件流內）
+     ============================================================ */
+  .col--list {
+    position: sticky;
+    top: 0;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 1rem;
+  }
+  /* 破口後備模式（PLAN 既定後備，非自創架構）：初載可達性檢核破口時
+     啟用；本 PoC 以 class 手動切換以便對照量測兩態，正式實作應依
+     S1-RESULT.md 判定二擇一，非同時掛兩條規則。 */
+  .col--list.fallback-mode {
+    max-height: calc(100dvh - var(--column-top));
+  }
+
+  /* ---- 教學帶 ---- */
+  .tutorial-band {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    margin-bottom: 0.75rem;
+    background: var(--surface-dim);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+  }
+  .tutorial-band__grip { color: var(--fg-muted); }
+  .tutorial-band p { flex: 1 1 auto; font-size: 0.8125rem; color: var(--fg); }
+  .tutorial-svg { flex: 0 0 auto; color: var(--fg-muted); }
+  .tutorial-svg__box { animation: tutorial-drift 2.2s ease-in-out infinite; }
+  @keyframes tutorial-drift {
+    0%, 12% { transform: translateX(0); }
+    50% { transform: translateX(28px); }
+    88%, 100% { transform: translateX(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tutorial-svg__box { animation: none; }
+  }
+  /* PoC 專用模擬開關（OS 層級 prefers-reduced-motion 無法由頁面腳本
+     偽造，此 class 走同一組樣式規則作為人工開關示範，證明程式碼路徑
+     與真實 media query 一致，非另一套邏輯）。 */
+  html.poc-reduced-motion .tutorial-svg__box { animation: none; }
+  .tutorial-band__dismiss {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8125rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.25rem;
+    background: var(--surface);
+    color: var(--fg);
+  }
+
+  /* ---- 目錄 compact 列 ---- */
+  .col--list h2 { font-size: 1.0625rem; margin: 0.5rem 0 0.5rem; position: sticky; top: 0; background: var(--bg); }
+  .catalog-list__item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.3rem 0.125rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8125rem;
+  }
+  .catalog-list__item label { display: flex; align-items: baseline; gap: 0.375rem; flex: 0 0 auto; }
+  .catalog-list__item .catalog-list__sample { color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .catalog-list__item.is-enabled .catalog-list__name::after { content: ' 已加入'; color: var(--badge-ok-fg); }
+
+  /* ---- 已選擇清單（3 鈕 + 2 select + 2 checkbox；收納態 opacity:0 +
+     pointer-events:none，保留 Tab 序＋零版面躍動；.row:has(:focus-visible)
+     或手動 .row--reveal-sim 觸發浮現） ---- */
+  .selected-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.375rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8125rem;
+  }
+  .selected-row__grip { color: var(--fg-muted); }
+  .selected-row__name { font-weight: 600; margin-right: 0.25rem; }
+  .selected-row__move {
+    display: inline-flex;
+    gap: 0.125rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .selected-row:has(:focus-visible) .selected-row__move,
+  .selected-row.row--reveal-sim .selected-row__move {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .selected-row__move button,
+  .selected-row__remove {
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 0.25rem;
+    background: var(--surface);
+    color: var(--fg);
+  }
+  .selected-row select {
+    padding: 0.2rem 0.3rem;
+    border: 1px solid var(--fg-muted);
+    border-radius: 0.25rem;
+    background: var(--surface);
+    color: var(--fg);
+    font-size: 0.75rem;
+  }
+  .selected-row .inline-choice { display: flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
+</head>
+<body>
+
+  <!-- PoC 測試控制面板（非出貨 UI，position:fixed，見上方 CSS 註解） -->
+  <div class="poc-panel">
+    <span class="poc-panel__title">PoC 控制列（不計入版面量測）</span>
+    <button type="button" id="btn-theme">切換深/淺主題</button>
+    <button type="button" id="btn-reduced-motion">切換模擬 reduced-motion</button>
+    <button type="button" id="btn-fallback">切換破口後備 calc() 模式</button>
+    <button type="button" id="btn-tutorial-restore">重新顯示教學帶</button>
+    <button type="button" id="btn-reveal-sim">切換第 3 列 reveal 模擬</button>
+    <button type="button" id="btn-js-compensation">切換 JS 捲動補償（Firefox 後備 demo）</button>
+    <span id="poc-status" role="status"></span>
+  </div>
+
+  <header class="fake-header">
+    <a href="#" class="back-link">← 返回 EZTools</a>
+    <h1>Claude Code Statusline 產生器（S1/S5 PoC）</h1>
+    <p>本頁為 sprint 14 round-2 Milestone 1 Lane A 的三欄複合版面 PoC，用以驗證中欄／右欄複合 sticky 行為、右欄單一捲動容器內捲不連鎖、初載欄底可達性、move 鈕浮現裁切、教學帶 dismiss 回收、SVG 主題跟隨，以及行動斷點 DOM 真搬方案。所有內容皆為假資料，非最終出貨文案。</p>
+    <button type="button" class="theme-toggle" id="header-theme-toggle" aria-pressed="false">深色模式切換</button>
+    <button type="button" class="lang-toggle">EN</button>
+  </header>
+
+  <main class="builder-columns" id="builder-columns">
+    <!-- ==================== 左欄：全域設定 ==================== -->
+    <section class="col col--settings" aria-label="全域設定（假資料）">
+      <h2>全域設定</h2>
+
+      <fieldset class="settings-field">
+        <legend>底色模式</legend>
+        <div class="radio-row">
+          <label class="inline-choice"><input type="radio" name="poc-mode" checked /> 純文字</label>
+          <label class="inline-choice"><input type="radio" name="poc-mode" /> Powerline</label>
+        </div>
+      </fieldset>
+
+      <div class="settings-field">
+        <label for="poc-separator">分隔符</label>
+        <select id="poc-separator">
+          <option>|</option>
+          <option>·</option>
+          <option>自訂…</option>
+        </select>
+      </div>
+
+      <div class="settings-field">
+        <label class="inline-choice"><input type="checkbox" checked /> 尾端箭頭收邊</label>
+      </div>
+
+      <div class="settings-field">
+        <label class="inline-choice"><input type="checkbox" /> Powerline 箭頭方向反轉</label>
+      </div>
+
+      <div class="settings-field">
+        <label for="poc-prefix">自訂前綴文字</label>
+        <input type="text" id="poc-prefix" placeholder="（無）" />
+      </div>
+
+      <div class="settings-field">
+        <label class="inline-choice"><input type="checkbox" checked /> 自動配色（auto-fg）</label>
+      </div>
+
+      <div class="settings-field">
+        <label class="inline-choice"><input type="checkbox" /> 停用時保留佔位空白</label>
+      </div>
+    </section>
+
+    <!-- ==================== 中欄：預覽＋產出鈕（欄內 sticky） ==================== -->
+    <section class="col col--preview">
+      <div class="preview-sticky" id="preview-sticky">
+        <h2>預覽</h2>
+        <div class="preview-controls">
+          <div class="segmented" role="group" aria-label="預覽底色">
+            <button type="button" aria-pressed="true">深底</button>
+            <button type="button" aria-pressed="false">淺底</button>
+          </div>
+          <div class="segmented" role="group" aria-label="預覽情境">
+            <button type="button" aria-pressed="true">一般</button>
+            <button type="button" aria-pressed="false">Git</button>
+            <button type="button" aria-pressed="false">超額</button>
+          </div>
+          <button type="button" class="output-open">產出腳本</button>
+        </div>
+        <div class="preview-terminal" id="preview-terminal" tabindex="0" role="group" aria-label="預覽終端機（假資料，內部捲動）"></div>
+      </div>
+    </section>
+
+    <!-- ==================== 右欄：單一捲動容器（教學帶→目錄→已選擇） ==================== -->
+    <section class="col col--list" id="col-list" tabindex="0" role="region" aria-label="教學帶、目錄與已選擇清單（單一捲動容器）">
+      <div class="tutorial-band" id="tutorial-band">
+        <span class="tutorial-band__grip" aria-hidden="true">⠿</span>
+        <svg class="tutorial-svg" aria-hidden="true" focusable="false" viewBox="0 0 64 22" width="64" height="22">
+          <line x1="4" y1="11" x2="56" y2="11" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" />
+          <rect class="tutorial-svg__box" x="4" y="4" width="14" height="14" rx="2" fill="currentColor" />
+        </svg>
+        <p>拖曳段名可排序與移列</p>
+        <button type="button" class="tutorial-band__dismiss" id="tutorial-dismiss">知道了</button>
+      </div>
+
+      <h2 id="catalog-heading">目錄</h2>
+      <ul class="catalog-list" id="catalog-list" aria-labelledby="catalog-heading"></ul>
+
+      <h2 id="selected-heading">已選擇</h2>
+      <ul class="selected-list" id="selected-list" aria-labelledby="selected-heading"></ul>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ---- 假資料：30 個真實 segment id（來源：tools/statusline-builder/
+      // segments.ts 逐一核對之 id 清單），標籤／樣例值為 PoC 示意用，非
+      // 真正 i18n 文案。 ----
+      var CATALOG = [
+        { id: 'model', label: '模型', sample: 'Fable 5' },
+        { id: 'cwd', label: '工作目錄', sample: '~/project' },
+        { id: 'project-dir', label: '專案目錄', sample: 'eztools' },
+        { id: 'output-style', label: '輸出樣式', sample: '預設' },
+        { id: 'version', label: '版本', sample: '2.1.0' },
+        { id: 'cost', label: '花費', sample: '$0.42' },
+        { id: 'duration', label: '時長', sample: '12m 30s' },
+        { id: 'lines-changed', label: '異動行數', sample: '+120 -8' },
+        { id: 'context-size', label: '上下文大小', sample: '42K' },
+        { id: 'thinking', label: '思考模式', sample: 'on' },
+        { id: 'token-in', label: '輸入 token', sample: '18.2K' },
+        { id: 'token-out', label: '輸出 token', sample: '3.1K' },
+        { id: 'context-used', label: '已用上下文', sample: '36%' },
+        { id: 'context-remaining', label: '剩餘上下文', sample: '64%' },
+        { id: 'rate-5h', label: '5 小時額度', sample: '78%' },
+        { id: 'rate-7d', label: '7 天額度', sample: '52%' },
+        { id: 'cache-hit', label: '快取命中', sample: '91%' },
+        { id: 'session-name', label: '工作階段名稱', sample: 'sprint-14' },
+        { id: 'effort', label: '推理強度', sample: 'medium' },
+        { id: 'vim-mode', label: 'Vim 模式', sample: 'NORMAL' },
+        { id: 'agent-name', label: 'Agent 名稱', sample: 'magi-dev' },
+        { id: 'pr', label: 'PR 編號', sample: '#482' },
+        { id: 'repo', label: 'Repo', sample: 'eztools' },
+        { id: 'worktree', label: 'Worktree', sample: 'main' },
+        { id: 'worktree-branch', label: 'Worktree 分支', sample: 'DEV' },
+        { id: 'reset-5h', label: '5 小時重置時間', sample: '14:00' },
+        { id: 'reset-7d', label: '7 天重置時間', sample: '週一' },
+        { id: 'git-branch', label: 'Git 分支', sample: 'DEV' },
+        { id: 'git-dirty', label: 'Git 變更', sample: '●' },
+        { id: 'clock', label: '時鐘', sample: '14:32' },
+      ];
+
+      var SELECTED_IDS = ['model', 'cost', 'duration', 'context-remaining', 'git-branch', 'session-name', 'clock'];
+
+      var byId = {};
+      CATALOG.forEach(function (c) { byId[c.id] = c; });
+      var enabledSet = {};
+      SELECTED_IDS.forEach(function (id) { enabledSet[id] = true; });
+
+      // ---- 目錄 compact 列渲染 ----
+      var catalogListEl = document.getElementById('catalog-list');
+      CATALOG.forEach(function (c) {
+        var li = document.createElement('li');
+        li.className = 'catalog-list__item' + (enabledSet[c.id] ? ' is-enabled' : '');
+        li.setAttribute('data-testid', 'catalog-item');
+        li.setAttribute('data-segment-id', c.id);
+        li.setAttribute('draggable', 'true');
+
+        var label = document.createElement('label');
+        var checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = !!enabledSet[c.id];
+        checkbox.setAttribute('aria-label', c.label);
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'catalog-list__name';
+        nameSpan.textContent = c.label;
+        label.appendChild(checkbox);
+        label.appendChild(nameSpan);
+
+        var sampleSpan = document.createElement('span');
+        sampleSpan.className = 'catalog-list__sample';
+        sampleSpan.textContent = enabledSet[c.id] ? '' : c.sample;
+
+        li.appendChild(label);
+        li.appendChild(sampleSpan);
+        catalogListEl.appendChild(li);
+
+        // T1.2 拖曳邊緣自動捲動測試用：最小可行 dragstart（僅設
+        // dataTransfer，不接實際 enable-into-target 邏輯——狀態接線非
+        // 本 spike 範圍，S1/T1.2 只驗證容器邊緣自動捲動幾何行為）。
+        li.addEventListener('dragstart', function (ev) {
+          ev.dataTransfer.setData('text/plain', c.id);
+          ev.dataTransfer.effectAllowed = 'copy';
+        });
+      });
+
+      // ---- 已選擇清單渲染（3 鈕 + 2 select + 2 checkbox，收納態 class
+      // 由 CSS opacity:0 + pointer-events:none 承擔） ----
+      var selectedListEl = document.getElementById('selected-list');
+      SELECTED_IDS.forEach(function (id, idx) {
+        var c = byId[id];
+        var li = document.createElement('li');
+        li.className = 'selected-row';
+        li.setAttribute('data-testid', 'segment-row');
+        li.setAttribute('data-segment-id', id);
+
+        li.innerHTML =
+          '<span class="selected-row__grip" data-testid="segment-grip" aria-hidden="true">⠠⠿</span>' +
+          '<span class="selected-row__name">' + c.label + '</span>' +
+          '<span class="selected-row__move">' +
+            '<button type="button" class="move-up" aria-label="' + c.label + ' — 上移" data-click-count="0">↑</button>' +
+            '<button type="button" class="move-down" aria-label="' + c.label + ' — 下移" data-click-count="0">↓</button>' +
+            '<button type="button" class="selected-row__remove" aria-label="' + c.label + ' — 從清單移除" data-click-count="0">✕</button>' +
+          '</span>' +
+          '<select data-testid="row-select" aria-label="顯示於第 N 列">' +
+            '<option>第 1 列</option><option>第 2 列</option><option>第 3 列</option>' +
+          '</select>' +
+          '<select aria-label="顯示樣式"><option>完整</option><option>簡短</option></select>' +
+          '<label class="inline-choice"><input type="checkbox" checked /> 顯示文字</label>' +
+          '<label class="inline-choice"><input type="checkbox" /> 顯示長條圖</label>';
+
+        // 收納態命中測試用：每顆按鈕記錄自身被「真的點到」的次數
+        // （click 事件 listener 遞增），供 CDP 檢核收納態下
+        // elementFromPoint + dispatch click 不會使計數增加。
+        li.querySelectorAll('button').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            btn.setAttribute('data-click-count', String(Number(btn.getAttribute('data-click-count')) + 1));
+          });
+        });
+
+        selectedListEl.appendChild(li);
+      });
+
+      // ---- 預覽終端機假內容（撐高超過 40dvh，強制內部捲動） ----
+      var previewTerminalEl = document.getElementById('preview-terminal');
+      for (var i = 0; i < 26; i++) {
+        var line = document.createElement('div');
+        line.textContent = '[PoC] fable-5 | ~/eztools | ↑420 ↓312 tok | $0.4' + (i % 10) + ' | line ' + (i + 1);
+        previewTerminalEl.appendChild(line);
+      }
+
+      // ---- --column-top：JS 於 load 後依假頁首實際 offsetHeight 覆寫
+      // （頁首高度為靜態值，load 後不隨捲動變動，一次寫入即可；resize
+      // 仍監聽，因窄視口下頁首文字換行可能改變高度）。 ----
+      var headerEl = document.querySelector('header.fake-header');
+      function syncColumnTop() {
+        var h = Math.round(headerEl.getBoundingClientRect().height);
+        document.documentElement.style.setProperty('--column-top', h + 'px');
+        var statusEl = document.getElementById('poc-status');
+        if (statusEl) statusEl.textContent = '--column-top = ' + h + 'px（假頁首實測高度）';
+      }
+      syncColumnTop();
+      window.addEventListener('resize', syncColumnTop);
+
+      // ---- 主題切換 ----
+      function setTheme(mode) {
+        if (mode === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        else document.documentElement.removeAttribute('data-theme');
+        document.getElementById('header-theme-toggle').setAttribute('aria-pressed', String(mode === 'dark'));
+      }
+      var currentTheme = 'light';
+      function toggleTheme() {
+        currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+        setTheme(currentTheme);
+      }
+      document.getElementById('btn-theme').addEventListener('click', toggleTheme);
+      document.getElementById('header-theme-toggle').addEventListener('click', toggleTheme);
+
+      // ---- reduced-motion 模擬開關 ----
+      document.getElementById('btn-reduced-motion').addEventListener('click', function () {
+        document.documentElement.classList.toggle('poc-reduced-motion');
+      });
+
+      // ---- 破口後備 calc() 模式切換 ----
+      document.getElementById('btn-fallback').addEventListener('click', function () {
+        document.getElementById('col-list').classList.toggle('fallback-mode');
+      });
+
+      // ---- 教學帶 dismiss／重新顯示 ----
+      document.getElementById('tutorial-dismiss').addEventListener('click', function () {
+        document.getElementById('tutorial-band').setAttribute('hidden', '');
+      });
+      document.getElementById('btn-tutorial-restore').addEventListener('click', function () {
+        document.getElementById('tutorial-band').removeAttribute('hidden');
+      });
+
+      // ---- 第 3 列 reveal 模擬（手動 class 切態，驗證浮現態未被捲動
+      // 容器裁切；亦可用真 Tab 走查 :focus-visible 觸發） ----
+      document.getElementById('btn-reveal-sim').addEventListener('click', function () {
+        var rows = document.querySelectorAll('.selected-row');
+        if (rows[2]) rows[2].classList.toggle('row--reveal-sim');
+      });
+
+      // ---- T1.2：右欄邊緣自動捲動 + Firefox 後備「JS 捲動補償」demo ----
+      // 拖曳中偵測 pointer 是否接近 .col--list 底緣，若在補償開關開啟時
+      // 以 rAF 連續遞增 scrollTop；dragend/drop 停止並清空狀態（冪等）。
+      var colListEl = document.getElementById('col-list');
+      var compensationEnabled = false;
+      var compensationRafId = null;
+      var lastPointerY = null;
+      var EDGE_ZONE_PX = 40;
+      var SCROLL_STEP_PX = 12;
+
+      document.getElementById('btn-js-compensation').addEventListener('click', function () {
+        compensationEnabled = !compensationEnabled;
+        this.textContent = compensationEnabled
+          ? '關閉 JS 捲動補償（目前：開）'
+          : '切換 JS 捲動補償（Firefox 後備 demo）';
+      });
+
+      function compensationTick() {
+        if (!compensationEnabled || lastPointerY === null) {
+          compensationRafId = null;
+          return;
+        }
+        var rect = colListEl.getBoundingClientRect();
+        var distFromBottom = rect.bottom - lastPointerY;
+        var distFromTop = lastPointerY - rect.top;
+        if (distFromBottom >= 0 && distFromBottom < EDGE_ZONE_PX) {
+          colListEl.scrollTop += SCROLL_STEP_PX;
+        } else if (distFromTop >= 0 && distFromTop < EDGE_ZONE_PX) {
+          colListEl.scrollTop -= SCROLL_STEP_PX;
+        }
+        compensationRafId = requestAnimationFrame(compensationTick);
+      }
+
+      colListEl.addEventListener('dragover', function (ev) {
+        ev.preventDefault(); // 允許 drop，亦為原生瀏覽器邊緣自動捲動的前提條件之一
+        lastPointerY = ev.clientY;
+        if (compensationEnabled && compensationRafId === null) {
+          compensationRafId = requestAnimationFrame(compensationTick);
+        }
+      });
+      function stopCompensation() {
+        lastPointerY = null;
+        if (compensationRafId !== null) {
+          cancelAnimationFrame(compensationRafId);
+          compensationRafId = null;
+        }
+      }
+      colListEl.addEventListener('drop', function (ev) { ev.preventDefault(); stopCompensation(); });
+      colListEl.addEventListener('dragleave', function () { /* 冪等：僅清 lastPointerY，rAF 迴圈自行於下一輪因 lastPointerY===null 停止 */ lastPointerY = null; });
+      document.addEventListener('dragend', stopCompensation);
+
+      // ---- expose for CDP 量測腳本（唯讀 hook，非出貨 API） ----
+      // simulateCompensationAtBottomEdge：直接以座標驅動 compensationTick
+      // 迴圈本體（非經真實 dragover 事件），獨立於瀏覽器原生邊緣自動捲動
+      // 之外驗證本 JS 補償演算法自身正確性（T1.2 Firefox 後備方案的
+      // 決定性證據——瀏覽器原生行為與本演算法混跑在 Chromium 下無法區分
+      // 何者造成捲動，直接呼叫可排除混淆）。
+      window.__poc = {
+        setTheme: setTheme,
+        syncColumnTop: syncColumnTop,
+        setCompensation: function (v) { compensationEnabled = !!v; },
+        simulateCompensationAtBottomEdge: function (durationMs) {
+          return new Promise(function (resolve) {
+            var rect = colListEl.getBoundingClientRect();
+            compensationEnabled = true;
+            lastPointerY = rect.bottom - 5; // 5px 內緣，落於 EDGE_ZONE_PX 40px 判定帶內
+            if (compensationRafId === null) compensationRafId = requestAnimationFrame(compensationTick);
+            setTimeout(function () {
+              stopCompensation();
+              compensationEnabled = false;
+              resolve(colListEl.scrollTop);
+            }, durationMs);
+          });
+        },
+      };
+    })();
+  </script>
+</body>
+</html>

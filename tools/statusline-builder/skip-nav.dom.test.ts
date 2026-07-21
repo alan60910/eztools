@@ -1,18 +1,23 @@
 // @vitest-environment jsdom
 /**
  * T4.3（magi/09-statusline-ux-refactor/PLAN.md §D4 A-3；TASKS.md
- * T4.3）：skip-nav 改造回歸測試。
+ * T4.3）：skip-nav 改造回歸測試。T2.1（magi/14-statusline-ux-round2/
+ * PLAN.md §D2；TASKS.md T2.1）追加更新：三欄終形落地後「跳至預覽」的
+ * 行為描述隨條件式捲動停點判定調整（見下方該 describe 區塊）。
  *
  * 「跳至產出腳本」原 `href="#output-section"`，該 id 隨 T4.2 dialog 化
  * 消失、連結淪為 no-op（T4.2 report 交接明載）。本 task 改為 main.ts
  * 顯式 click handler（`wireSkipToOutput`）：`preventDefault()` 後聚焦
  * 「產出腳本」鈕（`#output-dialog-open`）本身，**不**自動開啟 dialog——
  * skip 的目的是「到達控制項」，非「觸發」。href 改指該鈕 id 僅作無 JS
- * 環境的語意化備援。
+ * 環境的語意化備援。T2.1 未改此節。
  *
- * 「跳至預覽」語意本已正確（`#preview-section` 自 T4.1 起接手頂帶捲動
- * 停點角色，tabindex="0"，原生錨點跳轉即可捲動並聚焦），本 task 未改
- * href，此檔僅驗證落點正確、不重新設計行為。
+ * 「跳至預覽」href 本身未改（`#preview-section`，T4.3／T2.1 皆未動）；
+ * 但 T2.1 起 `#preview-section` 依「捲動停點條件式」判定移除了
+ * tabindex="0"（見 index.html `#preview-section` 節點自身註解的完整
+ * 論證：40dvh 高度預算已遷入 `#preview-terminal` 自身，外層不再自身
+ * 捲動）——原生錨點跳轉的行為隨之從「捲動並聚焦」變為「僅捲動、不
+ * 奪取焦點」（同「跳至已選擇」既有慣例），此檔下方對應斷言已同步改寫。
  *
  * 回歸網比照既有 preview-band.dom.test.ts／output-dialog.dom.test.ts 的
  * 「先以 jsdom 剖析真實 index.html 取得 <body>、動態 import main.ts
@@ -76,7 +81,7 @@ describe('T4.3 skip-nav：「跳至產出腳本」聚焦鈕本身（不觸發開
   })
 })
 
-describe('T4.3 skip-nav：「跳至預覽」語意落點確認（錨指頂帶，本 task 未改 href）', () => {
+describe('T4.3／T2.1 skip-nav：「跳至預覽」語意落點確認（href 未改，行為隨 T2.1 條件式停點判定調整）', () => {
   beforeEach(async () => {
     await boot()
   })
@@ -86,11 +91,11 @@ describe('T4.3 skip-nav：「跳至預覽」語意落點確認（錨指頂帶，
     expect(link).not.toBeNull()
   })
 
-  it('#preview-section 為頂帶本身，tabindex="0"／role="region" 可承接原生錨點跳轉的捲動與聚焦', () => {
+  it('#preview-section 為中欄預覽本身，role="region"（T2.1 起 tabindex 依條件式判定移除——原生錨點跳轉僅捲動、不再奪取焦點，同「跳至已選擇」既有慣例）', () => {
     const target = document.getElementById('preview-section')
     expect(target).not.toBeNull()
-    expect(target!.getAttribute('tabindex')).toBe('0')
     expect(target!.getAttribute('role')).toBe('region')
+    expect(target!.hasAttribute('tabindex')).toBe(false)
   })
 })
 

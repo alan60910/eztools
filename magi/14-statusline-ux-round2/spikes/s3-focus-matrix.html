@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>S3 — focus modality matrix spike (D1-B′)</title>
+  <!--
+    S3 焦點模態矩陣 spike（sprint 14 / magi/14-statusline-ux-round2 / T1.4）。
+    自足單檔：仿真 statusline-builder segment-row 的控件盤點——
+      button×3（move-up / move-down / remove）＋select×2（row-select / variant）
+      ＋checkbox×2（icon / bar），無文字輸入（設計契約盤點）。
+    另附一個 text input（.extra-text），刻意隔離於矩陣外——僅用以實測
+    「文字輸入 mouse 點擊即 :focus-visible」這條與 move 鈕收納互動的 caveat。
+
+    D1-B′ 收納態：opacity:0 + pointer-events:none（留佔位＝零版面躍動、留 Tab
+    序）；`.row:has(:focus-visible)` 時 move 鈕群浮現（opacity:1 + pointer-events）。
+
+    量測輔助全掛 window.__spike，供 CDP Runtime.evaluate 讀取。
+  -->
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    #sentinel { display: block; margin-bottom: 12px; }
+
+    /* 仿真列容器：flex 佈局，move 鈕群在最前，其後 remove / selects / checkboxes。 */
+    .rowlist { list-style: none; padding: 0; margin: 0; }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px;
+      border: 1px solid currentColor;
+      min-height: 40px;
+    }
+    .row__move { display: flex; gap: 6px; }
+
+    /* D1-B′ 收納態：opacity:0 + pointer-events:none。
+       關鍵：不用 display:none／visibility:hidden——保留佈局佔位（零躍動）
+       與 Tab 序（Tab 可直達鈕本身）。 */
+    .row__move {
+      opacity: 0;
+      pointer-events: none;
+      transition: none; /* spike 求即時可量測，不做過場 */
+    }
+    /* 浮現規則：整列任一控件 :focus-visible 時浮現 move 群。 */
+    .row:has(:focus-visible) .row__move {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    button, select { font: inherit; padding: 4px 8px; }
+    .field { display: flex; align-items: center; gap: 4px; }
+    .extra-text { margin-top: 16px; display: block; }
+  </style>
+</head>
+<body>
+  <h1>S3 focus modality matrix</h1>
+  <button id="sentinel" type="button">sentinel (tab anchor)</button>
+
+  <ul class="rowlist" id="rowlist">
+    <li class="row" data-testid="row">
+      <div class="row__move" data-testid="move-group">
+        <button type="button" class="btn-move-up" data-ctl="move-up" aria-label="move up">↑</button>
+        <button type="button" class="btn-move-down" data-ctl="move-down" aria-label="move down">↓</button>
+      </div>
+      <button type="button" class="btn-remove" data-ctl="remove" aria-label="remove">✕</button>
+      <div class="field">
+        <label>列<select class="sel-row" data-ctl="row-select"><option value="0">1</option><option value="1">2</option></select></label>
+      </div>
+      <div class="field">
+        <label>樣式<select class="sel-variant" data-ctl="variant"><option value="a">A</option><option value="b">B</option></select></label>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" class="chk-icon" data-ctl="icon" /> 文字</label>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" class="chk-bar" data-ctl="bar" /> 長條</label>
+      </div>
+    </li>
+  </ul>
+
+  <input type="text" class="extra-text" data-ctl="extra-text" placeholder="caveat: text input" />
+
+  <script>
+    (function () {
+      const row = document.querySelector('.row')
+      const moveGroup = document.querySelector('.row__move')
+      const moveUp = document.querySelector('.btn-move-up')
+      const rowlist = document.getElementById('rowlist')
+      const CTLS = ['move-up', 'move-down', 'remove', 'row-select', 'variant', 'icon', 'bar', 'extra-text']
+
+      const eventLog = []
+      let moveUpClicked = 0
+      moveUp.addEventListener('click', () => { moveUpClicked++ })
+
+      // 記錄每個控件的 focus 事件＋觸發當下該控件是否 :focus-visible。
+      for (const el of document.querySelectorAll('[data-ctl]')) {
+        el.addEventListener('focus', () => {
+          let fv = null
+          try { fv = el.matches(':focus-visible') } catch (e) { fv = 'err:' + e.message }
+          eventLog.push({ type: 'focus', ctl: el.dataset.ctl, focusVisible: fv, revealOpacity: opacity() })
+        })
+      }
+
+      function el(ctl) { return document.querySelector('[data-ctl="' + ctl + '"]') }
+      function opacity() { return getComputedStyle(moveGroup).opacity }
+      function pointerEvents() { return getComputedStyle(moveGroup).pointerEvents }
+
+      function revealState() {
+        let hasMatch = null
+        try { hasMatch = row.matches(':has(:focus-visible)') } catch (e) { hasMatch = 'err:' + e.message }
+        const active = document.activeElement
+        let activeFv = null
+        try { activeFv = active && active.matches ? active.matches(':focus-visible') : null } catch (e) { activeFv = 'err:' + e.message }
+        return {
+          moveOpacity: opacity(),
+          movePointerEvents: pointerEvents(),
+          rowHasFocusVisible: hasMatch,
+          activeCtl: active ? (active.dataset ? active.dataset.ctl || null : null) : null,
+          activeFocusVisible: activeFv,
+        }
+      }
+
+      function rectOf(node) {
+        const r = node.getBoundingClientRect()
+        return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
+      }
+      function rectSnapshot() {
+        const out = { row: rectOf(row), moveGroup: rectOf(moveGroup) }
+        for (const c of CTLS) { const n = el(c); if (n) out[c] = rectOf(n) }
+        return out
+      }
+
+      // move 鈕中心座標（供 CDP 在收納態測 elementFromPoint / click no-op）。
+      function pointOf(ctl) {
+        const r = el(ctl).getBoundingClientRect()
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+      }
+
+      // 收納態下 move-up 鈕原位置的 elementFromPoint（誰接住點擊）。
+      function elementAtMovePoint() {
+        const p = pointOf('move-up')
+        const hit = document.elementFromPoint(p.x, p.y)
+        return {
+          point: p,
+          hitCtl: hit ? (hit.dataset ? hit.dataset.ctl || null : null) : null,
+          hitTag: hit ? hit.tagName.toLowerCase() : null,
+          hitIsMoveUp: hit === moveUp,
+          moveUpClicked,
+        }
+      }
+
+      function blurAll() {
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+        document.body.focus?.()
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+      }
+
+      // 模擬「move 重渲染＋程式化還焦」（比照 main.ts:2363 moveButton 還焦、
+      // main.ts:1497 row-select 還焦）：detach 整列 <li> → re-append（模擬
+      // commitConfig 內 appendChild 重定位）→ 對指定控件 .focus()。
+      // 回傳還焦後的 revealState——(d) 斷言的核心。
+      function simulateMoveRefocus(ctl) {
+        const li = document.querySelector('.row')
+        const parent = li.parentNode
+        parent.removeChild(li)
+        parent.appendChild(li) // 重新掛回（節點重用，同 appendChild 語意）
+        const target = el(ctl)
+        target.focus()
+        return revealState()
+      }
+
+      window.__spike = {
+        CTLS,
+        revealState,
+        rectSnapshot,
+        pointOf,
+        elementAtMovePoint,
+        simulateMoveRefocus,
+        blurAll,
+        eventLog: () => eventLog.slice(),
+        resetLog: () => { eventLog.length = 0; moveUpClicked = 0 },
+        // querySelector/matches 支援探測（也在 jsdom 側單獨跑）。
+        selectorSupport: () => {
+          const out = {}
+          try { out.hasQuery = !!document.querySelector('.row:has(:focus-visible)') ; out.hasQueryThrew = false } catch (e) { out.hasQuery = 'err'; out.hasQueryThrew = e.message }
+          try { out.hasMatches = row.matches(':has(button)'); out.hasMatchesThrew = false } catch (e) { out.hasMatches = 'err'; out.hasMatchesThrew = e.message }
+          try { out.focusVisibleMatches = moveUp.matches(':focus-visible'); out.fvThrew = false } catch (e) { out.focusVisibleMatches = 'err'; out.fvThrew = e.message }
+          return out
+        },
+      }
+      window.__spikeReady = true
+    })()
+  </script>
+</body>
+</html>

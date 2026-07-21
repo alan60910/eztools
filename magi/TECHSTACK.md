@@ -5,6 +5,9 @@
 
 ## Framework / runtime
 - 純靜態前端網頁（瀏覽器端執行，無後端）
+- 目標瀏覽器基線＝evergreen（Chrome/Edge/Firefox/Safari 近兩年
+  版本）；CSS 基線含 `:has()`、`:focus-visible`、`dvh`、
+  `overscroll-behavior`（sprint 14 補齊）
 - Vite 8.1.3 + vanilla TypeScript 6（strict、ESM）；Node >= 22（engines）
 - MPA：`vite.config.ts` 以函式 `discoverToolEntries` 自動掃描
   `tools/*/index.html` 組成 `rollupOptions.input`；`base: './'`（相對路徑）

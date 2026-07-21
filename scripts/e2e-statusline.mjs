@@ -78,6 +78,35 @@
  *      相同（`normalizeRowSuffix`），去除前必須不同（證明列位確實有變、
  *      非恆真空比對）。
  *
+ * T4.1／T4.2（magi/14-statusline-ux-round2/TASKS.md；PLAN §D5「拖曳教學」
+ * round-2）：三欄版面重排（左＝設定／中＝預覽 sticky／右＝`#list-column`
+ * 單一捲動容器，內容序＝教學帶→目錄→已選擇清單，見 index.html T2.1／
+ * T2.2 節點註解）後的選擇器／座標校準＋新增兩案，八案→十案：
+ *   - **全案明文前置步驟**：`seedExpr` 預設一併 seed 教學帶 dismiss
+ *     sentinel（`TUTORIAL_DISMISS_KEY`／`TUTORIAL_DISMISS_SENTINEL`，
+ *     從 `tools/statusline-builder/tutorial-band.ts` import，見檔頭
+ *     import 處與 `seedExpr` 文件——本腳本零字面重複一份 key/sentinel）
+ *     ——每案皆全新 profile，`shouldShowTutorialBand()` fail-open（無
+ *     key 即顯示），不 seed 教學帶即擋在段列／目錄之前搶座標。逐案可用
+ *     `testCase.seedTutorial: false` 關閉此預設步驟（案 9 用）。既有
+ *     案 1–8 選擇器／`data-testid` 錨點與 `scrollIntoView`＋
+ *     `getBoundingClientRect` 活座標紀律經實跑校準後**零需求變更**（右欄
+ *     單一捲動容器重排未破壞任何錨點）。
+ *   9. 「教學帶不擋拖曳」無條件回歸案：`seedTutorial:false` 保留教學帶
+ *      可見，驗證同容器內真拖曳（同案 1 same-row-swap 手法）不受阻、
+ *      且拖曳手勢本身不誤觸 dismiss（band 拖後仍在場）。
+ *   10. mode 切換（plain→powerline）前後 `window.scrollY` 不變：鎖 T3.1
+ *      （09-PLAN §D4 回饋 #4）刪除 `segmentListsEl.focus()` 的焦點竊取
+ *      回歸——真實滑鼠點擊 powerline radio（CDP `Input.dispatchMouseEvent`
+ *      mousePressed→mouseReleased，非 JS `.click()` 方法——校準實跑發現
+ *      `.click()` 方法不觸發瀏覽器原生 focus 行為，見 `clickBySelector`
+ *      文件；原生 mousedown 才會給 radio 焦點，正是舊 bug 觸發形）。主
+ *      判準 `window.scrollY`；若三欄版面下整頁本身因各欄自身
+ *      `overflow-y:auto` 而不可捲（`scrollY` 恆 0），後備改捲
+ *      `#list-column` 自身 `scrollTop` 為斷言標的（兩判準皆先斷言「捲動
+ *      後 >0」防空泛恆真，見案文件）。`document.activeElement` 為選配
+ *      斷言。
+ *
  * 用法：
  *   node scripts/e2e-statusline.mjs      # 或 npm run test:e2e
  *   E2E_HEADED=1 node scripts/e2e-statusline.mjs   # 人工除錯用 headed
@@ -92,6 +121,36 @@ import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
+
+// MAGI review 🟡-2（4 票採納：Node 22.0–22.17 跑本腳本會以隱晦 loader
+// 錯誤炸裂——`import '...tutorial-band.ts'` 這種 static import 語句在
+// ESM 規範下一律 hoist 到模組頂端求值，早於模組主體內任何一行程式碼，
+// 故無法靠「import 之後再檢查版本」防禦；改為 import 前先手動解析
+// `process.versions.node`，未達門檻即印友善訊息＋`exit(1)`，通過後才
+// 以 top-level await 動態 import 同一份常數出口）。
+const [nodeMajorStr, nodeMinorStr] = process.versions.node.split('.')
+const nodeMajor = Number(nodeMajorStr)
+const nodeMinor = Number(nodeMinorStr)
+if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 18)) {
+  console.error(
+    `[e2e] 本腳本需 Node ≥22.18（.ts type stripping 預設啟用）；偵測到 v${process.versions.node}`,
+  )
+  process.exit(1)
+}
+
+// T4.1（magi/14-statusline-ux-round2/TASKS.md；PLAN §D5「e2e seed 步驟應
+// import 同一常數，不得字面重複」）：教學帶 dismiss key／sentinel 單一
+// 出口——直接 import tools/statusline-builder/tutorial-band.ts（純可抹除
+// 語法，無 enum/namespace，可安全 strip）而非在本腳本另行字面複製一份。
+// **本依賴需 Node ≥22.18**（type stripping 預設啟用版本；本腳本本機
+// 限定、`package.json` engines `>=22`，屬可接受的 dev-only 前提，實測
+// 本機 Node v24.10.0 可直接 `import` .ts 檔）——上方版本門檻檢查已通過
+// 才會執行到此行，故改為 top-level await 動態 import（而非 static
+// import，見上方 MAGI review 🟡-2 註解，static import 的 hoisting 特性
+// 使其無法被任何執行期檢查攔在前面）。
+const { TUTORIAL_DISMISS_KEY, TUTORIAL_DISMISS_SENTINEL } = await import(
+  '../tools/statusline-builder/tutorial-band.ts'
+)
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = join(__dirname, '..')
@@ -291,7 +350,16 @@ function launchBrowser(browserPath, { headless, userDataDir, url, port }) {
   return spawn(browserPath, args, { stdio: 'ignore' })
 }
 
-function seedExpr(enabledRows) {
+// T4.1（TASKS.md；14-PLAN §D5）：全案明文前置步驟——除既有 config seed
+// 外，預設一併 seed 教學帶 dismiss sentinel（每案皆全新 profile，
+// `shouldShowTutorialBand()` fail-open：無 key 即顯示，見
+// tutorial-band.ts 檔頭），使既有拖曳/座標案不被教學帶（現與段列同居
+// 右欄同一捲動容器）搶走座標或攔截拖曳事件。`dismissTutorial` 預設
+// true（= harness 級預設前置步驟）；T4.2 新案「教學帶不擋拖曳」需保留
+// 教學帶可見時傳 `false` 關閉本步驟（見 runCase 呼叫處 `testCase.
+// seedTutorial`）。key/sentinel 皆從 tutorial-band.ts import（見檔頭），
+// 不在此字面重複一份。
+function seedExpr(enabledRows, { dismissTutorial = true } = {}) {
   return `
     (() => {
       const enabled = ${JSON.stringify(enabledRows)};
@@ -301,6 +369,7 @@ function seedExpr(enabledRows) {
         : { id, enabled: false, icon: true, color: { kind: 'default' } });
       const config = { version: 2, mode: 'plain', separator: { kind: 'preset', value: '|' }, lastArrowCap: true, powerlineArrow: false, segments };
       localStorage.setItem('eztools:statusline-builder:config', JSON.stringify(config));
+      ${dismissTutorial ? `localStorage.setItem(${JSON.stringify(TUTORIAL_DISMISS_KEY)}, ${JSON.stringify(TUTORIAL_DISMISS_SENTINEL)});` : ''}
       return 'seeded';
     })()
   `
@@ -333,6 +402,20 @@ function liPointExpr(segmentId, verticalFrac) {
 // 非本腳本繞路取巧。
 function catalogPointExpr(segmentId) {
   return `(() => { const li = document.querySelector('[data-testid="catalog-item"][data-segment-id=${JSON.stringify(segmentId)}]'); li.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); const name = li.querySelector('.catalog-item__name'); const r = name.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
+}
+
+// T4.2：mode radio 點擊座標——**刻意不**呼叫 `scrollIntoView`（同檔案其餘
+// 座標函式「先 scrollIntoView 再讀 rect」活座標紀律的唯一例外，T4.1 校準
+// 實跑發現）：案 10 的斷言標的正是「點擊後捲動位置不變」，若座標計算本身
+// 先呼叫 `el.scrollIntoView({block:'center'})`，該呼叫依規範對
+// `block:'center'` 為**無條件**置中（即使元素已在可視範圍內也會捲動，
+// 不像 `block:'nearest'` 僅在需要時才動）——會在測「不變」之前就先動了
+// 捲動位置，汙染訊號。改為直接讀當前 `getBoundingClientRect()`：本案種子
+// 資料（見案文件）之下，實測全域設定欄的 mode radio 於任一合法捲動位置
+// （0–166px，本案版面之全頁最大可捲範圍）皆恆落在 1000px 高 viewport
+// 內，故省略 scrollIntoView 不影響座標可點擊性。
+function modeRadioClickPointExpr(selector) {
+  return `(() => { const el = document.querySelector(${JSON.stringify(selector)}); const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
 }
 
 // 全列群組快照（真實列＋pending 占位，DOM 序＝slot 序）；S1/S4/S9/S7 皆用
@@ -806,6 +889,132 @@ const caseColorVariantOverrideSurvivesDrag = {
   },
 }
 
+// 9. T4.2（TASKS.md；14-PLAN §D5）：「教學帶不擋拖曳」無條件回歸案——
+//    `seedTutorial: false` 關閉 T4.1 的預設 dismiss 前置步驟，教學帶
+//    （`#tutorial-band-slot`，現與段列同居右欄同一捲動容器，見 index.html
+//    T2.2 節點註解）全程保持可見，驗證其存在**不擋**同容器內的真拖曳
+//    （同案 1 same-row-swap 手法：同列相鄰兩段互換）。斷言序：(a) 拖曳前
+//    band 確實在場（`hidden` 屬性為 false，防呆前提——若 seedTutorial
+//    關閉沒生效，後面的斷言就毫無意義）；(b) 執行真拖曳；(c) 拖後順序
+//    正確（沿用案 1 的座標/斷言手法，不因教學帶佔用同容器頂部空間而
+//    失準——scrollIntoView 活座標紀律已吸收版面偏移）；(d) 拖後 band
+//    仍在場（未被拖曳手勢誤觸 dismiss——dismiss 唯一入口是
+//    `#tutorial-dismiss` 鈕點擊，見 tutorial-band.ts／main.ts
+//    wireTutorialBand，拖曳握把／段列本身皆非該鈕）。
+const caseTutorialBandDoesNotBlockDrag = {
+  id: 'tutorial-band-does-not-block-drag',
+  label: 'T4.2：教學帶不擋拖曳（無條件回歸，教學帶保持可見）',
+  seed: { model: 0, cost: 0 },
+  seedTutorial: false,
+  async run({ evaluate, dragBySelector }) {
+    const bandHiddenBefore = await evaluate(`document.getElementById('tutorial-band-slot').hidden`)
+    if (bandHiddenBefore !== false) {
+      return { ok: false, symptom: `tutorial band unexpectedly hidden before drag (seedTutorial:false should keep it visible — dismiss precondition step must be skipped): hidden=${bandHiddenBefore}` }
+    }
+    const before = await evaluate(
+      `[...document.querySelectorAll('[data-testid="row-group"]')[0].querySelectorAll('[data-testid="segment-row"]')].map((li) => li.dataset.segmentId)`,
+    )
+    if (JSON.stringify(before) !== JSON.stringify(['model', 'cost'])) {
+      return { ok: false, symptom: `unexpected seed order: ${JSON.stringify(before)}` }
+    }
+    const dragResult = await dragBySelector(gripPointExpr('cost'), liPointExpr('model', 0.25))
+    if (!dragResult.ok) return dragResult
+    const after = await evaluate(
+      `[...document.querySelectorAll('[data-testid="row-group"]')[0].querySelectorAll('[data-testid="segment-row"]')].map((li) => li.dataset.segmentId)`,
+    )
+    if (JSON.stringify(after) !== JSON.stringify(['cost', 'model'])) {
+      return { ok: false, symptom: `order after drop: ${JSON.stringify(after)} (expected ["cost","model"])` }
+    }
+    const bandHiddenAfter = await evaluate(`document.getElementById('tutorial-band-slot').hidden`)
+    if (bandHiddenAfter !== false) {
+      return { ok: false, symptom: `tutorial band became hidden after drag (a drag gesture must not mis-trigger dismiss — only #tutorial-dismiss click should): hidden=${bandHiddenAfter}` }
+    }
+    return { ok: true }
+  },
+}
+
+// 10. T4.2（TASKS.md；14-PLAN §D5）：mode 切換（plain→powerline）前後
+//     `window.scrollY` 不變——鎖 T3.1（09-PLAN §D4 回饋 #4）的焦點竊取
+//     回歸：main.ts handleModeChange 已刪除 `segmentListsEl.focus()`
+//     （見該函式文件），改由 radio 保持瀏覽器原生點擊焦點，不再有程式化
+//     `.focus()` 呼叫把視窗捲動到目錄／清單所在區塊。
+//
+//     真實點擊實作（T4.1 校準發現）：改走真滑鼠事件序
+//     `clickBySelector`（CDP `Input.dispatchMouseEvent`
+//     mousePressed→mouseReleased）而非 JS `element.click()` 方法——實跑
+//     證實 `.click()` 方法本身不觸發瀏覽器對表單控件的原生 focus 行為
+//     （headless Chromium 下 `.click()` 後 `document.activeElement`
+//     仍是 `<body>`），無法忠實重現舊 bug 觸發前提（見 clickBySelector
+//     文件）。
+//
+//     主/後備判準（brief 明文要求先證非空泛恆真）：先 `window.scrollTo`
+//     再讀 `window.scrollY`；三欄版面下各欄（`.builder-columns__list` 等）
+//     自身即為 `overflow-y:auto` 捲動容器（style.css `max-height:
+//     calc(100dvh - var(--column-top))`），若整頁本身因此被裁在 viewport
+//     內而不可捲（`scrollY` 恆 0），改捲右欄 `#list-column`（唯一捲動
+//     容器，教學帶／目錄／已選擇清單同居於此，見 index.html T2.2 節點
+//     註解）自身 `scrollTop`，並以其作為斷言標的——兩種判準皆先斷言
+//     「捲動後位置 > 0」防呆，確保後續「不變」斷言非恆真空比對。
+const caseModeSwitchScrollStable = {
+  id: 'mode-switch-scroll-position-stable',
+  label: 'T4.2：mode 切換前後捲動位置不變（回歸 T3.1 焦點竊取）',
+  seed: { model: 0, cost: 1, duration: 1, 'context-size': 2, thinking: 2, 'agent-name': 3, 'git-branch': 3, clock: 4 },
+  async run({ evaluate, delayFn, clickBySelector }) {
+    await evaluate(`window.scrollTo({ top: 300, left: 0, behavior: 'instant' })`)
+    await delayFn(100)
+    const pageScrollY = await evaluate(`window.scrollY`)
+
+    const usePageScroll = pageScrollY > 0
+    let before
+    let metricExpr
+    if (usePageScroll) {
+      before = pageScrollY
+      metricExpr = `window.scrollY`
+    } else {
+      // 後備判準：整頁不可捲，改捲右欄清單容器本身（見上方案文件）。
+      await evaluate(`document.getElementById('list-column').scrollTo({ top: 300, left: 0, behavior: 'instant' })`)
+      await delayFn(100)
+      before = await evaluate(`document.getElementById('list-column').scrollTop`)
+      metricExpr = `document.getElementById('list-column').scrollTop`
+      if (!(before > 0)) {
+        return {
+          ok: false,
+          symptom: `neither window.scrollY nor #list-column.scrollTop became >0 after scrollTo(300) (page/container not scrollable at seeded content size — cannot construct a non-vacuous "unchanged" assertion): window.scrollY=${pageScrollY}, list-column.scrollTop=${before}`,
+        }
+      }
+    }
+
+    // 真實滑鼠點擊（CDP Input.dispatchMouseEvent，非 JS `.click()` 方法——
+    // 見 clickBySelector 文件：`.click()` 不觸發瀏覽器原生 focus 行為，
+    // 無法忠實重現舊 bug 觸發前提）：原生 mousedown 會賦予 radio 焦點，
+    // 正是舊 bug（`segmentListsEl.focus()`）的觸發形。
+    await clickBySelector(modeRadioClickPointExpr('#mode-powerline'))
+    await delayFn(300)
+
+    const after = await evaluate(metricExpr)
+    if (after !== before) {
+      return {
+        ok: false,
+        symptom: `scroll position changed after mode switch click (${usePageScroll ? 'window.scrollY' : '#list-column.scrollTop'}): before=${before}, after=${after}`,
+      }
+    }
+
+    // 選配斷言（MAGI review 🟡-7：對齊 PLAN §D4「activeElement 同斷言
+    // 選配」字面——選配＝記錄不阻斷，非阻斷式失敗；核心捲動位置斷言已在
+    // 上方把關本案主判準）：mode radio 本身應保有焦點（T3.1 修復後的
+    // 預期落點——不再被程式化奪走；真滑鼠點擊的 mousedown 原生行為賦予
+    // 的焦點）。失敗僅印警告，不影響本案 ok 結果。
+    const activeIsModeRadio = await evaluate(`document.activeElement === document.getElementById('mode-powerline')`)
+    if (activeIsModeRadio !== true) {
+      console.log(
+        `[e2e] warn: document.activeElement is not #mode-powerline after real mouse click (optional assertion, not blocking): activeIsModeRadio=${activeIsModeRadio}`,
+      )
+    }
+
+    return { ok: true }
+  },
+}
+
 const CASES = [
   caseSameRowSwap,
   caseS1CrossRowDrain,
@@ -815,6 +1024,8 @@ const CASES = [
   caseCatalogDragIntoRow,
   caseOutputDialogEscFocusReturn,
   caseColorVariantOverrideSurvivesDrag,
+  caseTutorialBandDoesNotBlockDrag,
+  caseModeSwitchScrollStable,
 ]
 
 // ── 單案執行器：全新瀏覽器＋全新 user-data-dir ─────────────────────────
@@ -854,7 +1065,9 @@ async function runCase({ browserPath, baseUrl, headless, testCase }) {
     // 啟動參數已直接開到 appUrl，此處先等一次載入完成再重跑一次 navigate
     // （下方 seed 後還會再 reload 一次）以確保 headed／headless 起手式一致。
     await navigate()
-    await evaluate(seedExpr(testCase.seed))
+    // T4.1：逐案可關閉 dismiss 前置步驟（預設 true，見 seedExpr 文件）——
+    // `testCase.seedTutorial === false` 時保留教學帶可見（T4.2 案 9 用）。
+    await evaluate(seedExpr(testCase.seed, { dismissTutorial: testCase.seedTutorial !== false }))
     await navigate()
 
     function takeIntercepted() {
@@ -922,7 +1135,27 @@ async function runCase({ browserPath, baseUrl, headless, testCase }) {
       await delay(300)
     }
 
-    const outcome = await testCase.run({ evaluate, dragBySelector, selectMove, navigate, delayFn: delay, pressEscape })
+    // T4.2：真實 CDP 滑鼠點擊（mousePressed→mouseReleased 序，非 JS
+    // `element.click()` 方法）——實跑校準發現：僅呼叫 `.click()` 方法
+    // 不會觸發瀏覽器對表單控件的原生 focus 行為（Chromium 的「點擊聚焦」
+    // 是 mousedown 事件的預設動作，`HTMLElement.click()` 方法本身不模擬
+    // mousedown/mouseup 序列——實測 `.click()` 後 `document.activeElement`
+    // 仍是 `<body>`）。案 10（mode 切換 scrollY 回歸）需要「使用者真點擊
+    // →原生取得焦點」這個前提，才能忠實重現舊 bug 場景（change handler
+    // 內 `segmentListsEl.focus()` 奪走剛由使用者點擊取得的焦點），故改走
+    // 真滑鼠事件序（同 dragBySelector 的 Input.dispatchMouseEvent 手法，
+    // 僅無拖曳/drop 階段）。
+    async function clickBySelector(pointExpr) {
+      const pt = await evaluate(pointExpr)
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt.x, y: pt.y })
+      await delay(30)
+      await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pt.x, y: pt.y, button: 'left', buttons: 1, clickCount: 1 })
+      await delay(40)
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pt.x, y: pt.y, button: 'left', clickCount: 1 })
+      await delay(60)
+    }
+
+    const outcome = await testCase.run({ evaluate, dragBySelector, selectMove, navigate, delayFn: delay, pressEscape, clickBySelector })
     const durationMs = Date.now() - t0
     return { success: outcome.ok, symptom: outcome.symptom ?? null, durationMs }
   } catch (err) {

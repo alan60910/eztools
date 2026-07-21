@@ -54,16 +54,30 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   輸出**：`SegmentConfig.row?: number`（選填、缺欄視同 0，CONFIG_VERSION
   維持 2 不 bump）驅動 `resolve()` 回傳 `rows: StyledRun[][]`（按渲染列序
   分組、空列壓縮，全隱藏退化為單一空列 `[[]]`），三後端與預覽逐列同步
-  輸出，行尾契約＝列間單一 LF join、無尾隨換行；**全寬 sticky 預覽頂帶版面**（sprint 09
-  改寫：預覽終端框＋底色／情境緊湊控件成全寬 sticky 頂帶，max-height
-  ≤40dvh、終端框內部捲動，頂帶自身承載 role=region 捲動停點；下方
-  雙欄——左＝segment 目錄 transfer-list（勾選原位灰化留位、不重排，
-  目錄項可**拖移入列**直接啟用至中欄目標列，checkbox 鍵盤等效保留、
-  落列播報採視覺顯示編號）＋中＝已選擇（依渲染列分組，各列群組容器
-  自帶地標／標題可跳達，列 header 帶逐列分隔符覆寫控件）——斷點
-  2→1 欄退化；產出收斂為頂帶右端單一按鈕開 `<dialog>`（stacked 三
-  產物各含複製／下載；showModal＋feature-detect fallback，
-  `#output-status` live region 常駐 dialog 外）；**逐列分隔符覆寫**
+  輸出，行尾契約＝列間單一 LF join、無尾隨換行；**三欄版面**
+  （sprint 14 改寫：頂帶降級入中欄，不再獨立全寬版面）——左＝全域
+  設定＋中＝預覽＋產出（欄內 sticky、role=region 隨遷、預覽終端框
+  內部捲動——40dvh 高度預算現掛終端框 max-height，非頂帶自身）＋
+  右＝**教學帶→目錄 compact 列→已選擇清單同一捲動容器**（sticky、
+  單一捲動、內捲不連鎖外頁）；目錄項
+  可**拖移入列**直接啟用至右欄已選擇清單目標列，checkbox 鍵盤等效保留、落列
+  播報採視覺顯示編號；目錄列 compact 形——未啟用「☐ 段名＋預設形
+  樣例值」（樣例由逐段單段-enabled 預設 config × FULL mock 唯讀
+  resolve 合成、per-locale 快取，合成失敗退 fallback 文案）／已啟用
+  「☑ 段名＋已加入」；已選擇清單依渲染列分組，各列群組容器自帶
+  地標／標題可跳達，列 header 帶逐列分隔符覆寫控件；行動版
+  （<1100px）摺疊序＝設定→預覽→清單（**DOM 序＝視覺序**，右欄
+  sticky／max-height 解除、回歸文件流）；move 鈕行為契約＝**預設
+  收納、鍵盤導航浮現、滑鼠點擊不浮現**（收納態佔位零躍動、保留
+  Tab 序）；產出仍收斂為單一按鈕開 `<dialog>`（鈕隨預覽居中欄；
+  stacked 三產物各含複製／下載；showModal＋feature-detect
+  fallback，`#output-status` live region 常駐 dialog 外）；dialog
+  尺寸＝`min(90vw, max(640px, 55vw), 72rem)`×`min(85dvh, 60rem)`；
+  拖曳教學帶顯示謂詞＝**讀值 ≠ `'1'`（fail-open：key 缺失、讀取
+  失敗、怪值皆顯示）**，dismiss 寫入後永久隱藏，localStorage
+  key＝`eztools-statusline-builder-drag-tutorial`、sentinel＝
+  `'1'`（比照 lang key `eztools-statusline-builder-lang` 列名、
+  不入 BuilderConfig）；**逐列分隔符覆寫**
   `BuilderConfig.rowSeparators?: (SeparatorConfig|null)[]`（v2 內選填
   欄不 bump，缺項／null 退全域；索引綁**啟用列位**、三後端與預覽同
   基準；僅 plain 模式生效，powerline 保值惰性；golden 採「既有凍結＋

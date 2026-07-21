@@ -411,6 +411,26 @@ select:disabled {
 }
 
 /*
+  T3.3（magi/14-statusline-ux-round2/PLAN.md §D2′；TASKS.md T3.3，回饋
+  #5「目錄樣例值」）：compact 列樣例值——淡化純文字（目錄是選單不是
+  預覽，D2′「精度」裁決），與 .catalog-item__badge 顯隱互斥（main.ts
+  buildCatalogItems／syncSegmentEnabledUi 同步）。S2-RESULT.md 溢出防護
+  建議：單行 ellipsis 截斷（windows-cjk 情境長路徑類段可能遠超 FULL
+  mock 樣本長度，見該檔（c）4）——min-width:0 允許 flex 子項縮小至小於
+  內容寬度才能觸發截斷（無此屬性 overflow/text-overflow 對 flex item
+  不生效）。
+*/
+.catalog-item__hint {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.8125rem;
+  color: var(--fg-muted);
+}
+
+/*
   T5.3（magi/07-statusline-multirow-layout/PLAN.md §排序與列指派 UX）：
   啟用段依渲染列分組容器（main.ts 動態建立／銷毀）。與四類分區共用
   .segment-section／.segment-section__heading／.segment-list 樣式（同為
@@ -754,10 +774,38 @@ body.is-segment-dragging .segment-pending-row {
   max-width: 100%;
 }
 
+/*
+  T2.5（magi/14-statusline-ux-round2/PLAN.md §D1-B′，S3/S4 選型定案）：
+  上/下移鈕群預設視覺收納——opacity:0 + pointer-events:none（S3 於
+  Chromium 實測：零版面躍動——收納/浮現態下所有控件 rect 逐 byte
+  相同；收納態下點擊鈕原位置為 no-op，因 pointer-events:none 使點擊
+  穿透至 <li> 本身；刻意不用 display/visibility，留 Tab 序——Tab 直達
+  鈕本身即令其所屬列浮現）。remove 鈕（.segment-row__remove）不在此
+  收斂範圍——它是 .segment-row__move 的手足元素、非其內部子節點，
+  維持現行「僅啟用列顯示」hidden 切換恆顯，契約只收斂上/下移鈕。
+  浮現：main.ts wireMoveRevealModality 依 document 層
+  mousedown/pointerdown/keydown 模態旗標，於 focusin 落在列內任一控件
+  時對該列（.segment-row）切換 `.row--reveal`。捨棄純 CSS
+  `:has(:focus-visible)`——S3 實測其於 select 滑鼠點擊、列內 prefix
+  文字輸入兩處皆會誤浮現（見 spikes/S3-RESULT.md D1 選型結論），與本
+  收斂目標「滑鼠不浮現」矛盾。
+  「僅啟用列顯示」（main.ts setHidden(moveField, !seg.enabled)）與本
+  收納/浮現態正交——停用列 hidden 屬性觸發 [hidden]{display:none!
+  important}（見 src/style.css reset），優先蓋過本規則的 opacity，
+  不會互相打架。
+*/
 /* 移位鈕橫排 */
 .segment-row__move {
   flex-direction: row;
   gap: 0.375rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.segment-row.row--reveal .segment-row__move {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /*
@@ -1047,49 +1095,57 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 }
 
 /* ============================================================
-   即時預覽（T4.1：全寬 sticky 頂帶，取代原三欄 aside 右欄定位；
-   全斷點生效，非僅寬螢幕——見 magi/09-statusline-ux-refactor/PLAN.md
-   §D4 A-1）
+   即時預覽（T2.1：三欄終形中欄，取代 T4.1 全寬 sticky 頂帶——見
+   magi/14-statusline-ux-round2/PLAN.md §D2 中欄段。頂帶「降級」入
+   `<main>` 內三欄之中欄，本節本身只保留：本欄 sticky 定位、內容
+   置中/寬度、終端框自身 40dvh 高度預算。三欄 grid／行動版摺疊規則見
+   下方「三欄版面」節。）
    ============================================================ */
 
 /*
-  頂帶本身：sticky 貼頂＋max-height 40dvh 預算（桌面與行動一致）；
-  overflow:hidden 讓超出預算的內容改由子項（.preview-terminal）自行
-  縱向捲動，而非撐破頂帶本身。z-index 介於一般內容（auto/0）與
-  .skip-link 的 z-index:10（見上方規則）之間，使 `.skip-link:focus`
-  仍浮頂帶之上；background-color 不透明，避免下方 <main> 內容於頁面
-  捲動時透出頂帶邊界。role="region"／tabindex="0"（index.html 已設）
-  接手原 .builder-columns__aside 的捲動停點角色——「兩個捲動停點」
-  契約：本節點＋下方 .preview-terminal，總數維持 2。
+  本欄（原頂帶）：sticky 貼頂，隨中欄所在 grid row 高度移動（與右欄
+  `.builder-columns__list` 同框同步，見下方三欄版面節與
+  spikes/S1-RESULT.md 檢核 1）。T2.1 起**不再**帶 `max-height`／
+  `overflow:hidden`——高度預算已遷入 `.preview-terminal` 自身（見下方
+  該規則），本欄不再是自身的 CSS 捲動容器，隨內容自然撐開（index.html
+  `#preview-section` 節點註解「條件式捲動停點」判定：因此移除
+  tabindex，捲動停點僅剩 `.preview-terminal` 一處）。
+  background-color 保留，作為視覺卡片背景（sticky 時可能暫時遮擋其
+  下方頁面內容捲過的殘影）。
+
+  MAGI review 🟡-4：`z-index: 2` 補繪序保護——沿革自舊頂帶（T4.1 前身）
+  曾有的 `z-index: 5`，T2.1 遷移為中欄時遺失（全檔遷移後現僅剩
+  `.skip-link` 的 `z-index: 10` 一處）。<1100px 本欄維持 sticky（見下方
+  三欄版面節行動版規則），DOM 序在本欄之後的 positioned 後代（例如
+  `.color-swatch`）若無此宣告，會依預設繪序（後者蓋前者）疊繪於本欄
+  之上，遮蓋 sticky 預覽；取低於 `.skip-link`（10）的低位值，僅求高於
+  預設 auto（沒有建立 stacking context 的一般後代）即可，不與 skip-link
+  的最高優先層搶位。
 */
 .preview-section {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 2;
   width: 100%;
-  max-height: 40dvh;
-  overflow: hidden;
+  min-width: 0; /* 同 .builder-columns__settings／__list：grid item 預設 min-width:auto 會被 .preview-terminal 的 overflow-x 內容撐破欄寬 */
   display: flex;
   flex-direction: column;
   background-color: var(--bg);
-  border-bottom: 1px solid var(--border);
 }
 
 /*
-  內容置中對齊寬度：與 header/main/footer 的斷點 max-width 同步放寬
-  （見下方 grid 區塊媒體查詢），讓頂帶視覺上與頁面其餘內容左右對齊，
-  同時頂帶背景本身仍全寬（100vw 貼邊）。min-height:0 允許 flex column
-  內的 .preview-terminal 在 max-height 預算內收縮並捲動，而非被內容
-  撐破。
+  本欄內容排版：T2.1 起本節點已是 grid 欄本身（非全寬頂帶），故移除
+  舊有 max-width:960px／margin-inline:auto 置中邏輯（該邏輯原為在
+  100vw 頂帶內模擬頁面閱讀寬度，現由 grid 欄軌寬度直接決定，無需
+  再自行置中）；min-height:0 允許 flex column 內的 .preview-terminal
+  依自身 max-height 預算收縮並捲動，而非被內容撐破。
 */
 .preview-section__inner {
   display: flex;
   flex-direction: column;
   min-height: 0;
   width: 100%;
-  max-width: 960px;
-  margin-inline: auto;
-  padding: 0.75rem 1.5rem;
+  padding: 0.75rem 0;
   gap: 0.375rem;
 }
 
@@ -1211,7 +1267,8 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
 */
 .preview-terminal {
   min-height: 3rem;
-  flex: 1 1 auto; /* T4.1：頂帶 max-height 預算內，本框佔剩餘空間並自行捲動 */
+  max-height: 40dvh; /* T2.1：40dvh 高度預算自外層 #preview-section 遷入本框（原頂帶 max-height，見 magi/14-statusline-ux-round2/PLAN.md §D2 中欄段）——外層不再自身裁切，本框獨立控管高度＋捲動 */
+  flex: 1 1 auto; /* 本框在 flex column 內佔剩餘空間，受上方 max-height 封頂 */
   padding: 0.75rem 1rem;
   border-radius: 0.375rem;
   font-family: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
@@ -1219,7 +1276,7 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
   line-height: 1.6;
   white-space: pre;
   overflow-x: auto;
-  overflow-y: auto; /* T4.1：終端框內部縱向捲動（頂帶「兩個捲動停點」契約之二） */
+  overflow-y: auto; /* T2.1 起為唯一捲動停點（見 index.html #preview-section 節點註解「條件式捲動停點」判定） */
 }
 
 /*
@@ -1271,8 +1328,8 @@ body[data-mode='powerline'] .segment-row--enabled .segment-row__fg-mount {
    ============================================================ */
 dialog.output-dialog {
   box-sizing: border-box;
-  width: min(90vw, 640px);
-  max-height: min(85vh, 46rem);
+  width: min(90vw, max(640px, 55vw), 72rem);
+  max-height: min(85dvh, 60rem);
   padding: 1.25rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
@@ -1383,51 +1440,61 @@ dialog.output-dialog:not([open]) {
 */
 
 /* ============================================================
-   雙欄版面（T4.1，magi/09-statusline-ux-refactor/PLAN.md §D4 A-1；
-   取代 T5.8 三欄滿版版面——即時預覽抽離為全寬頂帶後，.builder-
-   columns__aside 隨之退役，主版面退化為「左目錄＋中已選擇」雙欄，
-   斷點簡化為 2→1，不再有 ≥1400px 的第三欄斷點）
+   三欄版面（T2.1／T2.2／T2.3，magi/14-statusline-ux-round2/PLAN.md
+   §D2 終形；取代 T4.1 雙欄版面——即時預覽頂帶降級入中欄後，左／中／右
+   三欄同框：左＝全域設定、中＝預覽（sticky）、右＝目錄＋已選擇同居
+   （單一捲動容器）。三個 section 依 DOM 序（設定→預覽→清單，見
+   index.html `<main>` 內書寫序）落格，**不**使用 `order` 亦**不**對
+   三欄本身指名 grid-area／grid-column——版面依純 grid auto-placement
+   落左中右（spikes/S5-RESULT.md「原生單一 DOM 序」定案，防桌面／行動
+   兩斷點需各自維護一套選擇器）；#output-status／#error-message 以
+   `grid-column: 1 / -1` 明式跨欄置頂，讓 auto-placement 接續把下一列
+   （設定／預覽／清單）依序分派入三欄，兩者互不牴觸（CSS Grid「顯式
+   欄位＋自動列」的標準 auto-placement 演算法：先佔滿的列自動推進到
+   下一列，見下方規則）。
    ============================================================ */
 
-/* grid item 預設 min-width:auto 會撐破欄寬（子孫如 .output-block__code
-   本身已橫向捲動，需要欄本身可收縮而非被內容撐開）；<1100px 進入下方
-   flex 單欄堆疊時亦無害（flex item 同樣受 min-width:auto 影響撐寬，故
-   此防禦對兩種版面皆需要，非僅 grid 專屬）。兩 wrapper 皆需此防禦。 */
-.builder-columns__catalog,
-.builder-columns__selected {
+/* grid item 預設 min-width:auto 會撐破欄寬（.preview-terminal／
+   .output-block__code 等子孫本身已 overflow-x:auto，需要欄本身可
+   收縮而非被內容撐開）；<1100px 進入下方 flex 單欄堆疊時亦無害（flex
+   item 同樣受 min-width:auto 影響撐寬，此防禦對兩種版面皆需要）。三個
+   欄位 wrapper／section 皆需此防禦（.preview-section 自身的
+   min-width:0 見上方即時預覽節）。 */
+.builder-columns__settings,
+.builder-columns__list {
   min-width: 0;
 }
 
 /*
-  T4.4 spike micro-fix（magi/09-statusline-ux-refactor/sp1/T4.4-report.md
-  「二」節建議 2，2026-07-17 落地）：<1100px 單欄堆疊斷點下，目錄欄（四類
-  30 段常駐清單＋全域設定，實測高度 ~2460px）在 DOM 序上先於「已選擇」
-  欄，導致第一個列群組被推到 y≈3374px（頂帶下緣後還要再捲過整個目錄才
-  看得到）。本規則**只調整視覺呈現序**（CSS `order`，scoped 於
-  `max-width: 1099.98px`，與下方 `@media (min-width: 1100px)` 雙欄 grid
-  互斥、無 cascade 覆寫疑慮）：main 由預設 block 堆疊改為 flex 單欄，
-  `.builder-columns__catalog` 給予正 order 使其排到「已選擇」欄之後，
-  `#output-status`／`#error-message`（同為 main 直接子節點、維持預設
-  order:0）位置不受影響，仍在最上方。**DOM 序刻意不動**（index.html 本
-  次調度為並行 T5.5 車道、禁碰）。
+  T2.3（micro-fix-3 收斂，magi/14-statusline-ux-round2/PLAN.md §D2
+  行動版；spikes/S5-RESULT.md 佈局方案定案）：<1100px 單欄堆疊——三個
+  section 已依「設定→預覽→清單」DOM 序書寫（S5-RESULT.md：DOM 真搬，
+  無 JS matchMedia 搬移），main 由 grid 切成 flex column 後，視覺序／
+  Tab 序／SR 序三者與 DOM 序恆等，不需任何 `order` 覆寫——取代舊
+  `.builder-columns__catalog { order: 1 }` 的 CSS 視覺序覆寫手法（該
+  手法只調視覺序、不動 Tab/SR 序，兩者曾不一致，即 09 真機驗收批
+  micro-fix-3 的成因；本次「目錄」真搬入右欄、右欄又整節搬至 DOM 序
+  第三位後，此落差不復存在，故本輪直接移除該覆寫，未沿用）。
 
-  已知取捨（team-lead 指名記錄）：CSS `order` 只影響視覺繪製順序，不影響
-  鍵盤 Tab 序與螢幕報讀機預設線性朗讀序（兩者皆沿 DOM 序）——即本規則
-  生效後，沿用 DOM 序導覽的鍵盤／SR 使用者仍會先走過整個目錄清單（30
-  段常駐項）才到「已選擇」列群組，與行動裝置上一般滑鼠使用者「先看到
-  已選擇」的視覺順序不一致，屬 WCAG 1.3.2（Meaningful Sequence）／2.4.3
-  （Focus Order）已知落差。修法需要真正搬動 DOM 節點（index.html），非
-  本次「只准改 style.css」的調度範圍內可解——留待下一個可碰 index.html
-  的任務評估是否值得搬動節點或另尋 aria 層級彌合方案。
+  右欄 sticky／max-height／overflow（PLAN §D2「行動版...解除右欄
+  max-height／sticky」，防「頁面捲動＋右欄自身捲動」的嵌套捲動陷阱，
+  回歸單一頁面捲動的文件流）——MAGI review 🔴-1（round-2 code review）
+  修法：規則本體已隨本輪修法搬入下方 `@media (min-width: 1100px)`
+  區塊、與三欄 grid 同框（見該規則本身移動後的新位置與其註解），**不
+  再靠額外的「解除」規則**達成行動版回歸文件流——舊法「基準規則寫在
+  media 區塊外、行動版另掛一條 position:static 等覆寫」在兩條規則
+  specificity 相同（皆 0-1-0）時，層疊源序決定勝負；若基準規則的原始
+  碼位置晚於解除規則（曾發生），行動版的解除規則會被源序後到的基準
+  規則整條蓋掉、無條件套用 sticky——本輪把基準規則遷入 min-width
+  區塊後，此類「規則歸屬」缺陷從語法上即不可能重演（<1100px 天然不
+  落入任何 `.builder-columns__list` 規則，literal 回歸文件流）。中欄
+  （預覽）維持 sticky（同 T4.1 起全斷點生效的既有行為，本次搬遷未變，
+  未見 PLAN 明文要求行動版解除）。
 */
 @media (max-width: 1099.98px) {
   main {
     display: flex;
     flex-direction: column;
-  }
-
-  .builder-columns__catalog {
-    order: 1;
   }
 }
 
@@ -1435,70 +1502,92 @@ dialog.output-dialog:not([open]) {
   /*
     全站基線 max-width:960px（src/style.css:203-210）於多欄下空間過窄，
     .threshold__buckets（本檔單桶 min-width 260px）每行剩 1 桶、10 桶
-    閾值編輯器高度暴增（PLAN §D3 Rev 2 釘死、D3-R4 沿用，T4.1 沿用同一
-    理由）。本頁 local override 於此斷點放寬至 ~1360px（header／main／
-    footer／.preview-section__inner 同步以維持左右邊界對齊）；≥1400px
-    再放寬至 ~1800px（見下，僅寬度上限微調，不再新增欄位）。<1100px 不
-    套此規則、回落全站 960px 基線；不動 src/style.css。
+    閾值編輯器高度暴增（PLAN §D3 Rev 2 釘死、D3-R4 沿用，T4.1／T2.1
+    沿用同一理由）。本頁 local override 於此斷點放寬至 ~1360px
+    （header／main／footer 同步以維持左右邊界對齊）；≥1400px 再放寬至
+    ~1800px（見下，僅寬度上限微調，不再新增欄位）。<1100px 不套此
+    規則、回落全站 960px 基線；不動 src/style.css。T2.1 起
+    `.preview-section__inner` 已移除置中/max-width（不再是全寬頂帶，
+    改吃所在 grid 欄寬度），故自本組覆寫名單移除（原 T4.1 名單含此項）。
   */
   header,
   main,
-  footer,
-  .preview-section__inner {
+  footer {
     max-width: 1360px;
   }
 
   /*
-    雙欄並列：左欄＝目錄、右欄＝已選擇（T4.1 起「已選擇」不再與預覽
-    產出共用第三欄，故給予較寬比例——1:2，優先讓「已選擇」欄（列群組＋
-    排序＋完整控件，PLAN 明言為本次改版核心互動區）取得較大可視寬度）。
-    #error-message／#output-status 各自獨立一列跨欄置頂（grid-area，防
-    auto-placement 落入 catalog/selected 儲存格造成視覺重疊——兩者皆為
-    is-empty 收合的常駐 live region，PLAN §D3 Rev 2 釘死 #error-message
-    此慣例、T4.2 比照套用於新搬入 main 的 #output-status）。T4.2 起
-    #output-section 已收進 `<dialog>`（脫離文件流的頂層 overlay），
-    不再佔用 grid 列。align-items:start 避免 stretch。
+    三欄並列：左＝設定（1fr）、中＝預覽（1.3fr）、右＝目錄＋已選擇
+    （1.3fr）——右欄內容最重（30 段目錄＋已選擇列群組）與中欄終端機
+    顯示同樣需要充裕寬度，左欄僅全域設定欄位、密度低。#output-status／
+    #error-message 用 `grid-column: 1 / -1` 明式跨欄置頂（避免落入
+    auto-placement 的第一欄儲存格造成視覺重疊，兩者皆為 is-empty 收合
+    的常駐 live region，沿用 T4.1 既有慣例）；三欄本身**不**指名
+    grid-area／grid-column，交由 grid auto-placement 接續分派——
+    output-status／error 各自佔滿一列（明式 1/-1 跨欄）後，下一列的
+    auto-placement 依 DOM 序把設定／預覽／清單三個 section 分入該列
+    三欄（PLAN §D2「無 order、無跨欄 grid-area 重映射」的字面落地：
+    三欄視覺序＝DOM 序，非以 grid-area 命名重新排列）。align-items:
+    start 避免 stretch。
   */
   main {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    grid-template-areas:
-      'output-status output-status'
-      'error error'
-      'catalog selected';
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr);
     column-gap: 2rem;
     align-items: start;
   }
 
-  #output-status {
-    grid-area: output-status;
-  }
-
+  #output-status,
   #error-message {
-    grid-area: error;
+    grid-column: 1 / -1;
   }
 
-  .builder-columns__catalog {
-    grid-area: catalog;
-  }
+  /*
+    T2.2（右欄「目錄＋已選擇清單同居」，magi/14-statusline-ux-round2/
+    PLAN.md §D2 右欄；spikes/S1-RESULT.md 檢核 1/2/4）：右欄本身為單一
+    捲動容器。`position: sticky; top: 0` 與中欄 `.preview-section` 同框
+    同步（S1-RESULT.md 檢核 1「中欄×右欄複合 sticky」通過：兩個獨立
+    sticky 元素在同一 grid row 內互不干擾、同步卡住／同步隨頁面捲動）。
+    `overflow-y: auto` 使超出 max-height 預算的內容（30 段目錄＋已選擇
+    列群組）本欄自行捲動；`overscroll-behavior: contain` 防內捲到底後
+    連鎖捲動外層頁面（S1-RESULT.md 檢核 2 通過）。
 
-  .builder-columns__selected {
-    grid-area: selected;
+    max-height 採 S1 定案後備：`calc(100dvh - var(--column-top))`
+    （`--column-top` 由 main.ts `syncColumnTop()` 於 init 時依實際
+    `<header>` 渲染高度一次性寫入 `:root` CSS 變數，非寫死常數——見
+    main.ts 該函式文件；S1-RESULT.md「頁首高度靜態，變數可行」判斷：
+    一次性寫入已足夠改善初載可達性，非隨 resize 動態追蹤）。
+    `var(--column-top, 0px)` 後備值：main.ts 尚未執行（或無 JS 環境）
+    時退回 `100dvh`（S1-RESULT.md 檢核 4 對照組：初載（scrollY=0、
+    sticky 未黏住前）欄底可達性——不扣頁首時超出視窗 292px，扣除後降至
+    24px，改善 92%，此為 PLAN 既定裁決，非本批新裁決）。
+
+    MAGI review 🔴-1：本規則自本輪修法起搬入本 media 區塊（與三欄 grid
+    同框）——基準只在 ≥1100px 生效，徹底消除與行動版解除規則的層疊源序
+    競爭（舊法兩條規則 specificity 相同、源序決勝，一旦基準規則原始碼
+    位置晚於解除規則即整條蓋掉，見上方 `@media (max-width: 1099.98px)`
+    區塊註解的完整事故描述）。<1100px 天然不落入本規則、回歸文件流，
+    不再需要一條額外的「解除」規則。
+  */
+  .builder-columns__list {
+    position: sticky;
+    top: 0;
+    max-height: calc(100dvh - var(--column-top, 0px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 
 @media (min-width: 1400px) {
   /*
-    ≥1400px：僅寬度上限微調（不再新增欄位——三欄滿版版面已隨 T4.1 的
-    頂帶抽離而結束）。本頁 local override 進一步放寬 header／main／
-    footer／.preview-section__inner 至 ~1800px 上限（防超寬螢幕過度
-    拉伸；width:100%＋margin-inline:auto 已確保視口更窄時不溢出，此處
+    ≥1400px：僅寬度上限微調（不再新增欄位）。本頁 local override 進一步
+    放寬 header／main／footer 至 ~1800px 上限（防超寬螢幕過度拉伸；
+    width:100%＋margin-inline:auto 已確保視口更窄時不溢出，此處
     max-width 僅設頂）。
   */
   header,
   main,
-  footer,
-  .preview-section__inner {
+  footer {
     max-width: 1800px;
   }
 }
@@ -1526,4 +1615,90 @@ dialog.output-dialog:not([open]) {
 
 .lang-toggle:hover {
   border-color: var(--link);
+}
+
+/* ============================================================
+   教學帶（T2.6，magi/14-statusline-ux-round2/PLAN.md §D5「拖曳教學」；
+   結構與 i18n 掛標決策見 index.html `#tutorial-band-slot` 節點自身
+   註解）。全數用 class 選擇器、無 `!important`——`[hidden]` 隱藏防禦
+   （src/style.css `[hidden]{display:none!important}`）對本區塊天然
+   有效，見 spikes/S1-RESULT.md「hidden 警語」；T3.5 dismiss 接線將
+   倚賴此不變量掛/移除 `hidden` 屬性。
+   ============================================================ */
+.tutorial-band {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background-color: var(--surface-dim);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+/* 抓取圖示（⠿，裝飾用、沿 .segment-row__grip 既有視覺語彙），非互動、
+   不進 tab 序（aria-hidden，天然）。 */
+.tutorial-band__grip {
+  color: var(--fg-muted); /* ≈ 7.6:1，同 .segment-row__grip 對比註記 */
+  flex-shrink: 0;
+}
+
+/* SVG 迷你動畫容器：currentColor 承接本規則 color，深/淺主題跟隨
+   （S1-RESULT.md 檢核 3／7 通過）。 */
+.tutorial-band__svg {
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+
+/* 方塊沿虛線位移 keyframes loop——僅動 `transform`，不改任一維度
+   尺寸（寬高由 SVG 自身 width/height 屬性固定），故 reduced-motion
+   停格時版面尺寸天然不變（無需額外補償規則）。 */
+.tutorial-band__svg-box {
+  animation: tutorial-band-drift 2.2s ease-in-out infinite;
+}
+
+@keyframes tutorial-band-drift {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(28px);
+  }
+  88%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* prefers-reduced-motion 停格：僅關閉 animation，不動任何版面尺寸
+   屬性——與全站慣例一致（src/style.css:357 起、本檔既有
+   .threshold__toggle::before 等規則不重複定義，本規則為教學帶專屬
+   keyframes 的對應停格，必須局部補在本檔，理由同上方全站規則管不到
+   本檔新增的 keyframes 名稱）。 */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-band__svg-box {
+    animation: none;
+  }
+}
+
+.tutorial-band__text {
+  flex: 1 1 auto;
+  font-size: 0.875rem;
+  color: var(--fg);
+}
+
+.tutorial-band__dismiss {
+  flex-shrink: 0;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8125rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.25rem;
+  background-color: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.tutorial-band__dismiss:hover {
+  background-color: var(--surface-dim);
 }

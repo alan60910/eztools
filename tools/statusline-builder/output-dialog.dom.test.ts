@@ -25,11 +25,28 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const HTML_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'index.html')
+const DIR = path.dirname(fileURLToPath(import.meta.url))
+const HTML_PATH = path.resolve(DIR, 'index.html')
 const RAW_HTML = readFileSync(HTML_PATH, 'utf-8')
 const BODY_MATCH = /<body[^>]*>([\s\S]*)<\/body>/.exec(RAW_HTML)
 if (BODY_MATCH === null) throw new Error('index.html 缺少 <body>，無法取得測試骨架')
 const BODY_HTML = BODY_MATCH[1]
+
+const STYLE_CSS = readFileSync(path.resolve(DIR, 'style.css'), 'utf-8')
+
+/**
+ * 取 style.css 原始文字中，選擇器第一次出現處對應的規則區塊內文（不含大
+ * 括號、假設無巢狀大括號）——同 layout-columns.dom.test.ts 既有慣例（該
+ * 檔檔頭已載明 jsdom 不套外部 stylesheet、樣式規則以原始文字比對之緣由，
+ * 不重複抄錄）。
+ */
+function firstRuleBlock(css: string, selectorPattern: RegExp): string {
+  const match = selectorPattern.exec(css)
+  if (match === null) throw new Error(`style.css 找不到符合 ${selectorPattern} 的規則`)
+  const openIndex = css.indexOf('{', match.index)
+  const closeIndex = css.indexOf('}', openIndex)
+  return css.slice(openIndex + 1, closeIndex)
+}
 
 /** 清空 localStorage＋重灌乾淨 DOM＋重置模組快取後啟動 main.ts（同既有 dom.test 慣例）。 */
 async function boot(): Promise<void> {
@@ -278,5 +295,28 @@ describe('複製通道刻意無 BOM（回退裁決，見 UTF8_BOM 常數 JSDoc�
     expect(writeText).toHaveBeenCalledTimes(1)
     expect(status.classList.contains('is-empty')).toBe(false)
     expect(status.textContent).toContain('複製失敗')
+  })
+})
+
+/**
+ * T2.4（magi/14-statusline-ux-round2/PLAN.md §D3；TASKS.md T2.4）：dialog
+ * 尺寸公式定案——`width: min(90vw, max(640px, 55vw), 72rem)`＋
+ * `max-height: min(85dvh, 60rem)`。72rem 上限僅約束超寬幕（3440px 下
+ * 1892px→1152px）；一般桌面（≤2094px）行為與純 55vw 式相同；行動版
+ * 90vw 仍主導（600px 視窗→540px，與前一版 `min(90vw, 640px)` 同值）。
+ * dvh（非 vh、非 svh）——與既有頂帶 40dvh 精度一致（見 PLAN §D3
+ * tradeoff 說明）。jsdom 不套外部 stylesheet，故沿 layout-columns.dom.
+ * test.ts 既有慣例改讀 style.css 原始文字比對規則區塊。
+ */
+describe('T2.4 dialog 尺寸公式（style.css 原始文字檢核）', () => {
+  it('dialog.output-dialog 帶 width: min(90vw, max(640px, 55vw), 72rem)（公式全文比對）', () => {
+    const block = firstRuleBlock(STYLE_CSS, /dialog\.output-dialog\s*\{/)
+    expect(block).toMatch(/width:\s*min\(90vw,\s*max\(640px,\s*55vw\),\s*72rem\)/)
+  })
+
+  it('dialog.output-dialog 帶 max-height: min(85dvh, 60rem)（公式全文比對；dvh 非 vh／svh）', () => {
+    const block = firstRuleBlock(STYLE_CSS, /dialog\.output-dialog\s*\{/)
+    expect(block).toMatch(/max-height:\s*min\(85dvh,\s*60rem\)/)
+    expect(block).not.toMatch(/max-height:\s*min\(85vh/)
   })
 })

@@ -44,7 +44,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { t } from './messages.js'
 import { applyI18n } from './i18n-dom.js'
 
@@ -368,6 +368,86 @@ describe('T5.5 靜態掃描：index.html 主文件樹靜態文案皆 data-i18n �
 })
 
 /**
+ * T3.6（magi/14-statusline-ux-round2/PLAN.md §D5；TASKS.md T3.6）：en
+ * 文字節點重掃案——比照 T1.4 🟡-2-7「en 重掃」（屬性面）的姊妹案，補
+ * 文字節點面的等價巡檢。上方「T5.5 靜態掃描」案只驗證「已掛
+ * `data-i18n`」，不驗證「掛的 key 確實可解析為字串終值」——key 打錯字
+ * 或指向非字串終值時 `applyI18n` 內部 `console.warn` 靜默跳過（不改
+ * `textContent`），原始 zh 字面因此原封不動殘留；若殘留字面又恰好落在
+ * 帶 `data-i18n` 的容器子樹內，沿用原 `inAllowedContainer` 判準會誤判為
+ * 「合法」而漏抓——故本案的判準刻意排除 `data-i18n` 豁免，只保留
+ * template／head／footer／theme-toggle 四個真正與本工具 i18n 無關的
+ * 容器（同判準亦見上方「T5.5 en 重掃」屬性案文件之姊妹說明）。
+ *
+ * 額外發現（本案落實時實測揭露，非 tutorial 相關）：`.lang-toggle` 鈕
+ * `data-i18n="langToggle.shortLabel"` 的 en 字典值即為 `'中'`
+ * （messages.ts `en.langToggle.shortLabel`，T5.4 既有設計）——此鍵刻意
+ * 顯示「切至目標語言」的助憶短碼（en 生效中顯示「中」代表可切到中文，
+ * 對稱 zh-Hant 生效中顯示「EN」），非漏解析的殘留 zh 原文；`i18n-dom.
+ * dom.test.ts:274`／`lang-switch.dom.test.ts` 已對此值有專用鎖定斷言。
+ * 故本案判準額外排除 `.lang-toggle` 容器（非新增豁免類別，而是既有
+ * 「zh 字典鍵有意產出 CJK 值」個案的收斂，理由與 `theme-toggle` 之於
+ * 屬性面「site chrome、非本工具翻譯範圍」不同——此為「已翻譯，但譯文
+ * 本身含 CJK」，兩者結論相同：不算掛標／字典缺陷）。
+ */
+describe('T3.6 靜態掃描：applyI18n(doc, en) 後主文件樹文字節點零殘留 CJK（data-i18n 鍵必可解析）', () => {
+  /**
+   * 同上方文字節點 inAllowedContainer，但排除 data-i18n 豁免（見本案
+   * 文件）；另加 `.lang-toggle` 排除（見本案文件「額外發現」段落）。
+   */
+  function inAllowedContainerExceptI18n(node: Node): boolean {
+    let el: Element | null = node.parentElement
+    while (el !== null) {
+      const tag = el.tagName.toLowerCase()
+      if (tag === 'template' || tag === 'head' || tag === 'footer') return true
+      if (el.classList.contains('theme-toggle') || el.classList.contains('lang-toggle')) return true
+      el = el.parentElement
+    }
+    return false
+  }
+
+  it('applyI18n(doc, en) 後，豁免容器外的文字節點皆不含 CJK', () => {
+    const doc = new DOMParser().parseFromString(indexHtml, 'text/html')
+    applyI18n(doc, 'en')
+    const walker = doc.createTreeWalker(doc.documentElement, 4 /* SHOW_TEXT */)
+    const offenders: string[] = []
+    let node = walker.nextNode()
+    while (node !== null) {
+      const text = node.textContent ?? ''
+      if (CJK.test(text) && !inAllowedContainerExceptI18n(node)) {
+        offenders.push(text.trim().slice(0, 60))
+      }
+      node = walker.nextNode()
+    }
+    expect(offenders).toEqual([])
+  })
+})
+
+/**
+ * T3.6：零 `console.warn` 案——鎖死「所有掛標的 `data-i18n`／
+ * `data-i18n-attr` 鍵皆確實存在於兩語言字典」這個不變量。`applyI18n`
+ * 對無法解析的鍵僅 `console.warn` 靜默跳過（見 i18n-dom.ts），不會讓
+ * 上面幾個「零殘留 CJK」案本身變紅（例如該節點原文剛好不含 CJK、或指向
+ * 非字串終值而原文為空），故另立此案正面斷言零呼叫，堵死此類假陰性。
+ */
+describe('T3.6 靜態掃描：applyI18n 對整份 index.html 零 console.warn（兩語言）', () => {
+  it('zh-Hant／en 兩次 applyI18n 皆零 console.warn 呼叫', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const zhDoc = new DOMParser().parseFromString(indexHtml, 'text/html')
+      applyI18n(zhDoc, 'zh-Hant')
+      expect(warnSpy).not.toHaveBeenCalled()
+
+      const enDoc = new DOMParser().parseFromString(indexHtml, 'text/html')
+      applyI18n(enDoc, 'en')
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+/**
  * T1.1（magi/13-test-hardening/TICKET.md）：index.html 主文件樹屬性巡檢，
  * 見檔頭「index.html 屬性巡檢」段落之判準與豁免清單。核心掃描邏輯抽為
  * `findAttrOffenders`，供下方兩處共用：
@@ -531,6 +611,11 @@ describe('T5.5 en 抽查：關鍵位切 en 翻轉', () => {
     expect(doc.querySelector('.lang-toggle')?.getAttribute('aria-label')).toBe('Switch to Chinese interface')
     expect(doc.querySelector('h1')?.textContent).toBe('Claude Code Statusline Generator')
     expect(CJK.test(doc.querySelector('#global-heading')?.textContent ?? '')).toBe(false)
+    // T3.6：教學帶兩鍵 en 翻轉（tutorial.dragHint／tutorial.dismiss）。
+    expect(doc.querySelector('.tutorial-band__text')?.textContent).toBe(
+      'Drag a segment name to reorder or move it to another row',
+    )
+    expect(doc.querySelector('#tutorial-dismiss')?.textContent).toBe('Got it')
   })
 
   it('常數表遷移後的字典函式 en 輸出正確（variantLabel／fieldReject／announce）', () => {

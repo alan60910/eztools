@@ -108,6 +108,14 @@ import {
 import { insertNullAtReal, padToLength, removeRealAt, type RowSeparator } from './row-separators.js'
 import { planEnableIntoTarget } from './enable-into-target.js'
 import { buildCatalogGroups } from './catalog.js'
+// T3.2/T3.3（magi/14-statusline-ux-round2/PLAN.md §D2′；TASKS.md T3.2；
+// 回饋 #5「目錄樣例值」）：目錄 compact 列樣例值合成＋per-locale 快取
+// （見該檔檔頭）——本檔只機械消費 getSampleValue，不重複合成邏輯。
+import { getSampleValue } from './sample-values.js'
+// T3.5（14-PLAN §D5「拖曳教學」round-2 單一謂詞定稿；TASKS.md T3.5）：
+// 教學帶 dismiss 狀態機——key／sentinel 常數與單一謂詞／dismiss 動作皆在
+// tutorial-band.ts（單一出口，見該檔檔頭），本檔只消費、不重複定義。
+import { dismissTutorialBand, shouldShowTutorialBand } from './tutorial-band.js'
 import {
   computeSegmentFieldDefaults,
   isSegmentFieldAtDefault,
@@ -312,6 +320,19 @@ const rowSelectElements = new Map<string, HTMLSelectElement>()
  * 維持可見）。
  */
 const moveButtonElements = new Map<string, { up: HTMLButtonElement; down: HTMLButtonElement }>()
+
+/**
+ * T2.5（magi/14-statusline-ux-round2/PLAN.md §D1-B′，S3/S4 選型定案）：
+ * 上/下移鈕「收納／浮現」的輸入模態旗標——`'keyboard'`＝最近一次 document
+ * 層輸入事件為鍵盤（keydown，見 wireMoveRevealModality）；`'mouse'`＝最近
+ * 一次為滑鼠/指標（mousedown／pointerdown）。純 CSS `:has(:focus-visible)`
+ * 經 S3 於 Chromium 實測有兩處滑鼠模態破口（select 滑鼠點擊即
+ * focus-visible；列內 prefix 文字輸入任何 focus 皆 focus-visible）而棄用
+ * ，改由本旗標於 focusin 時判定是否對該列切 `.row--reveal`（見
+ * spikes/S3-RESULT.md D1 選型結論）。初始值 'keyboard'：開機尚未有任何
+ * 輸入事件時不影響任何列（尚無 focusin），僅為型別預設。
+ */
+let inputModality: 'mouse' | 'keyboard' = 'keyboard'
 
 /**
  * T5.1（08-PLAN §5）：segment id → 其前景覆寫色選 handle（於 buildSegmentRow
@@ -536,8 +557,6 @@ const downloadSettingsEl = byId<HTMLAnchorElement>('download-settings')
 const outputBashCodeEl = outputCode('output-bash')
 const outputPs1CodeEl = outputCode('output-ps1')
 const outputSettingsCodeEl = outputCode('output-settings')
-// segment 清單容器（無 id，以 class 取得）：mode 切換時作焦點移轉目標。
-const segmentListsEl = queryOne<HTMLElement>('.segment-lists')
 // T5.3：啟用段依渲染列分組的容器掛載點（雙區清單之「啟用區」；列群組
 // <section> 由 main.ts 動態生成/銷毀於此節點下，見 index.html 註解）。
 const segmentRowGroupsEl = byId('segment-row-groups')
@@ -548,6 +567,10 @@ const segmentRowGroupsEl = byId('segment-row-groups')
 const addPendingRowEl = byId<HTMLButtonElement>('add-pending-row')
 // T5.9：停用段完整控件列的隱藏池（display:none，不銷毀；見其自身註解）。
 const segmentHiddenPoolEl = byId('segment-hidden-pool')
+// T3.5：教學帶（T2.6 已落地結構，見 index.html 該節點註解）容器＋「知道
+// 了」dismiss 鈕掛點——wireTutorialBand() 據此接線狀態機。
+const tutorialBandEl = byId('tutorial-band-slot')
+const tutorialDismissEl = byId<HTMLButtonElement>('tutorial-dismiss')
 
 // 主題切換鈕 wiring：模組層級立即執行，早於下方 init()（無論 init() 是同步
 // 立即跑或掛在 DOMContentLoaded，這行都先執行——見上方 import 註解）。
@@ -1009,12 +1032,21 @@ function updateBucket(seg: SegmentConfig, index: number, spec: ColorSpec): void 
  * 文件），但現可拖曳入中欄目標列——`wireCatalogDragAndDrop` 接線
  * dragstart／dragend（checkbox 命中區豁免），落點側沿用中欄既有 drop
  * handler（皆只依賴模組層級 draggingId，不分辨來源），無需另接。
+ *
+ * T3.3（magi/14-statusline-ux-round2/PLAN.md §D2′；TASKS.md T3.3，回饋
+ * #5「目錄樣例值」）：`.catalog-item__hint` 樣例值文字亦於本函式一次性
+ * 寫入（`getSampleValue(id, currentLocale())`，一律 **textContent**——
+ * 禁走 `instantiateTemplate` 的 innerHTML token 通道，見 index.html
+ * catalog-item-template 註解第 6 點）。顯隱態（未啟用顯示／已啟用
+ * hidden）由呼叫端 `buildCatalogItems` 與 `setSegmentEnabled` 的
+ * `syncSegmentEnabledUi` 統一設定，本函式僅寫文字、不碰 hidden。
  */
 function buildCatalogItem(id: string, label: string): HTMLLIElement {
   const li = instantiateTemplate('catalog-item-template', '__CID__', id) as HTMLLIElement
   li.dataset.segmentId = id
   const checkbox = li.querySelector<HTMLInputElement>('.catalog-item__checkbox')!
   li.querySelector<HTMLElement>('.catalog-item__name')!.textContent = label
+  li.querySelector<HTMLElement>('.catalog-item__hint')!.textContent = getSampleValue(id, currentLocale())
   checkbox.addEventListener('change', () => setSegmentEnabled(id, checkbox.checked))
   catalogCheckboxElements.set(id, checkbox)
   catalogItemElements.set(id, li)
@@ -1028,6 +1060,10 @@ function buildCatalogItem(id: string, label: string): HTMLLIElement {
  * model 計算交給 catalog.ts 之 buildCatalogGroups 純函式（依
  * SEGMENT_DESCRIPTORS 目錄定義序，非 config.segments 陣列序，見其
  * 文件），本函式只機械消費輸出、掛載 DOM。
+ *
+ * T3.3（14-PLAN §D2′）：`.catalog-item__hint`（樣例值）與
+ * `.catalog-item__badge`（已加入）顯隱恰好互斥——未啟用顯樣例、已啟用
+ * 顯「已加入」，同一 `item.enabled` 布林值分別驅動兩者相反的 hidden。
  */
 function buildCatalogItems(): void {
   for (const category of SECTION_ORDER) SEGMENT_LIST_BY_CATEGORY[category].textContent = ''
@@ -1039,6 +1075,7 @@ function buildCatalogItems(): void {
       const li = buildCatalogItem(item.id, segLabel(item.id as SegmentId))
       catalogCheckboxElements.get(item.id)!.checked = item.enabled
       li.classList.toggle('catalog-item--enabled', item.enabled)
+      setHidden(li.querySelector<HTMLElement>('.catalog-item__hint')!, item.enabled)
       setHidden(li.querySelector<HTMLElement>('.catalog-item__badge')!, !item.enabled)
       SEGMENT_LIST_BY_CATEGORY[category].appendChild(li)
     }
@@ -1058,6 +1095,26 @@ function refreshCatalogNames(): void {
   for (const [id, li] of catalogItemElements) {
     const nameEl = li.querySelector<HTMLElement>('.catalog-item__name')
     if (nameEl !== null) nameEl.textContent = segLabel(id as SegmentId)
+  }
+}
+
+/**
+ * T3.4（magi/14-statusline-ux-round2/PLAN.md §D2′；TASKS.md T3.4，回饋
+ * #5「目錄樣例值」語言連動）：語言切換用——同 `refreshCatalogNames`
+ * 同構（`.catalog-item__hint` 亦為 `buildCatalogItem` clone 時的一次性
+ * textContent 賦值，非 `data-i18n`，不被 `applyI18n` 追溯翻轉，須顯式
+ * 重新賦值）。`getSampleValue` 內部 lazy per-locale 快取——呼叫新 locale
+ * 時自然觸發該 locale 的首次合成（未快取則算、已快取則命中），呼叫端
+ * 不需另外呼叫 `resetSampleValueCacheForTests`（該 hook 為 test-only，
+ * 見 sample-values.ts 檔頭）。純文字原地更新、不重建／不搬移節點，亦不
+ * 影響 hidden 顯隱態（顯隱由 enabled 布林值驅動，語言切換不改變任何段
+ * 啟停狀態，見 handleLocaleSwitch 文件「不 mutate config」）。
+ */
+function refreshCatalogHints(): void {
+  const locale = currentLocale()
+  for (const [id, li] of catalogItemElements) {
+    const hintEl = li.querySelector<HTMLElement>('.catalog-item__hint')
+    if (hintEl !== null) hintEl.textContent = getSampleValue(id, locale)
   }
 }
 
@@ -1093,6 +1150,10 @@ function syncSegmentEnabledUi(id: string, enabled: boolean): void {
   const catalogLi = catalogItemElements.get(id)
   if (catalogLi !== undefined) {
     catalogLi.classList.toggle('catalog-item--enabled', enabled)
+    // T3.3（14-PLAN §D2′）：.catalog-item__hint（樣例值）與
+    // .catalog-item__badge（已加入）顯隱互斥，同 buildCatalogItems 契約。
+    const hint = catalogLi.querySelector<HTMLElement>('.catalog-item__hint')
+    if (hint !== null) setHidden(hint, enabled)
     const badge = catalogLi.querySelector<HTMLElement>('.catalog-item__badge')
     if (badge !== null) setHidden(badge, !enabled)
   }
@@ -2364,6 +2425,89 @@ function moveSegment(id: SegmentId, direction: 'up' | 'down'): void {
 }
 
 /**
+ * T2.5：全域接線——document 層擷取滑鼠/鍵盤模態，並於 focusin/focusout
+ * 依旗標對段列（`.segment-row`）切換 `.row--reveal`（style.css 據此把
+ * `.segment-row__move` 由收納 opacity:0 切為浮現 opacity:1，見該檔案
+ * 「移位鈕橫排」規則區塊註解）。僅呼叫一次（init() 內），監聽器掛
+ * document 全域、不隨列的建立/銷毀重綁——涵蓋動態渲染的段列。
+ *
+ * 模態判定：mousedown／pointerdown（capture 階段，確保早於目標元素自身
+ * 的 focus 副作用）→ `'mouse'`；keydown 除純修飾鍵（Control/Alt/Shift/
+ * Meta 單獨按下，尚未構成導覽意圖）外皆視為 `'keyboard'`（涵蓋契約所舉
+ * Tab／方向鍵，亦含 Enter/Space 等，寬鬆判定不影響「滑鼠不浮現」核心
+ * 保證）。
+ *
+ * 浮現/收合：focusin 冒泡至 document 時，以 event.target 就近找
+ * `.segment-row` 祖先，依當下旗標切換其 `.row--reveal`（'keyboard' 加、
+ * 'mouse' 移除）。focusout 時若新焦點（relatedTarget）不在同一列內（含
+ * 焦點整個離開文件，relatedTarget===null），移除該列的 `.row--reveal`
+ * ——move 操作觸發的重渲染＋程式化還焦（見 moveSegment 上方）依序觸發
+ * focusout（若節點曾被搬移離開再插回）＋新的 focusin，旗標本身跨此過程
+ * 不變（仍是觸發 move 當下的鍵盤模態），故浮現態延續（S3 (d) 實測對應
+ * 行為，見 spikes/S3-RESULT.md D1 選型結論）。
+ *
+ * MAGI review 🟡-8：document 級冪等 guard，防重複掛監聽器。生產環境
+ * `init()` 僅單次執行，本無害；但測試網（`*.dom.test.ts`）逐案
+ * `vi.resetModules()` 後重新 `import('./main.js')` 觸發整條 init 鏈路
+ * 重跑——**模組層旗標防不了這種累掛**：`vi.resetModules()` 讓模組重新
+ * 求值，任何模組層 `let wired = false` 也隨之歸零，於是每個測試案都會
+ * 對同一個共享 jsdom `document`（jsdom 環境下 `document` 是跨 import
+ * 存活的單例，不隨模組快取重置而換新）再掛一份監聽器，線上累積。目前
+ * 靠「同一事件會被所有累掛的監聽器重放、彼此語意相同」的巧合維持測試
+ * 無害，並非設計保證。改用掛在 `document.documentElement.dataset` 的
+ * marker——`document` 本身跨 `resetModules()` 存活，故此 marker 亦跨
+ * epoch 存活，第二次以後的 `wireMoveRevealModality()` 呼叫直接
+ * no-op；舊 epoch（前一次 import）閉包住的監聽器仍是函式作用域內的
+ * 一般變數捕獲，繼續正確服務後續所有案次（同一份實作、同一組行為，
+ * 沒有「舊快照」問題）。
+ */
+function wireMoveRevealModality(): void {
+  if (document.documentElement.dataset.moveRevealWired === '1') return
+  document.documentElement.dataset.moveRevealWired = '1'
+
+  const MODIFIER_ONLY_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta'])
+
+  document.addEventListener(
+    'mousedown',
+    () => {
+      inputModality = 'mouse'
+    },
+    true,
+  )
+  document.addEventListener(
+    'pointerdown',
+    () => {
+      inputModality = 'mouse'
+    },
+    true,
+  )
+  document.addEventListener(
+    'keydown',
+    (event) => {
+      if (MODIFIER_ONLY_KEYS.has(event.key)) return
+      inputModality = 'keyboard'
+    },
+    true,
+  )
+  document.addEventListener('focusin', (event) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const row = target.closest<HTMLElement>('.segment-row')
+    if (row === null) return
+    row.classList.toggle('row--reveal', inputModality === 'keyboard')
+  })
+  document.addEventListener('focusout', (event) => {
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const row = target.closest<HTMLElement>('.segment-row')
+    if (row === null) return
+    const next = (event as FocusEvent).relatedTarget
+    if (next instanceof Node && row.contains(next)) return
+    row.classList.remove('row--reveal')
+  })
+}
+
+/**
  * 列首/列末停用態同步（PLAN §排序與列指派 UX「段已是該列首/末時對應鈕
  * 停用」）：僅由 layoutSegmentContainers（分組/順序實際變動後）呼叫，
  * 依最新列群組之列內順序（segmentIds［0］＝列首、最後一個＝列末）逐段
@@ -2730,9 +2874,9 @@ function handleModeChange(nextMode: 'plain' | 'powerline'): void {
   commitConfig()
   const messages = [msg().announce.modeSwitch(nextMode), ...newlyDisabledFg.map(fgOverrideDisabledMessage)]
   announceGlobal(msg().announce.join(messages))
-  // 視圖切換：焦點移至變動的控件群（segment 清單，powerline 下新增前景覆寫色選）。
-  segmentListsEl.setAttribute('tabindex', '-1')
-  segmentListsEl.focus()
+  // T3.1（D4，回饋 #4）：不再奪焦至 segment-lists——radio 保持瀏覽器預設
+  // 焦點（零跳動），SR 回饋改由上方 announceGlobal 承擔（訊息含模式名＋
+  // 連帶停用清單）。
 }
 
 function wireGlobalControls(): void {
@@ -2911,6 +3055,32 @@ function wireSkipToOutput(): void {
   skipToOutputEl.addEventListener('click', (event) => {
     event.preventDefault()
     outputDialogOpenEl.focus()
+  })
+}
+
+/**
+ * T3.5（14-PLAN §D5 round-2 單一謂詞定稿）：教學帶狀態機接線。init 時依
+ * `shouldShowTutorialBand()`（單一謂詞：顯示 ⟺ 讀值 !== SENTINEL，key
+ * 缺失／讀取失敗／怪值皆顯示，fail-open）決定教學帶 `hidden`；「知道了」
+ * 點擊 → `dismissTutorialBand()`（best-effort 寫入 sentinel）＋立即
+ * `setHidden(el, true)`——寫入失敗仍隱藏本次（下次載入 fail-open 再現，
+ * 見 tutorial-band.ts 檔頭「best-effort 讀寫」段）。隱藏走 `hidden` 屬性
+ * （`setHidden` 既有慣例，同 T2.6 驗證過的 `[hidden]{display:none
+ * !important}` 防禦；右欄單一捲動容器高度自然回收）。
+ *
+ * MAGI review 🟡-5（FOUC 修法，index.html `#tutorial-band-slot` 節點自身
+ * 註解有完整論證）：index.html 靜態出貨態已預先帶 `hidden`（反轉自舊法
+ * 「JS 才補掛」），故本函式起手式改為**依謂詞移除**——
+ * `setHidden(el, !shouldShowTutorialBand())`：謂詞為真（該顯示）時傳入
+ * `false` 移除 `hidden`；謂詞為假（已 dismiss）時傳入 `true` 維持
+ * `hidden`（此時本為 no-op，因 HTML 已是 hidden 態，寫法統一沿用
+ * `setHidden` 不特判）。此舉消解已 dismiss 使用者的冷載 FOUC 窗口。
+ */
+function wireTutorialBand(): void {
+  setHidden(tutorialBandEl, !shouldShowTutorialBand())
+  tutorialDismissEl.addEventListener('click', () => {
+    dismissTutorialBand()
+    setHidden(tutorialBandEl, true)
   })
 }
 
@@ -3173,7 +3343,14 @@ function assignSegmentsToContainers(groups: readonly RowGroup[]): void {
   for (const seg of config.segments) {
     if (seg.enabled) continue
     const li = rowElements.get(seg.id)
-    if (li !== undefined) segmentHiddenPoolEl.appendChild(li)
+    if (li === undefined) continue
+    // MAGI review 🟡-3：搬回隱藏池前先移除 `.row--reveal`——搬移
+    // （appendChild）不觸發 focusout，若該列先前在鍵盤模態下浮現過，
+    // class 會殘留在節點上；停用段重新啟用回列時會無焦點卻浮現，違反
+    // 「預設收納」不變量（見 wireMoveRevealModality 文件，class 僅由
+    // focusin/focusout 兩處維護，此處為隱藏池往返造成的第三個變異點）。
+    li.classList.remove('row--reveal')
+    segmentHiddenPoolEl.appendChild(li)
   }
 }
 
@@ -3369,7 +3546,10 @@ function layoutSegmentContainers(nextGroups: RowGroup[]): void {
  *     picker 節點須重新同步 disabled 態，同 init() 經 syncGlobalControls
  *     間接呼叫的精神；棄用回傳值、不 announceGlobal——非本次操作播報
  *     主體，同 setSegmentEnabled 呼叫處慣例）＋刷新左欄目錄項名
- *     （`refreshCatalogNames`，見其文件）；
+ *     （`refreshCatalogNames`，見其文件）＋刷新左欄目錄項樣例值／
+ *     fallback 文案（T3.4，14-PLAN §D2′：`refreshCatalogHints`，見其
+ *     文件——`getSampleValue` 內部 lazy per-locale 快取，改傳新 locale
+ *     即自然重建該 locale 的快取，呼叫端不需另外失效）；
  * (3) 強制 preview 重 resolve 一次（`preview.setLocale`，刷新逐列
  *     aria-label／外層群組 label，見 render-preview.ts `setLocale` 文件）；
  * (4) `<html lang>` 翻轉（`syncHtmlLang`——PLAN 明訂排在 rebuild／preview
@@ -3390,6 +3570,7 @@ function handleLocaleSwitch(next: Locale): void {
   layoutSegmentContainers(computeRowGroups(config.segments))
   syncFgOverrideDisabled()
   refreshCatalogNames()
+  refreshCatalogHints()
   preview.setLocale(next)
   syncHtmlLang(next)
   announceGlobal(msg().langToggle.switchedAnnounce)
@@ -3417,6 +3598,25 @@ function wirePendingRowButton(): void {
     lastRenderedSlots = rowSlots
     addPendingRowEl.focus()
   })
+}
+
+/**
+ * T2.2（magi/14-statusline-ux-round2/PLAN.md §D2 右欄；TASKS.md T2.2；
+ * spikes/S1-RESULT.md 檢核 4「初載欄底可達性」）：右欄
+ * `.builder-columns__list` 的 max-height 採 `calc(100dvh -
+ * var(--column-top))` 後備（style.css）——`--column-top` 為實際
+ * `<header>` 渲染高度，非寫死常數（語言切換／視窗寬度換行皆可能改變
+ * 頁首高度）。於 init 時一次性量測並寫入 `:root` CSS 變數
+ * （S1-RESULT.md「頁首高度靜態，變數可行」判斷：一次性寫入已足夠
+ * 改善初載可達性，非隨 resize 動態追蹤——本函式刻意不掛
+ * `resize` 監聽，維持「最小接線」範圍）。缺 `<header>` 節點時 no-op
+ * （防禦性，理論上不會發生——index.html 固定骨架恆有 `<header>`）。
+ */
+function syncColumnTop(): void {
+  const header = document.querySelector<HTMLElement>('header')
+  if (header === null) return
+  const height = Math.round(header.getBoundingClientRect().height)
+  document.documentElement.style.setProperty('--column-top', `${height}px`)
 }
 
 // ── 初始化 ──
@@ -3456,12 +3656,15 @@ function init(): void {
   rowSlots = Array<RowSlot>(initialGroups.length).fill('real')
   layoutSegmentContainers(initialGroups)
   syncGlobalControls()
+  syncColumnTop() // T2.2：右欄 max-height calc() 後備所需的 --column-top，見該函式文件。
   wireGlobalControls()
+  wireMoveRevealModality() // T2.5：move 鈕收納/浮現模態旗標（document 層，見該函式文件）。
   wireSkipToOutput()
   wirePendingRowButton()
   wirePreviewControls()
   wireOutputActions()
   wireOutputDialog()
+  wireTutorialBand() // T3.5：教學帶 dismiss 狀態機（見其自身文件）。
   refreshOutputs()
   // I5 回歸修復（code review I5，T7.4）：init() 不呼叫 commitConfig，故
   // duplicateResetPairIds 不會如常途經 checkDuplicateResetHints 收斂——
