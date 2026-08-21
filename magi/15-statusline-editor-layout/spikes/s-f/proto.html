@@ -1,0 +1,163 @@
+<!doctype html>
+<!--
+  S-f spike 原型（magi/15-statusline-editor-layout/PLAN.md §D8）。
+  獨立小原型，僅驗證「行動版（<1100px）segment 目錄可收合」狀態機契約
+  ——不是 statusline-builder 正式頁面的一部分，DOM/CSS 皆為最小可驗證骨架。
+
+  首繪方向（PLAN §D8「首繪方向（Rev 3 回正）」）：HTML 出貨態 <details> 帶
+  `open`（fail-open：JS 未執行也目錄可達），<html> 元素出貨態即帶
+  `js-init-pending` class（防閃動用暫抑樣式的開關，見下方 <style>），由
+  proto.js 於 init() 移除此 class——不需要任何阻塞 inline script。
+-->
+<html lang="zh-TW" class="js-init-pending">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S-f spike — D8 目錄收合狀態機原型</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 0; }
+
+  #topband {
+    height: 48px;
+    background: #333;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+  }
+
+  #columns {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  #catalog-column, #rows-column, #settings-column {
+    border: 1px solid #999;
+    padding: 8px;
+    flex: 1;
+  }
+
+  /* 桌面態硬條件（PLAN §D8）：≥1100px 時 <summary> 不得為 Tab 停點、不得
+     可點擊——`display:none` 同時把節點移出 render tree 與 a11y tree（非
+     `visibility:hidden`／`opacity:0`，後兩者仍是 a11y tree 節點、仍可能是
+     Tab 停點），使「播報狀態與可見狀態一致」的驗收條件成立。 */
+  @media (min-width: 1100px) {
+    #catalog-summary { display: none; }
+  }
+
+  /* 防閃動（PLAN §D8「首繪方向」）：僅 <1100px 生效——出貨態 details 帶
+     open，回訪者（localStorage 已記錄收合偏好）在 JS 尚未跑完 init() 決定
+     是否收起之前，先用這條初載暫抑樣式壓住目錄清單的可視高度，避免「先展開
+     一瞬間、JS 跑完才收起」的閃動。JS init() 的**唯一**收尾動作是移除
+     `html.js-init-pending`——移除後才恢復正常版面（不論最終是否收合，
+     移除本身不影響 details.open 的最終值，只解除視覺暫抑）。 */
+  @media (max-width: 1099.98px) {
+    html.js-init-pending #catalog-list {
+      max-height: 0;
+      overflow: hidden;
+    }
+  }
+
+  #catalog-list { list-style: none; margin: 8px 0 0; padding: 0; }
+  /* 見下方 <noscript> 區塊：JS 失效態下 js-init-pending 永遠不會被移除，
+     上面這條 @media 規則若不另外處理，會使目錄在 <1100px 下永久不可見
+     ——直接牴觸 D8「JS 失效態下目錄仍可達」的驗收要求。本規則置於此處
+     （在 <noscript><style> 之前，等下面 noscript 版本以來源序後出者覆寫，
+     不需 !important）。 */
+  #catalog-list li {
+    padding: 4px 6px;
+    border-bottom: 1px dashed #ccc;
+  }
+
+  summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+  summary:focus-visible { outline: 2px solid #06c; outline-offset: 2px; }
+</style>
+<!--
+  平台坑（S-f spike 實作期間發現，記入 S-f-RESULT.md）：防閃動的初載暫抑
+  樣式（見上方 `html.js-init-pending #catalog-list` 規則）只有在 JS 有跑
+  時才會被 proto.js 的 init() 移除。若 JS 完全失效（`Emulation.
+  setScriptExecutionDisabled(true)`／使用者停用 script），`js-init-pending`
+  class 永遠不會被移除，<1100px 下目錄會被這條防閃動樣式**永久**壓成
+  0 高度——直接牴觸 PLAN §D8「JS 失效態下目錄仍可達」的驗收要求，即使
+  `<details open>` 本身仍是展開的。修法：`<noscript>` 只在**瀏覽器停用
+  scripting** 時才會被解析／套用其中內容（與「JS 尚未跑完」的暫態完全不
+  同——後者瀏覽器仍會解析執行 script，<noscript> 內容不生效）；用它在同一
+  中斷點內以**相同選擇器、後於原規則**覆寫暫抑樣式，使 JS 失效態下目錄
+  維持可見，同時完全不影響「JS 有跑」情境的防閃動效果（因為那時
+  <noscript> 內容根本不會進入 render tree）。
+-->
+<noscript>
+<style>
+  @media (max-width: 1099.98px) {
+    html.js-init-pending #catalog-list {
+      max-height: none;
+      overflow: visible;
+    }
+  }
+</style>
+</noscript>
+</head>
+<body>
+  <div id="topband">
+    頂帶佔位（模擬用，非正式 statusline-builder 版面）
+    <!--
+      T1.7 Tab 走查用錨點：summary 前後各需一個真實可 Tab 停點，Tab 走查
+      才能證明「summary 被跳過」而非「反正也沒有其他東西可以停」（後者是
+      恆真空比對，見 S-f-RESULT.md 對本測試設計的說明）。
+    -->
+    <button id="topband-btn" type="button">頂帶按鈕佔位</button>
+  </div>
+  <div id="columns">
+    <div id="catalog-column">
+      <details id="catalog-details" open>
+        <summary id="catalog-summary">段落目錄（<span id="catalog-count">30</span>）</summary>
+        <!--
+          T1.7 JS 失效態驗收（PLAN §D8「S-f 須斷言『JS 失效態下目錄可達』」）
+          要求：停用 script 後 30 項目錄內容仍可見。<details>/<summary> 的
+          收合/展開是原生瀏覽器行為（零 JS 依賴）；但若這 30 項是由 JS 動態
+          `appendChild` 建置，停用 script 後清單會是空的，不滿足驗收條件。
+          故 30 項改為**靜態 HTML**（出貨態即含全部項目），JS（proto.js）
+          僅負責狀態機（收合/持久化/跨斷點），不接觸清單內容本身。
+        -->
+        <ul id="catalog-list">
+          <li data-testid="catalog-item" data-index="0">目錄項 0</li>
+          <li data-testid="catalog-item" data-index="1">目錄項 1</li>
+          <li data-testid="catalog-item" data-index="2">目錄項 2</li>
+          <li data-testid="catalog-item" data-index="3">目錄項 3</li>
+          <li data-testid="catalog-item" data-index="4">目錄項 4</li>
+          <li data-testid="catalog-item" data-index="5">目錄項 5</li>
+          <li data-testid="catalog-item" data-index="6">目錄項 6</li>
+          <li data-testid="catalog-item" data-index="7">目錄項 7</li>
+          <li data-testid="catalog-item" data-index="8">目錄項 8</li>
+          <li data-testid="catalog-item" data-index="9">目錄項 9</li>
+          <li data-testid="catalog-item" data-index="10">目錄項 10</li>
+          <li data-testid="catalog-item" data-index="11">目錄項 11</li>
+          <li data-testid="catalog-item" data-index="12">目錄項 12</li>
+          <li data-testid="catalog-item" data-index="13">目錄項 13</li>
+          <li data-testid="catalog-item" data-index="14">目錄項 14</li>
+          <li data-testid="catalog-item" data-index="15">目錄項 15</li>
+          <li data-testid="catalog-item" data-index="16">目錄項 16</li>
+          <li data-testid="catalog-item" data-index="17">目錄項 17</li>
+          <li data-testid="catalog-item" data-index="18">目錄項 18</li>
+          <li data-testid="catalog-item" data-index="19">目錄項 19</li>
+          <li data-testid="catalog-item" data-index="20">目錄項 20</li>
+          <li data-testid="catalog-item" data-index="21">目錄項 21</li>
+          <li data-testid="catalog-item" data-index="22">目錄項 22</li>
+          <li data-testid="catalog-item" data-index="23">目錄項 23</li>
+          <li data-testid="catalog-item" data-index="24">目錄項 24</li>
+          <li data-testid="catalog-item" data-index="25">目錄項 25</li>
+          <li data-testid="catalog-item" data-index="26">目錄項 26</li>
+          <li data-testid="catalog-item" data-index="27">目錄項 27</li>
+          <li data-testid="catalog-item" data-index="28">目錄項 28</li>
+          <li data-testid="catalog-item" data-index="29">目錄項 29</li>
+        </ul>
+      </details>
+    </div>
+    <div id="rows-column">列區佔位（模擬用）<button id="rows-btn" type="button">列區按鈕佔位</button></div>
+    <div id="settings-column">設定欄佔位（模擬用）<button id="settings-btn" type="button">設定按鈕佔位</button></div>
+  </div>
+  <script src="proto.js"></script>
+</body>
+</html>

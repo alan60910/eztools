@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>M1′-a 原型 — sprint 15 statusline 版面 spike（T1.1）</title>
+    <!--
+      T1.1（magi/15-statusline-editor-layout/TASKS.md；PLAN.md Rev 3 §二
+      「捲動與黏著模型」）：M1′-a（首選臂）——`<main>` 為一般 block；
+      skip-nav 佔位→status 佔位→頂帶為 `<main>` 直接子節點
+      （`position:sticky; top:0`）→僅三欄收進 `.builder-columns` wrapper
+      （`display:grid; grid-template-columns: 1fr 1.6fr 0.9fr`）。
+
+      本檔為拋棄式 spike 骨架（不進 vite 掃描範圍、不進 dist），僅供
+      measure.mjs 以 CDP 量測幾何用；不含真實 JS 互動、不含 i18n／無障礙
+      出貨等級規約（skip-nav／status 為靜態佔位節點，非可運作的 landmark，
+      見各自節點旁註解）。真實量級錨定與四區內容量／30 段目錄／5 列群組／
+      設定欄控件行數，皆比照 `tools/statusline-builder/index.html`／
+      `magi/14-statusline-ux-round2/spikes/S1-RESULT.md` 校準，詳見同目錄
+      README.md。
+    -->
+    <link rel="stylesheet" href="./proto.css" />
+  </head>
+  <body class="arm-m1a">
+    <!-- 頁首 mock：量級校準至 sprint14-S1 實測 dist header ≈236px @1400 寬。 -->
+    <header class="page-header-mock">
+      <a href="#" class="page-header-mock__back">← 返回 EZTools</a>
+      <h1>Claude Code Statusline 產生器（版面原型 · M1′-a）</h1>
+      <p>
+        設計 Claude Code 的自訂狀態列：勾選要顯示的 segment、拖曳或用上下鈕排序、選顏色與百分比閾值變色，即時預覽，一鍵產出
+        bash（.sh）與 PowerShell（.ps1）腳本，以及 settings.json 片段。所有處理都在瀏覽器端完成，不會上傳任何資料。
+      </p>
+      <div class="page-header-mock__buttons">
+        <button type="button">深色模式切換</button>
+        <button type="button">EN</button>
+      </div>
+    </header>
+
+    <main>
+      <!--
+        S-c（T1.6）：把 proto 原本的 skip-nav 靜態佔位換成真實可運作連結，
+        PLAN.md Rev 3 §D4 五條落點（1 跳至設定→#global-section、2 跳至
+        目錄→#catalog-section、3 跳至列區→#selected-section、4 跳至預覽→
+        #preview-section、5 跳至產出腳本→#output-dialog-open），比照
+        tools/statusline-builder/style.css `.skip-nav`／`.skip-link` 規則
+        （本檔 proto.css 已抄一份，class 名相同）。
+
+        「跳至設定」刻意**不掛任何 JS click handler**——純原生 fragment
+        navigation（href="#id"），這正是本 spike 要驗的行為：瀏覽器原生
+        sequential focus navigation 的 starting point 在錨點跳轉後是否
+        真的落在 `#global-section` 內（若否，MS3 需改走 JS focus 管理，
+        見 spikes/S-c-RESULT.md 判定）。
+      -->
+      <nav class="skip-nav" aria-label="區塊快速跳轉">
+        <a href="#global-section" class="skip-link" data-testid="skip-to-settings">跳至設定</a>
+        <a href="#catalog-section" class="skip-link" data-testid="skip-to-catalog">跳至目錄</a>
+        <a href="#selected-section" class="skip-link" data-testid="skip-to-selected">跳至列區</a>
+        <a href="#preview-section" class="skip-link" data-testid="skip-to-preview">跳至預覽</a>
+        <a href="#output-dialog-open" class="skip-link" data-testid="skip-to-output">跳至產出腳本</a>
+      </nav>
+      <!-- status/error live region 佔位（M1′-a 契約第二節點）。 -->
+      <div class="status-mock" aria-hidden="true">#output-status／#error-message 佔位</div>
+
+      <!--
+        頂帶：main 直接子節點，本臂自身 sticky（見 proto.css
+        `body.arm-m1a .preview-band`）。內容：標題列＋底色×2＋情境×4
+        （單列 segmented control mock）＋產出腳本鈕＋固定示範時鐘說明句＋
+        終端框（3 列 statusline 樣本文字，等寬字型）。
+      -->
+      <div class="preview-band" id="preview-section">
+        <div class="preview-band__row">
+          <h2>即時預覽</h2>
+          <div class="segmented-mock" role="group" aria-label="預覽底色">
+            <button type="button" aria-pressed="true">深色</button>
+            <button type="button" aria-pressed="false">淺色</button>
+          </div>
+          <div class="segmented-mock" role="group" aria-label="預覽情境">
+            <button type="button" aria-pressed="true">滿血</button>
+            <button type="button" aria-pressed="false">早期</button>
+            <button type="button" aria-pressed="false">條件</button>
+            <button type="button" aria-pressed="false">Windows</button>
+          </div>
+          <button type="button" class="output-open-mock" id="output-dialog-open">產出腳本</button>
+        </div>
+        <p class="preview-band__hint">預覽為固定示範時鐘，產出腳本執行時為真時鐘。</p>
+        <div class="preview-terminal-mock" id="preview-terminal-mock" tabindex="0">
+          <p>model:claude-opus-4-6 | cwd:~/eztools | cost:$12.48 | duration:1h24m</p>
+          <p>context:62% (12,480/20,000) | rate-5h:41% | rate-7d:77%</p>
+          <p>git:DEV* | agent:magi-developer | 14:32:07</p>
+        </div>
+      </div>
+
+      <!-- 僅三欄收進 wrapper（M1′-a 契約：頂帶不在此 wrapper 內）。 -->
+      <div class="builder-columns" id="builder-columns">
+        <!-- ============ 目錄欄（segment 目錄，四分區 12/5/10/3=30） ============ -->
+        <div class="col col--catalog" id="catalog-section">
+          <h2 class="col__heading">Segment 目錄</h2>
+
+          <!-- 教學帶 mock（~120px，D5：本批遷入目錄欄頂）。 -->
+          <div class="tutorial-band-mock">
+            <span class="tutorial-band-mock__grip" aria-hidden="true">⠿</span>
+            <p class="tutorial-band-mock__text">拖曳段名可排序與移列</p>
+            <button type="button" class="tutorial-band-mock__dismiss">知道了</button>
+          </div>
+
+          <section class="catalog-section-mock">
+            <h3 class="catalog-section-mock__heading">永在 segment（12）</h3>
+            <ol class="catalog-list-mock" data-category="always">
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">模型</span></label><span class="catalog-item-mock__hint">claude-opus-4-6-20260115</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">目前目錄</span></label><span class="catalog-item-mock__hint">~/program/git/eztools</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">專案目錄</span></label><span class="catalog-item-mock__hint">eztools</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">輸出風格</span></label><span class="catalog-item-mock__hint">default</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">版本</span></label><span class="catalog-item-mock__hint">v2.1.34</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">費用</span></label><span class="catalog-item-mock__hint">$12.4830</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">工作時長</span></label><span class="catalog-item-mock__hint">1h 24m 07s</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">行數增減</span></label><span class="catalog-item-mock__hint">+482 / -137</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">上下文大小</span></label><span class="catalog-item-mock__hint">184,302 tokens</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">思考模式</span></label><span class="catalog-item-mock__hint">extended-thinking-mode</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Tokens 輸入</span></label><span class="catalog-item-mock__hint">1,204,880</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Tokens 輸出</span></label><span class="catalog-item-mock__hint">138,204</span></li>
+            </ol>
+          </section>
+
+          <section class="catalog-section-mock">
+            <h3 class="catalog-section-mock__heading">百分比 segment（5）</h3>
+            <ol class="catalog-list-mock" data-category="percentage">
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">上下文已用</span></label><span class="catalog-item-mock__hint">62% (12,480 / 20,000)</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">上下文剩餘</span></label><span class="catalog-item-mock__hint">38% remaining (7,520 left)</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">5 小時限額</span></label><span class="catalog-item-mock__hint">41% of 5h limit used</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">7 日限額</span></label><span class="catalog-item-mock__hint">77% of 7-day limit used</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Cache 命中率</span></label><span class="catalog-item-mock__hint">93.4% cache hit rate</span></li>
+            </ol>
+          </section>
+
+          <section class="catalog-section-mock">
+            <h3 class="catalog-section-mock__heading">條件性 segment（10）</h3>
+            <ol class="catalog-list-mock" data-category="conditional">
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">工作階段名稱</span></label><span class="catalog-item-mock__hint">sprint15-statusline-editor-layout</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">推理強度</span></label><span class="catalog-item-mock__hint">high-effort-mode</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Vim 模式</span></label><span class="catalog-item-mock__hint">-- NORMAL --</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">代理名稱</span></label><span class="catalog-item-mock__hint">magi-developer</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">PR</span></label><span class="catalog-item-mock__hint">#4821 open</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">儲存庫</span></label><span class="catalog-item-mock__hint">alan60910/eztools</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Git 工作樹</span></label><span class="catalog-item-mock__hint">eztools-worktree-15</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Git 工作樹分支</span></label><span class="catalog-item-mock__hint">feature/15-statusline-editor-ui</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">5 小時限額重置倒數</span></label><span class="catalog-item-mock__hint">resets in 2h 18m</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">7 日限額重置倒數</span></label><span class="catalog-item-mock__hint">resets in 3d 06h 42m</span></li>
+            </ol>
+          </section>
+
+          <section class="catalog-section-mock">
+            <h3 class="catalog-section-mock__heading">Shell-out segment（3）</h3>
+            <ol class="catalog-list-mock" data-category="shell-out">
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Git 分支</span></label><span class="catalog-item-mock__hint">on branch DEV</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">Git 髒標記</span></label><span class="catalog-item-mock__hint">3 files changed *</span></li>
+              <li class="catalog-item-mock"><label class="catalog-item-mock__label"><input type="checkbox" class="catalog-item-mock__checkbox" /><span class="catalog-item-mock__name">時鐘</span></label><span class="catalog-item-mock__hint">14:32:07</span></li>
+            </ol>
+          </section>
+        </div>
+        <!-- /目錄欄 -->
+
+        <!-- ============ 列區（已選擇，5 個列群組，各 3–6 段列） ============ -->
+        <div class="col col--list" id="selected-section">
+          <h2 class="col__heading">已選擇（依列分組，★最寬）</h2>
+
+          <div class="row-group-mock">
+            <h3 class="row-group-mock__heading">第 1 列</h3>
+            <ol class="row-group-mock__list">
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">模型</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option selected>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">費用</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option selected>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">工作時長</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option selected>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+            </ol>
+          </div>
+
+          <div class="row-group-mock">
+            <h3 class="row-group-mock__heading">第 2 列</h3>
+            <ol class="row-group-mock__list">
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">目前目錄</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option selected>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">Git 分支</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option selected>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">Git 髒標記</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option selected>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">上下文剩餘</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option selected>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+            </ol>
+          </div>
+
+          <div class="row-group-mock">
+            <h3 class="row-group-mock__heading">第 3 列</h3>
+            <ol class="row-group-mock__list">
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">工作階段名稱</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option selected>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">代理名稱</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option selected>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">推理強度</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option selected>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">Vim 模式</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option selected>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">PR</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option selected>顯示於第 3 列</option><option>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+            </ol>
+          </div>
+
+          <div class="row-group-mock">
+            <h3 class="row-group-mock__heading">第 4 列</h3>
+            <ol class="row-group-mock__list">
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">5 小時限額</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option selected>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">7 日限額</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option selected>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">5 小時限額重置倒數</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option selected>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">7 日限額重置倒數</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option selected>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">Cache 命中率</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option selected>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">Git 工作樹</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option selected>顯示於第 4 列</option><option>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+            </ol>
+          </div>
+
+          <div class="row-group-mock">
+            <h3 class="row-group-mock__heading">第 5 列</h3>
+            <ol class="row-group-mock__list">
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">儲存庫</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option selected>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">Git 工作樹分支</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option selected>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+              <li class="segment-row-mock"><span class="segment-row-mock__grip" aria-hidden="true">⠿</span><span class="segment-row-mock__name">時鐘</span><button type="button" class="segment-row-mock__move-up" aria-label="上移">↑</button><button type="button" class="segment-row-mock__move-down" aria-label="下移">↓</button><button type="button" class="segment-row-mock__remove" aria-label="移除">✕</button><select class="segment-row-mock__select"><option>顯示於第 1 列</option><option>顯示於第 2 列</option><option>顯示於第 3 列</option><option>顯示於第 4 列</option><option selected>顯示於第 5 列</option></select><select class="segment-row-mock__variant"><option selected>純文字</option><option>圖示</option></select><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__icon" checked /> 顯示文字</label><label class="segment-row-mock__choice"><input type="checkbox" class="segment-row-mock__bar" /> 顯示長條圖</label></li>
+            </ol>
+          </div>
+        </div>
+        <!-- /列區 -->
+
+        <!-- ============ 設定欄（等量現行 #global-section：5 個 control-group） ============ -->
+        <div class="col col--settings" id="global-section">
+          <h2 class="col__heading">全域設定</h2>
+
+          <fieldset class="settings-group-mock">
+            <legend>呈現模式</legend>
+            <label class="settings-group-mock__choice"><input type="radio" name="mode-mock" checked /> 純文字（plain）</label>
+            <label class="settings-group-mock__choice"><input type="radio" name="mode-mock" /> Powerline（色塊＋箭頭）</label>
+          </fieldset>
+
+          <div class="settings-group-mock">
+            <label for="separator-mock">分隔符</label>
+            <select id="separator-mock">
+              <option selected>豎線 |</option>
+              <option>箭頭 ›</option>
+              <option>中點 ·</option>
+              <option>空格</option>
+              <option>自訂…</option>
+            </select>
+            <div hidden>
+              <label for="separator-custom-mock">自訂分隔符（≤8 字元，僅 plain 模式）</label>
+              <input type="text" id="separator-custom-mock" maxlength="8" />
+            </div>
+          </div>
+
+          <div class="settings-group-mock">
+            <label class="settings-group-mock__choice"><input type="checkbox" /> Powerline 箭頭</label>
+            <p class="settings-group-mock__hint">需終端安裝支援此符號的特殊字型，否則箭頭會顯示為方塊或亂碼。</p>
+          </div>
+
+          <div class="settings-group-mock">
+            <label class="settings-group-mock__choice"><input type="checkbox" checked /> Powerline 末段補收尾箭頭</label>
+          </div>
+
+          <div class="settings-group-mock">
+            <label for="settings-path-mock">settings.json 內的腳本路徑</label>
+            <input type="text" id="settings-path-mock" placeholder="~/.claude/statusline.sh" />
+          </div>
+        </div>
+        <!-- /設定欄 -->
+      </div>
+      <!-- /.builder-columns -->
+    </main>
+
+    <footer class="footer-mock">
+      <p>EZTools — 所有處理皆於瀏覽器端完成，不會上傳任何資料。</p>
+      <p>© 2026 alan60910 · <a href="#">GitHub</a> · <a href="#">MIT License</a></p>
+    </footer>
+  </body>
+</html>

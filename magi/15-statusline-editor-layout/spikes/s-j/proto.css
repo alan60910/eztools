@@ -1,0 +1,647 @@
+/*
+ * proto.css — T1.1 共用原型骨架樣式（magi/15-statusline-editor-layout）。
+ *
+ * 三臂（M1′-a／M1′-b／M2）共用同一份樣式表，差異一律以 `<body class="arm-…">`
+ * 掛鉤區分（見各節「臂差異」小節），符合 T1.1 brief「臂差異用 body class」
+ * 指示；M2 額外需要鎖 `<html>` 高度，故 `<html>` 亦掛同一 class（見「M2 專用」
+ * 節說明，屬 body class 手法的最小延伸，非另立機制）。
+ *
+ * 本檔僅供 spike 量測用，非出貨樣式，不與 `tools/statusline-builder/style.css`
+ * 共用任何規則（量級參考該檔案，但不 import／不繼承）。
+ *
+ * ⚠️ 拋棄式碼：無障礙／i18n／深淺主題等出貨等級考量在此故意從簡（灰階配色、
+ * 固定繁中文案），量測腳本只讀取 rect／scrollHeight，不驗證視覺樣式本身。
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: #14181f;
+  --panel: #1c222c;
+  --panel-alt: #232a36;
+  --border: #333c4a;
+  --fg: #e4e8ef;
+  --fg-muted: #96a1b3;
+  --accent: #5aa0ff;
+  --mono: 'Consolas', 'Cascadia Mono', 'SFMono-Regular', Menlo, monospace;
+
+  /*
+   * --band-h：頂帶高度，固定 CSS 自訂屬性（T1.1 brief 明定「不接 JS」——
+   * JS 維護方式〔ResizeObserver vs CSS 原生〕正是 S-a 要定案的問題，本原型
+   * 不預設答案）。以 measure.mjs 對 m1a × 1280×800 實跑量得 `.preview-band`
+   * `getBoundingClientRect().height` ＝191.015625px（見 README「--band-h
+   * 校準紀錄」，含完整指令與輸出），無條件進位取 192px 校準寫入——寧可
+   * 欄的 `top`／`max-height` 預留量比實際頂帶高度略寬（欄頂多空 1px 內），
+   * 也不要因四捨五入取小值而使欄頂被頂帶蓋住零點幾像素。三臂共用同一
+   * 數值：M1′-a／M1′-b 的頂帶內容完全相同（僅外層 wrapper 結構不同，
+   * 見下方「臂差異」節），M2 頂帶內容亦相同（M2 頂帶不進 sticky／
+   * max-height 計算，故此值對 M2 三欄無實質作用，見下方 M2 專用節）。
+   */
+  --band-h: 192px;
+
+  /*
+   * --footer-h：S-a（T1.2）候選 1 實驗變數（已實測、已否決，見下方「候選 1
+   * 實驗（已否決）」規則區與 `spikes/S-a-RESULT.md`「候選 1 實驗」節完整
+   * 數據與證明）。保留此變數定義供覆核者對照實驗當時數值：以 measure.mjs
+   * 實跑量得 `.footer-mock` 高度＝87.375px（1400/1280 桌面寬）～106.563px
+   * （390 行動寬），實驗取三 viewport 最大值無條件進位 108px。**此變數未被
+   * 任何生效規則使用**（候選 1 已證明數學上不可行，見下方規則區）。
+   */
+  --footer-h: 108px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, 'Segoe UI', 'Noto Sans TC', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+/* ============================================================
+ * 頁首 mock（量級參考 sprint14-S1：dist 實測 header ≈236px @1400 寬）
+ * ============================================================ */
+.page-header-mock {
+  padding: 2rem 1.5rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-header-mock__back {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  text-decoration: none;
+  align-self: flex-start;
+}
+
+.page-header-mock h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.page-header-mock p {
+  color: var(--fg-muted);
+  max-width: 62ch;
+}
+
+.page-header-mock__buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.page-header-mock__buttons button {
+  padding: 0.4rem 0.9rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+/* ============================================================
+ * skip-nav／status 佔位（T1.1 brief：M1′-a 明定「skip-nav 佔位 → status
+ * 佔位」為 main 起首兩個節點；M1′-b／M2 沿用同一佔位節點，僅外層包裹不同）
+ * ============================================================ */
+.skip-nav-mock,
+.status-mock {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * 頂帶（.preview-band）——四區共用內容：標題列／底色×2＋情境×4／
+ * 產出腳本鈕／固定示範時鐘說明句／終端框。
+ * ============================================================ */
+.preview-band {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 40dvh;
+  padding: 1rem 1.5rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden; /* 帶自身不捲——超出 40dvh 的壓力全數交給終端框自身 overflow:auto 吸收 */
+}
+
+.preview-band__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.preview-band__row h2 {
+  font-size: 1.05rem;
+  margin-right: auto;
+}
+
+/* segmented control mock（底色×2／情境×4，各自單列） */
+.segmented-mock {
+  display: flex;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 2px;
+  background: var(--panel-alt);
+}
+
+.segmented-mock button {
+  padding: 0.3rem 0.65rem;
+  border: none;
+  border-radius: 0.3rem;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.segmented-mock button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #05101f;
+}
+
+.output-open-mock {
+  padding: 0.4rem 0.9rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.preview-band__hint {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+.preview-terminal-mock {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: #0b0e13;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.6rem 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.preview-terminal-mock p {
+  white-space: pre;
+}
+
+/* ============================================================
+ * 三欄 wrapper（.builder-columns）——比例 目錄1 : 列區1.6 : 設定0.9
+ * （D3 初始候選，S-j 後續定案）。
+ * ============================================================ */
+.builder-columns {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr 0.9fr;
+  gap: 1.5rem;
+  padding: 1.25rem 1.5rem 3rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* M1′-a／M1′-b：欄不隨 grid row 拉伸滿高（各自獨立 sticky＋max-height，
+   而非依賴 grid item 拉伸），設定欄亦不拉伸（D2：設定欄預設不設捲動容器）。 */
+body.arm-m1a .builder-columns,
+body.arm-m1b .builder-columns {
+  align-items: start;
+}
+
+/*
+ * S-a（T1.2）候選 1 實驗（wrapper 補償高，PLAN.md N4 候選 1）——已實測、
+ * 已否決，規則故意保留但整段註解化（inert，不生效），供覆核者對照。
+ *
+ * 曾套用 `body.arm-m1a .builder-columns{min-height: calc(100dvh -
+ * var(--band-h) + var(--footer-h) + 1.25rem + 3rem)}`（1.25rem/3rem＝
+ * `.builder-columns` 自身垂直 padding，box-sizing:border-box 下須加回才能
+ * 讓 content-box 淨增量＝--footer-h，見上方 --footer-h 註解與初版算式的
+ * 40px-vs-108px 落差診斷）。
+ *
+ * 结論（數學＋實測雙證，完整推導見 spikes/S-a-RESULT.md「候選 1 實驗」節）：
+ * 此法**無法**消解 max-scroll 處的欄遮蔽，且與 `--footer-h` 數值無關——
+ * 兩次實測（--footer-h 對應 content-box 淨增量 40px／108px 兩版）在真正
+ * max-scroll 取樣點量得的 `.col--catalog rect.top` **逐位元相同**
+ * （56.859375px），maxScroll 本身雖從 422→462→530px 遞增，欄在視窗座標下
+ * 的最終遮蔽量卻紋風不動。根因：footer 是文件流最後一個區塊，在「捲到
+ * 文件真正底部」時，`footer.bottom` 必然貼齊 `document.scrollHeight`，
+ * 而該取樣點的 viewport 必然剛好顯示文件最後 `innerHeight` px——故
+ * `.builder-columns` 在該取樣點的 viewport 相對 `bottom` 恆等於
+ * `innerHeight − footer 高`，與 `.builder-columns` 自身高度（不論加多少
+ * min-height）無關（代數證明：容器高度增量 ΔH 同時使 `maxScroll` 與容器
+ * 底部的文件座標各自 +ΔH，兩者相減後 ΔH 抵消）。換算欄可用最深位置＝
+ * `innerHeight − footerHeight − wrapper下padding − 欄自身高`；本例
+ * 800−87.375−48−608≈56.6px，遠低於欄需要的 192px（`--band-h`）——而
+ * `欄自身高(608)` 正是「單項扣除」預算式 `100dvh−頂帶` 本身（此預算式為
+ * 前提、不可更動，見 brief「裁決邊界」），故此路徑在現行預算式下對任何
+ * `--footer-h` 取值皆無解。定案改採候選 2（接受並量化殘差），見
+ * S-a-RESULT.md。
+ *
+body.arm-m1a .builder-columns {
+  min-height: calc(100dvh - var(--band-h) + var(--footer-h) + 1.25rem + 3rem);
+}
+*/
+
+.col {
+  min-width: 0; /* grid item 預設 min-width:auto 會被內容（長樣例值／終端行）撐破欄寬，比照
+                   tools/statusline-builder/style.css 既有慣例 */
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.col__heading {
+  font-size: 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 目錄欄／列區獨立捲動容器 hook（D2；overscroll-behavior 依 S-g 定案，
+   本原型故意先不設，留 class 供後續任務掛——見 brief「三欄皆掛
+   overscroll-behavior 先不設」）。 */
+.col--catalog,
+.col--list {
+  /* overscroll-behavior: contain; ← S-g 定案後掛此處 */
+}
+
+body.arm-m1a .col--catalog,
+body.arm-m1a .col--list,
+body.arm-m1b .col--catalog,
+body.arm-m1b .col--list {
+  position: sticky;
+  top: var(--band-h);
+  max-height: calc(100dvh - var(--band-h));
+  overflow-y: auto;
+}
+
+/* M2：三欄皆內捲（brief M2 定義「三欄內捲」，含設定欄——與 M1′-a／M1′-b
+   的「設定欄預設不設捲動容器」不同，此為 M2 app-shell 结構的必然結果：
+   builder-columns 本身被鎖進固定高度的 flex 列，三個 grid item 一律拉伸
+   滿高＋各自 overflow-y:auto，否則設定欄內容會被 body 的 overflow:hidden
+   直接裁掉、不可達）。 */
+body.arm-m2 .builder-columns {
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 1.5rem;
+}
+
+body.arm-m2 .col--catalog,
+body.arm-m2 .col--list,
+body.arm-m2 .col--settings {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ============================================================
+ * 臂差異：頂帶／欄 wrapper 的外層結構（M1′-a block／M1′-b sticky 外框／
+ * M2 app-shell）。
+ * ============================================================ */
+
+/* M1′-a（首選臂）：main 為一般 block，頂帶自身 sticky。 */
+body.arm-m1a .preview-band {
+  position: sticky;
+  top: 0;
+  z-index: 2; /* < 10：sprint 15 PLAN D2 z-index 值域，須低於 .skip-link 的 10（本原型無 skip-link 樣式，仍照規約留量級） */
+}
+
+/* M1′-b：sticky 外框 .editor 包住頂帶＋三欄，頂帶本身不再自帶 sticky
+   （改由外框承擔），三欄 wrapper 亦收進框內。 */
+body.arm-m1b .editor {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+body.arm-m1b .preview-band {
+  position: static;
+}
+
+/* M2：app-shell——html/body 高鎖 100dvh、overflow hidden；main 本身鎖
+   100dvh（不扣頁首），頂帶恆在上、三欄內捲；footer 因此被擠出視窗
+   （此臂待量測的代價，非本任務判定範圍，見 T1.1 brief）。
+
+   ⚠️ 實測踩坑記錄（T1.1 校準過程）：body 若用 `display:flex;
+   flex-direction:column` 排 header/main/footer 三個直接子節點，flex 子項
+   預設 `flex-shrink:1`——即使 main 宣告 `height:100dvh`，瀏覽器仍會把它
+   當 flex-basis 起點、再依可用空間（800 − header高 − footer高）把 main
+   「縮小」塞進 body 剩餘空間，footer 反而正常可見、完全不會重現本臂
+   要展示的代價。改為 body **不用 flex**（一般 block 正常流）——header／
+   main／footer 依序堆疊，main 的顯式 `height:100dvh` 不受手足擠壓，
+   header 高度＋main 的 100dvh 必然超出 body 本身的 100dvh，footer 隨之
+   落在 body `overflow:hidden` 裁掉的範圍外（measure.mjs 對 m2 量得
+   `footer.top` 會 > `innerHeight`，證據見 README「m2 spot-check」）。 */
+html.arm-m2 {
+  height: 100dvh;
+  overflow: hidden; /* 校準過程實測：僅鎖 body 的 overflow，document/viewport
+    層級仍可被 window.scrollTo 捲動（html 預設 overflow:visible 時瀏覽器
+    不會把 body 的 hidden 值當作視窗捲動行為的依據，與常見「overflow 由
+    body 傳播至 viewport」的簡化認知不同，須 html 自身也鎖）——html／body
+    兩層都須 hidden，頁面才真正「不捲」。 */
+}
+
+body.arm-m2 {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.arm-m2 > main {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+body.arm-m2 .preview-band {
+  flex: 0 0 auto;
+  position: static;
+}
+
+body.arm-m2 .builder-columns {
+  flex: 1 1 auto;
+}
+
+/* ============================================================
+ * 教學帶 mock（目錄欄頂，~120px，D5：本批遷入目錄欄頂）
+ * ============================================================ */
+.tutorial-band-mock {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  min-height: 120px;
+  background: var(--panel);
+  border: 1px dashed var(--border);
+  border-radius: 0.4rem;
+}
+
+.tutorial-band-mock__grip {
+  font-size: 1.3rem;
+  color: var(--fg-muted);
+}
+
+.tutorial-band-mock__text {
+  flex: 1 1 auto;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+
+.tutorial-band-mock__dismiss {
+  padding: 0.35rem 0.7rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * 目錄欄（segment 目錄，四分區、30 項常駐輕量列）
+ * ============================================================ */
+.catalog-section-mock + .catalog-section-mock {
+  margin-top: 1rem;
+}
+
+.catalog-section-mock__heading {
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+
+.catalog-list-mock {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/*
+ * S-j（T1.5）改版：排版逐項比照真實 tools/statusline-builder/style.css
+ * `.catalog-item`／`.catalog-item__label`／`.catalog-item__name`／
+ * `.catalog-item__hint`（見該檔規則，本檔數值逐一抄對齊，唯獨略去顏色
+ * token 對應與 checkbox 原生控件本身——後者以同尺寸 mock 方塊替代，
+ * 寬度佔用相同、不影響量測），使 P90 樣例值截斷量測在同款排版下才有效
+ * （brief 明文「你的副本目錄項要比照這個排版量截斷才有效」）。
+ */
+.catalog-item-mock {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.catalog-item-mock:nth-child(odd) {
+  background: var(--panel-alt);
+}
+
+/* 對應真實 .catalog-item__label（checkbox＋name 群組，min-width:0 允許
+   縮小，font-size 0.9375rem 逐字抄對真實值）。 */
+.catalog-item-mock__label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.9375rem;
+}
+
+/* checkbox 尺寸 mock（真實為原生 <input type=checkbox>，UA 預設約
+   13–16px 方塊；此處以固定 1rem 方塊近似，佔用寬度同量級）。 */
+.catalog-item-mock__checkbox {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--fg-muted);
+  border-radius: 0.2rem;
+}
+
+/* 對應真實 .catalog-item__name：僅 overflow-wrap:anywhere，無 nowrap／
+   無 ellipsis（名稱本身不截斷，會在空間不足時換行——與 hint 的截斷行為
+   不同，真實設計即如此，本檔忠實比照）。 */
+.catalog-item-mock__name {
+  overflow-wrap: anywhere;
+}
+
+/* 對應真實 .catalog-item__hint：margin-left:auto 吃剩餘寬度、
+   font-size 0.8125rem、**無** font-family:mono（真實規則未指定等寬字體，
+   繼承 body 的 UI 字型——先前草稿誤用等寬字體會低估平均字元寬度，
+   已修正比照真實值）。 */
+.catalog-item-mock__hint {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.8125rem;
+  color: var(--fg-muted);
+}
+
+/* ============================================================
+ * 列區（已選擇，5 個列群組，每群組 3–6 段列）
+ * ============================================================ */
+.row-group-mock + .row-group-mock {
+  margin-top: 1rem;
+}
+
+.row-group-mock__heading {
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+
+.row-group-mock__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.segment-row-mock {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+}
+
+.segment-row-mock__grip {
+  color: var(--fg-muted);
+  cursor: grab;
+}
+
+.segment-row-mock__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segment-row-mock__select {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  max-width: 9rem;
+}
+
+/* ============================================================
+ * 設定欄（等量現行 #global-section：5 個 control-group）
+ * ============================================================ */
+.settings-group-mock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-group-mock:last-child {
+  border-bottom: none;
+}
+
+.settings-group-mock legend,
+.settings-group-mock > label:first-child {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.settings-group-mock__choice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.settings-group-mock select,
+.settings-group-mock input[type='text'] {
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  width: 100%;
+}
+
+.settings-group-mock__hint {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+/* ============================================================
+ * footer mock（量級參考現行站 footer）
+ * ============================================================ */
+.footer-mock {
+  padding: 1.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+.footer-mock a {
+  color: var(--fg-muted);
+}
+
+/* <1100px：本原型不驗行動版摺疊（MS3 議題），僅避免三欄在窄視窗下互相
+   擠壓到無法閱讀——單欄堆疊為最小防禦，非最終行動版設計。 */
+@media (max-width: 1099.98px) {
+  .builder-columns {
+    grid-template-columns: 1fr;
+  }
+
+  body.arm-m1a .col--catalog,
+  body.arm-m1a .col--list,
+  body.arm-m1b .col--catalog,
+  body.arm-m1b .col--list {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+}

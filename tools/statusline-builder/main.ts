@@ -116,6 +116,18 @@ import { getSampleValue } from './sample-values.js'
 // 教學帶 dismiss 狀態機——key／sentinel 常數與單一謂詞／dismiss 動作皆在
 // tutorial-band.ts（單一出口，見該檔檔頭），本檔只消費、不重複定義。
 import { dismissTutorialBand, shouldShowTutorialBand } from './tutorial-band.js'
+// sprint 15 T3.1/T3.4（magi/15-statusline-editor-layout/PLAN.md §D8「行動版
+// 目錄收合」；TASKS.md T3.4）：收合狀態機的「狀態讀寫與謂詞」純邏輯部分
+// 皆在 catalog-collapse.ts（單一出口，該檔為 T3.1 產物，本檔只消費、不
+// 重複定義、不改動——見其檔頭），本檔（T3.4）只負責 DOM 接線：init 時
+// 決定初始 open 態＋移除回訪防閃動標記、<summary> click/keydown 持久化
+// （機制 (a) summary-only）、跨斷點強制展開/恢復。
+import {
+  CATALOG_COLLAPSE_BREAKPOINT_QUERY,
+  clearCatalogCollapsed,
+  isCatalogCollapsed,
+  setCatalogCollapsed,
+} from './catalog-collapse.js'
 import {
   computeSegmentFieldDefaults,
   isSegmentFieldAtDefault,
@@ -534,6 +546,9 @@ const segmentMoveStatusEl = byId('segment-move-status')
 const previewBgDarkEl = byId<HTMLInputElement>('preview-bg-dark')
 const previewBgLightEl = byId<HTMLInputElement>('preview-bg-light')
 const previewTerminalEl = byId('preview-terminal')
+// sprint 15 T2.3（PLAN §D6）：預覽頂帶根節點——`--band-h` 的量測對象
+// （ResizeObserver 觀測標的），見下方 syncBandHeight／wireBandHeightObserver。
+const previewBandEl = byId('preview-section')
 // T5.5：頂帶預覽區常駐 mock 時鐘說明改由 index.html 的
 // `data-i18n="ui.mockClockHint"` 承載（開機 applyI18n 套用，切換自動翻轉），
 // 不再由 main.ts 寫入 textContent，故原 previewMockClockHintEl 節點取得與
@@ -571,6 +586,12 @@ const segmentHiddenPoolEl = byId('segment-hidden-pool')
 // 了」dismiss 鈕掛點——wireTutorialBand() 據此接線狀態機。
 const tutorialBandEl = byId('tutorial-band-slot')
 const tutorialDismissEl = byId<HTMLButtonElement>('tutorial-dismiss')
+// sprint 15 T3.3/T3.4：行動版目錄收合結構（T3.3 已落地，見 index.html
+// #catalog-collapse-details 節點自身註解）——wireCatalogCollapse() 據此
+// 接線狀態機。<summary> 無專屬型別（HTML 規格未定義獨立
+// HTMLSummaryElement 介面），沿用 HTMLElement。
+const catalogCollapseDetailsEl = byId<HTMLDetailsElement>('catalog-collapse-details')
+const catalogCollapseSummaryEl = byId<HTMLElement>('catalog-collapse-summary')
 
 // 主題切換鈕 wiring：模組層級立即執行，早於下方 init()（無論 init() 是同步
 // 立即跑或掛在 DOMContentLoaded，這行都先執行——見上方 import 註解）。
@@ -3084,6 +3105,124 @@ function wireTutorialBand(): void {
   })
 }
 
+// ── D8 行動版目錄收合（sprint 15 T3.3/T3.4；PLAN §D8；spikes/
+// S-f-RESULT.md 11/11 實證＋「對 MS3 施工的具體建議」）──
+
+/**
+ * init 時的初始收合態決定＋回訪防閃動標記移除（S-f-RESULT.md「對 MS3
+ * 施工的具體建議」1）。只在「<1100px 且謂詞為收合」時才把 HTML 出貨態
+ * 的 `open` 收起，其餘一律維持出貨態的展開（PLAN §D8「首繪方向」
+ * fail-open 方向，見 catalog-collapse.ts `isCatalogCollapsed()` 檔頭）。
+ *
+ * `js-init-pending` class 的移除**必須晚於**上一行完成——順序不可
+ * 顛倒，否則會有一格「已展開」的畫面先閃過再收起（見 index.html
+ * `<html class="js-init-pending">` 節點與 style.css「D8 行動版目錄
+ * 收合」節防閃動規則的完整論證）。
+ *
+ * 呼叫點（sprint 15 code review 🟡-1）：`init()` 的**起手第一敘述**（已自
+ * `wireCatalogCollapse()` 內前移，理由見 init() 上方註解）。本函式是正常
+ * 路徑的移除點；init() 另有一道 `finally` 保險移除（冪等重複），涵蓋
+ * 「日後有人在本呼叫之上插入會擲錯的程式碼」的假想敵。
+ */
+function applyInitialCatalogCollapseState(): void {
+  if (isCatalogCollapsed()) {
+    catalogCollapseDetailsEl.open = false
+  }
+  document.documentElement.classList.remove('js-init-pending')
+}
+
+/**
+ * S-f-RESULT.md「平台坑：<summary> 點擊→open 翻轉的實測時序證據」：
+ * Chromium 對 `<summary>` 點擊的預設動作（翻轉 `details.open`、派發
+ * `toggle`）透過「queue an element task」非同步排入，晚於同一輪
+ * microtask——`queueMicrotask` 讀到的是**翻轉前**的舊值，故改用雙
+ * `requestAnimationFrame`（單一 rAF 實測已足夠，多一層是保險餘裕、
+ * 成本可忽略，語意上更貼合「等這一輪畫面穩定後再讀」，見該檔「機制
+ * 比較」節第 3 點）。
+ *
+ * 讀到翻轉後的值後才依 `details.open` 決定持久化 set／clear——本函式
+ * 完全不掛任何 `toggle` 監聽器（機制 (a) summary-only，S-f-RESULT.md
+ * 「機制比較」定案），故跨斷點強制展開/恢復（見下方
+ * `wireCatalogBreakpointForcing`）的程式化 `details.open = …` 賦值天生
+ * 不會被本函式誤判為使用者互動，不需要抑制旗標這層額外狀態。
+ *
+ * matchMedia 守衛：桌面態 `<summary>` 應 `display:none` 不可點擊，理論
+ * 上不會觸發本函式；仍加守衛防禦極端情境（如斷點交界處的短暫可見）把
+ * 桌面態互動誤寫為行動版偏好。`matchMedia` 特徵偵測比照
+ * `wireBandHeightObserver` 慣例（typeof 早退，非拋錯）。
+ */
+function scheduleCatalogCollapsePersist(): void {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (typeof matchMedia === 'undefined') return
+      let mobile: boolean
+      try {
+        mobile = matchMedia(CATALOG_COLLAPSE_BREAKPOINT_QUERY).matches
+      } catch {
+        mobile = false
+      }
+      if (!mobile) return
+      if (catalogCollapseDetailsEl.open) clearCatalogCollapsed()
+      else setCatalogCollapsed()
+    })
+  })
+}
+
+/**
+ * PLAN §D8「跨斷點強制展開／恢復」；S-f-RESULT.md 對 MS3 施工建議第 4
+ * 點：單一 `matchMedia` change 監聽＋單一 `apply()` 函式——桌面態恆
+ * 展開（不清除 localStorage 偏好）、行動版態依目前持久化偏好恢復，
+ * 不需要為「強制展開」與「恢復收合」寫兩套邏輯。特徵偵測守衛比照
+ * `wireBandHeightObserver`（typeof 早退＋try/catch）：`matchMedia`
+ * 不可用時僅不掛跨斷點監聽，不影響 `applyInitialCatalogCollapseState`
+ * 已決定的初始態。
+ */
+function wireCatalogBreakpointForcing(): void {
+  if (typeof matchMedia === 'undefined') return
+  try {
+    const mql = matchMedia(CATALOG_COLLAPSE_BREAKPOINT_QUERY)
+    const apply = (): void => {
+      const desiredOpen = mql.matches ? !isCatalogCollapsed() : true
+      if (catalogCollapseDetailsEl.open !== desiredOpen) {
+        catalogCollapseDetailsEl.open = desiredOpen
+      }
+    }
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', apply)
+    } else {
+      // 舊版 API 後備（現行 Chromium 皆支援 addEventListener，此分支僅防禦）。
+      mql.addListener(apply)
+    }
+  } catch {
+    // 極舊環境（matchMedia 建構/掛載擲錯）：僅不掛跨斷點監聽，不影響
+    // init 已決定的初始態。
+  }
+}
+
+/**
+ * T3.4 接線總覽：init() 呼叫本函式一次，依序完成①`<summary>` 持久化監聽
+ * （click／keydown，機制 (a) summary-only）、②跨斷點強制展開/恢復監聽。
+ * `keydown` 監聽 Enter／Space（Chromium 對 focus 中的 `<summary>` 按
+ * Enter/Space 本就會觸發原生 `click`，此處為 S-f-RESULT.md 建議的防禦性
+ * 重複，非必要但成本可忽略）。
+ *
+ * 初始態決定＋防閃動標記移除（`applyInitialCatalogCollapseState()`）原為
+ * 本函式第一步，sprint 15 code review 🟡-1 已前移至 init() 起手——它零前
+ * 置依賴，留在 init 倒數第二步會讓「init 半路擲錯」把行動版目錄鎖成 0
+ * 高度（完整理由見 init() 上方註解）。index.html／style.css 的 D8 註解仍
+ * 以「wireCatalogCollapse() 於 init()」描述該順序，語意（先定 open 態、
+ * 後移除 class）不變、僅呼叫點上移。
+ */
+function wireCatalogCollapse(): void {
+  catalogCollapseSummaryEl.addEventListener('click', () => scheduleCatalogCollapsePersist())
+  catalogCollapseSummaryEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+      scheduleCatalogCollapsePersist()
+    }
+  })
+  wireCatalogBreakpointForcing()
+}
+
 function wireOutputActions(): void {
   copyBashEl.addEventListener('click', () => void copyOutput(lastOutputs.bash, msg().output.bashLabel))
   // sprint 12 review 裁決回退（見 UTF8_BOM 常數 JSDoc）：複製通道刻意
@@ -3325,12 +3464,19 @@ function shrinkRowGroupContainers(count: number): void {
  * 依最新分組結果，把既有 <li>（rowElements 既有節點，非新建）搬移至
  * 目的容器：啟用段 → 對應列群組 <ol>；停用段 → 隱藏池
  * #segment-hidden-pool（T5.9 起取代原「其類別 <ol>」歸屬——完整控件列
- * 已不住左欄四類分區，四類分區改由 buildCatalogItems 建置的輕量目錄項
+ * 已不住目錄四類分區，四類分區改由 buildCatalogItems 建置的輕量目錄項
  * 佔用，見其文件；停用段不再區分類別，統一收入單一隱藏池）。呼叫前須已
  * growRowGroupContainers 到位（各列容器已存在，故
  * rowGroupContainers[group.row] 恆存在）。純節點重定位
  * （appendChild：node reuse，絕不銷毀重建）——保留內部接線／焦點／
  * 閾值編輯器展開態（純 DOM 態，不在 config），監聽器不重綁。
+ *
+ * sprint 15 T2.3 覆核（四區版面手術「隨遷」項）：兩個目的容器
+ * （`#segment-row-groups` 內的列群組 <ol>／`#segment-hidden-pool`）皆
+ * 以 id 取得，與它們**住在哪一欄**無關——列群組隨 #selected-section 遷入
+ * 列區欄、隱藏池仍在 wrapper 之外，本函式**零改動**即正確。此即
+ * S-h-RESULT.md 量到「62 檔測試意外倖存」的同一性質：節點查找不依賴
+ * 父層路徑，手術只要守住「只搬不刪、id/class 全保留」就不連坐。
  */
 function assignSegmentsToContainers(groups: readonly RowGroup[]): void {
   for (const group of groups) {
@@ -3600,80 +3746,178 @@ function wirePendingRowButton(): void {
   })
 }
 
+// ── 頂帶高度變數 `--band-h`（sprint 15 T2.3；PLAN §D6／§D2） ──
+
 /**
- * T2.2（magi/14-statusline-ux-round2/PLAN.md §D2 右欄；TASKS.md T2.2；
- * spikes/S1-RESULT.md 檢核 4「初載欄底可達性」）：右欄
- * `.builder-columns__list` 的 max-height 採 `calc(100dvh -
- * var(--column-top))` 後備（style.css）——`--column-top` 為實際
- * `<header>` 渲染高度，非寫死常數（語言切換／視窗寬度換行皆可能改變
- * 頁首高度）。於 init 時一次性量測並寫入 `:root` CSS 變數
- * （S1-RESULT.md「頁首高度靜態，變數可行」判斷：一次性寫入已足夠
- * 改善初載可達性，非隨 resize 動態追蹤——本函式刻意不掛
- * `resize` 監聽，維持「最小接線」範圍）。缺 `<header>` 節點時 no-op
- * （防禦性，理論上不會發生——index.html 固定骨架恆有 `<header>`）。
+ * 上次寫入的 `--band-h` 整數 px 值——RO 回呼的**去重**基準（S-a 三項
+ * 防護 (a) 的後半：四捨五入後值未變就不寫）。寫入本身會改動樣式，若不
+ * 去重，子像素抖動足以讓「寫入 → 版面重算 → RO 再觸發」形成迴圈。
  */
-function syncColumnTop(): void {
-  const header = document.querySelector<HTMLElement>('header')
-  if (header === null) return
-  const height = Math.round(header.getBoundingClientRect().height)
-  document.documentElement.style.setProperty('--column-top', `${height}px`)
+let lastBandHeightPx: number | null = null
+
+/**
+ * sprint 15 T2.3（PLAN §D6；spikes/S-a-RESULT.md「七」3；
+ * S-e-RESULT.md〈定案修法〉步驟 2）：量測預覽頂帶（`#preview-section`）
+ * 的當下渲染高度、四捨五入後寫入 **`<main>` 元素**的 `--band-h`
+ * ——style.css 中目錄欄／列區的 `top` 與 `max-height: calc(100dvh -
+ * var(--band-h))` 是它唯一的消費點。
+ *
+ * 三件刻意為之：
+ * 1. **變數掛 `<main>`、不掛 `:root`**（S-a 三項防護 (b)）：作用域限縮
+ *    在真正消費它的子樹，也避免每次回寫都碰 documentElement 的樣式。
+ * 2. **`Math.round` 去重**（防護 (a)）：見 `lastBandHeightPx`。
+ * 3. **一次性同步呼叫，獨立於 RO 回呼**（S-e 定案修法步驟 2，比照 sprint
+ *    14 頁首高度變數那套已作廢的一次性寫入模式）：jsdom 無
+ *    `ResizeObserver`，下方
+ *    `wireBandHeightObserver()` 的特徵偵測守衛會整段跳過、回呼永不執行
+ *    ——若把寫入只掛在回呼上，`--band-h` 在 jsdom 下恆缺席，版面 dom 案
+ *    連「初始值正確」都測不到。故 init() 直接呼叫本函式一次，RO 只負責
+ *    「之後變動時」的追蹤式更新。
+ *
+ * 缺 `<main>` 節點時 no-op（防禦性；index.html 固定骨架恆有 `<main>`，
+ * 但本函式亦被 RO 回呼於任意時點呼叫，不值得為此拋錯中斷）。
+ */
+function syncBandHeight(): void {
+  const mainEl = document.querySelector<HTMLElement>('main')
+  if (mainEl === null) return
+  const height = Math.round(previewBandEl.getBoundingClientRect().height)
+  if (height === lastBandHeightPx) return
+  lastBandHeightPx = height
+  mainEl.style.setProperty('--band-h', `${height}px`)
+}
+
+/**
+ * sprint 15 T2.3（PLAN §D6 RO 路徑；S-e-RESULT.md〈定案修法〉步驟 1）：
+ * 以 `ResizeObserver` 追蹤頂帶高度變動。
+ *
+ * 為何非得 JS 量測（S-a-RESULT.md「四」實測否決 D6 的「CSS 原生」
+ * 傾向）：頂帶高度有兩條獨立變動軸——終端框列數 1–5（桌面變動 81.6px／
+ * 行動 76.4px）與 viewport 寬造成的控制列換行（390px 寬即使 1 列也比
+ * 桌面 3 行基準高 69.2px）；任何 CSS 固定值都必然在「遮蔽欄頭」與
+ * 「G9 級垂直浪費」間二選一，且 CSS 無原生機制可讓 sticky 元素的 `top`
+ * 動態繫結另一 sibling 的即時高度。
+ *
+ * 迴圈抑制（S-a 三項防護 (a)）：回呼內以 `requestAnimationFrame` **延後**
+ * 寫入並以 `scheduled` 旗標合併同一幀內的多次觸發，實際寫入再經
+ * `syncBandHeight()` 的四捨五入去重把關。（防護 (c) 的
+ * `scrollbar-gutter: stable` 本批判定不需要，理由見 style.css 四區版面節
+ * `--band-h` 註解。）
+ *
+ * 特徵偵測守衛（比照 `src/theme.ts` 對 `matchMedia` 的惰性＋try/catch
+ * 慣例）：`typeof` 早退涵蓋「壓根沒有這個全域」（jsdom：17 個以
+ * `await import('./main.js')` 啟動 init() 的測試檔會整批 ReferenceError，
+ * S-e 實測 82 案紅），try/catch 涵蓋「有全域但建構擲錯」的極舊環境。
+ * 兩者皆靜默降級為「只有初始同步值、不追蹤變動」——欄的 `top`／
+ * `max-height` 仍有可用值，不會塌成無版面。
+ */
+function wireBandHeightObserver(): void {
+  if (typeof ResizeObserver === 'undefined') return
+  try {
+    let scheduled = false
+    const observer = new ResizeObserver(() => {
+      if (scheduled) return
+      scheduled = true
+      requestAnimationFrame(() => {
+        scheduled = false
+        syncBandHeight()
+      })
+    })
+    observer.observe(previewBandEl)
+  } catch {
+    // 極舊環境（ResizeObserver 已標準化逾 6 年，理論上不會發生）靜默降級。
+  }
 }
 
 // ── 初始化 ──
 
+/*
+  sprint 15 code review 🟡-1（4 票；PLAN §D8 之 S-f 坑 1 語意校準——
+  fail-open 承諾須覆蓋「init() 半路擲錯」，不只覆蓋 scripting 停用）：
+  舊法把 `applyInitialCatalogCollapseState()` 留在 init 倒數第二步的
+  `wireCatalogCollapse()` 內，其前十餘個 build*／wire* 任一擲錯就會讓
+  `js-init-pending` 永遠留著、行動版目錄被暫抑樣式鎖成 0 高度（sprint 14
+  無此暫抑，同情境目錄仍可見＝強健性倒退）。修法並用兩層：
+
+  (a) 該呼叫前移至本函式**起手第一敘述**——它零前置依賴（只用模組層級
+      早已查好的 `catalogCollapseDetailsEl` 與惰性謂詞
+      `isCatalogCollapsed()`：前者於模組求值期 `byId()` 取得、失敗會在
+      import 期就炸而根本進不了 init，後者只讀 localStorage／matchMedia，
+      兩者皆不依賴任何 init 內的建置或接線步驟），故其後任何一步擲錯時，
+      初始收合態都已**依使用者偏好正確決定**，非只是落回展開態。
+  (b) 函式主體包 try/finally 作結構性保險：日後若有人在 (a) 之上插入會擲錯
+      的程式碼，暫抑標記仍保證被移除。`finally` **只做 class 移除、不
+      catch**——例外照常往外冒，維持既有可觀測性（e2e 的
+      `Runtime.exceptionThrown` 哨兵仍抓得到）；`classList.remove` 對已移除
+      的 class 是 no-op，正常路徑下這道保險純屬冪等重複。
+
+  「先定初始 open 態、後移除 class」的防閃動順序封裝在
+  `applyInitialCatalogCollapseState()` 內部，本修法未動（見該函式文件）。
+*/
 function init(): void {
-  let stored: string | null = null
   try {
-    stored = localStorage.getItem(STORAGE_KEY)
-  } catch {
-    stored = null
+    applyInitialCatalogCollapseState()
+    let stored: string | null = null
+    try {
+      stored = localStorage.getItem(STORAGE_KEY)
+    } catch {
+      stored = null
+    }
+    // 讀取即以真 catalog 清洗（drop-unknown 續用、重整不丟）；無存檔→全停用預設。
+    config = stored !== null ? deserializeConfig(stored, SEGMENT_CATALOG) : defaultConfig(SEGMENT_CATALOG)
+    applyRowNormalization() // 存檔可能帶未正規化 row（如舊存檔／手改）；初始佈局前先歸一。
+    // T5.9：id → SegmentConfig 物件參照查表，供左欄目錄 checkbox 的
+    // setSegmentEnabled 直接 mutate（見其宣告處文件）。
+    segmentConfigById = new Map(config.segments.map((seg) => [seg.id, seg]))
+
+    preview = createPreview({
+      container: previewTerminalEl,
+      config,
+      scenarioId: 'full',
+      theme: 'dark',
+      // T5.6：持久化 en 時開機即以 en 呈現（同其餘 T5.4 clone 點慣例，不需
+      // 先手動切換一次）；bootLocale 為模組層級既算值（見上方語言啟動同步）。
+      locale: bootLocale,
+    })
+
+    buildCatalogItems() // T5.9：左欄輕量常駐目錄，一次建置、永不重排。
+    buildSegmentRows()
+    // 初始佈局：把預設啟用段（若有）自隱藏池搬進其列群組；lastRowGroups
+    // 起始值為空陣列，故本次呼叫恆執行（無論是否有啟用段）。
+    // T5.14：初始 rowSlots＝初始渲染列數個 'real'（config 恆無空列，初始
+    // 亦無暫存列）——須於 layoutSegmentContainers 前設定（reconcileRealSlots
+    // 屆時為 no-op）。
+    const initialGroups = computeRowGroups(config.segments)
+    rowSlots = Array<RowSlot>(initialGroups.length).fill('real')
+    layoutSegmentContainers(initialGroups)
+    syncGlobalControls()
+    // sprint 15 T2.3：兩欄 sticky `top`／`max-height` 所需的 `--band-h`——
+    // 先做一次同步初始寫入（jsdom 下亦成立、可測），再掛 RO 追蹤後續變動
+    // （終端框列數／viewport 寬換行）。順序不可對調：RO 的首次回呼是
+    // 非同步的，初始值不能等它。
+    syncBandHeight()
+    wireBandHeightObserver()
+    wireGlobalControls()
+    wireMoveRevealModality() // T2.5：move 鈕收納/浮現模態旗標（document 層，見該函式文件）。
+    wireSkipToOutput()
+    wirePendingRowButton()
+    wirePreviewControls()
+    wireOutputActions()
+    wireOutputDialog()
+    wireTutorialBand() // T3.5：教學帶 dismiss 狀態機（見其自身文件）。
+    wireCatalogCollapse() // sprint 15 T3.4：行動版目錄收合狀態機（見其自身文件）。
+    refreshOutputs()
+    // I5 回歸修復（code review I5，T7.4）：init() 不呼叫 commitConfig，故
+    // duplicateResetPairIds 不會如常途經 checkDuplicateResetHints 收斂——
+    // 靜默 seed 一次，讓存檔內既有的重複狀態於載入當下即被記為「已知」，
+    // 之後只有真正的轉場（新形成的重複）才播報（見 checkDuplicateResetHints
+    // 文件「I5 回歸修復」段）。刻意置於 refreshOutputs() 之後：與非 init
+    // 路徑下 commitConfig 呼叫 checkDuplicateResetHints 的順序（產物刷新後）
+    // 一致，僅播報行為不同。
+    checkDuplicateResetHints({ silent: true })
+  } finally {
+    // 見上方註解 (b)：只保證解除暫抑，不吞任何例外。
+    document.documentElement.classList.remove('js-init-pending')
   }
-  // 讀取即以真 catalog 清洗（drop-unknown 續用、重整不丟）；無存檔→全停用預設。
-  config = stored !== null ? deserializeConfig(stored, SEGMENT_CATALOG) : defaultConfig(SEGMENT_CATALOG)
-  applyRowNormalization() // 存檔可能帶未正規化 row（如舊存檔／手改）；初始佈局前先歸一。
-  // T5.9：id → SegmentConfig 物件參照查表，供左欄目錄 checkbox 的
-  // setSegmentEnabled 直接 mutate（見其宣告處文件）。
-  segmentConfigById = new Map(config.segments.map((seg) => [seg.id, seg]))
-
-  preview = createPreview({
-    container: previewTerminalEl,
-    config,
-    scenarioId: 'full',
-    theme: 'dark',
-    // T5.6：持久化 en 時開機即以 en 呈現（同其餘 T5.4 clone 點慣例，不需
-    // 先手動切換一次）；bootLocale 為模組層級既算值（見上方語言啟動同步）。
-    locale: bootLocale,
-  })
-
-  buildCatalogItems() // T5.9：左欄輕量常駐目錄，一次建置、永不重排。
-  buildSegmentRows()
-  // 初始佈局：把預設啟用段（若有）自隱藏池搬進其列群組；lastRowGroups
-  // 起始值為空陣列，故本次呼叫恆執行（無論是否有啟用段）。
-  // T5.14：初始 rowSlots＝初始渲染列數個 'real'（config 恆無空列，初始
-  // 亦無暫存列）——須於 layoutSegmentContainers 前設定（reconcileRealSlots
-  // 屆時為 no-op）。
-  const initialGroups = computeRowGroups(config.segments)
-  rowSlots = Array<RowSlot>(initialGroups.length).fill('real')
-  layoutSegmentContainers(initialGroups)
-  syncGlobalControls()
-  syncColumnTop() // T2.2：右欄 max-height calc() 後備所需的 --column-top，見該函式文件。
-  wireGlobalControls()
-  wireMoveRevealModality() // T2.5：move 鈕收納/浮現模態旗標（document 層，見該函式文件）。
-  wireSkipToOutput()
-  wirePendingRowButton()
-  wirePreviewControls()
-  wireOutputActions()
-  wireOutputDialog()
-  wireTutorialBand() // T3.5：教學帶 dismiss 狀態機（見其自身文件）。
-  refreshOutputs()
-  // I5 回歸修復（code review I5，T7.4）：init() 不呼叫 commitConfig，故
-  // duplicateResetPairIds 不會如常途經 checkDuplicateResetHints 收斂——
-  // 靜默 seed 一次，讓存檔內既有的重複狀態於載入當下即被記為「已知」，
-  // 之後只有真正的轉場（新形成的重複）才播報（見 checkDuplicateResetHints
-  // 文件「I5 回歸修復」段）。刻意置於 refreshOutputs() 之後：與非 init
-  // 路徑下 commitConfig 呼叫 checkDuplicateResetHints 的順序（產物刷新後）
-  // 一致，僅播報行為不同。
-  checkDuplicateResetHints({ silent: true })
 }
 
 // deferred module 執行時 DOM 已解析；仍以 readyState 守衛使初始化嚴格於

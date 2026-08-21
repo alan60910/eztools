@@ -35,6 +35,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { t } from './messages.js'
 import type { ResolveFn } from './sample-values.js'
 
+// 檔級 testTimeout（比照 i18n-dom.dom.test.ts／lang-switch.dom.test.ts／
+// pipeline.integration.test.ts／layout-columns.dom.test.ts 既有先例，同以
+// 30_000 收斂）：本檔既是 sprint 14 BACKLOG 列名的既知 timeout flake（多
+// 案皆 `boot()` 重跑 main.ts 全依賴圖＋init() 建 30 段目錄，部分案另疊
+// `bootWithSeededSample()` 的第二輪動態 import），單案隔離跑穩定約
+// 2284ms，本非邏輯迴歸；sprint 15 的 index.html 三欄版面增量（目錄欄／
+// 列區欄結構膨脹）進一步墊高 init() 成本，使其在全套件並行負載下由偶發
+// 轉常發。此處把該病史體制化，避免樣例值回歸網的紅燈訊號被環境負載雜訊
+// 淹沒。
+vi.setConfig({ testTimeout: 30_000 })
+
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const HTML_PATH = path.resolve(DIR, 'index.html')
 const RAW_HTML = readFileSync(HTML_PATH, 'utf-8')

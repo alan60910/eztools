@@ -1,29 +1,31 @@
 // @vitest-environment jsdom
 /**
- * T2.1（magi/14-statusline-ux-round2/PLAN.md §D2 中欄；TASKS.md T2.1，
- * 取代 09-PLAN §D4 A-1／A-3「即時預覽抽出為 <main> 之前的全寬 sticky
- * 頂帶」前身）：即時預覽自全寬頂帶「降級」入三欄終形的中欄——`<main>`
- * 內第二個 grid 欄（DOM 序＝設定→預覽→清單）。回歸網比照既有
- * default-hint.dom.test.ts 的「先以 jsdom 剖析真實 index.html 取得
- * <body>、動態 import main.ts 觸發其 init()」全頁面整合測試形（見該檔
- * 檔頭說明，不重複抄錄）。
+ * sprint 15 T2.4（magi/15-statusline-editor-layout/PLAN.md §D1／§D2／§D5；
+ * TASKS.md T2.4，改寫 sprint 14 T2.1 版本）：即時預覽自「三欄終形中欄」
+ * **復位為 `<main>` 直接子節點的全寬 sticky 頂帶**（捲動模型 M1′-a）。
+ * 本檔承接頂帶自身這一面：舊 wrapper 沿革、**捲動停點新契約**、頂帶在
+ * `<main>` 內的相對位置、繪序（z-index）歸屬。四區 DOM 序／欄歸屬／兩欄
+ * 捲動容器 CSS 契約／`--band-h` 接線見 layout-columns.dom.test.ts。
  *
- * 本檔涵蓋 TASKS.md T2.1「捲動停點條件式判定」＋「skip-nav／preview-band
- * dom 案同步改寫」的版面結構斷言（既有 8 個 dom.test 之外、專屬本 task
- * 的版面結構斷言：aside/catalog/selected 舊 wrapper 退役、產出區安置於
- * main 內、三欄 DOM 序）。
+ * 回歸網比照既有 default-hint.dom.test.ts 的「先以 jsdom 剖析真實
+ * index.html 取得 <body>、動態 import main.ts 觸發其 init()」全頁面整合
+ * 測試形（見該檔檔頭說明，不重複抄錄）。
  *
- * T2.1 條件式捲動停點判定（本檔核心斷言依據，見 index.html
- * `#preview-section` 節點自身註解的完整論證）：40dvh 高度預算已自本
- * 節點遷出、改掛 `#preview-terminal` 自身 `max-height`（style.css）；
- * 本節點不再帶 `overflow:hidden`／`max-height`，故不再是自身的 CSS
- * 捲動容器——**移除 tabindex，僅保留 role="region"**，捲動停點總數由
- * 2（頂帶自身＋#preview-terminal）降為 1（僅 #preview-terminal）。
+ * ── 捲動停點契約（本檔核心，PLAN §D2 末條「捲動停點契約須重定」）──
+ * sprint 14 的契約是「停點總數＝1」，以「全頁無 `[role="region"]
+ * [tabindex="0"]` 節點」機械斷言。本批版面把捲動容器由 1 個變成 3 個
+ * （頂帶內的終端框＋目錄欄＋列區欄），該總數契約須重定，但**不能**在
+ * jsdom 層宣稱「瀏覽器實際停點總數」：
  *
- * T4.2 沿革：產出區已由過渡期的 #output-section 收進
- * `<dialog id="output-dialog">`（PLAN §D4 A-2），下方「結構與位置」
- * describe 區塊的斷言同步改為新結構；dialog 焦點管理／live region
- * 常駐位置等 T4.2 專屬案見新檔 output-dialog.dom.test.ts。
+ *   ・Chromium 會自動為「無可聚焦子節點的捲動容器」補上鍵盤停點，該停點
+ *     **不帶** `role="region"`、也不寫進 DOM——現有選擇器抓不到它。
+ *   ・jsdom 沒有 layout 引擎，更不會模擬這條瀏覽器行為。
+ *
+ * 故本層改鎖**作者顯式宣告**的停點清單與順序（`[tabindex="0"]` 的實際
+ * 節點集合），並顯式斷言「兩個欄捲動容器不自行加停點／不加 role=region」
+ * ——真瀏覽器的停點總數與 Tab 序回歸基準由 MS4 e2e 承接（PLAN
+ * §Verification「測試層歸屬」硬性規定：純 CSS/瀏覽器行為的斷言不得落
+ * jsdom，否則只能寫死 mock 值＝恆真斷言）。
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -56,7 +58,7 @@ async function boot(): Promise<void> {
   await import('./main.js')
 }
 
-describe('T2.1 三欄版面：舊 wrapper 退役', () => {
+describe('T2.1 版面沿革：舊 wrapper 退役／復用', () => {
   beforeAll(async () => {
     await boot()
   })
@@ -65,68 +67,96 @@ describe('T2.1 三欄版面：舊 wrapper 退役', () => {
     expect(document.querySelector('.builder-columns__aside')).toBeNull()
   })
 
-  it('.builder-columns__catalog 已退役（T2.1 起改名 .builder-columns__settings，且目錄已搬出）', () => {
-    expect(document.querySelector('.builder-columns__catalog')).toBeNull()
+  it('.builder-columns__selected 已退役（#selected-section 不自帶此 class，改巢在列區欄內）', () => {
+    expect(document.querySelector('.builder-columns__selected')).toBeNull()
   })
 
-  it('.builder-columns__selected 已退役（T2.1 起 #selected-section 不再自帶此 class，改巢在 .builder-columns__list 內）', () => {
-    expect(document.querySelector('.builder-columns__selected')).toBeNull()
+  /*
+   * sprint 15 T2.1：`.builder-columns__catalog` **復用**（sprint 14 曾判
+   * 「已退役」，因當時該 class 的語意是「設定＋目錄同欄」的混合欄，目錄
+   * 搬走後名不副實）。本批的四區版面下，它的語意精確等於「segment 目錄
+   * 欄」——沿用既有 BEM 命名（`.builder-columns__*`）比另造新名更一致，
+   * 故改寫舊斷言為「復用且必須是目錄欄本身」，而非放著一條與現況相反的
+   * 退役斷言。
+   */
+  it('.builder-columns__catalog 復用為「segment 目錄欄」（＝#catalog-section，D4 skip 落點的外層容器）', () => {
+    const catalogCol = document.querySelector('.builder-columns__catalog')
+    expect(catalogCol).not.toBeNull()
+    expect(catalogCol!.id).toBe('catalog-section')
+    expect(catalogCol!.querySelector('.segment-lists')).not.toBeNull()
+    // 設定不再與目錄同欄（sprint 14 混合欄語意就此消滅）。
+    expect(catalogCol!.querySelector('#global-section')).toBeNull()
   })
 })
 
-describe('T2.1 三欄版面：捲動停點契約（條件式判定）', () => {
+describe('T2.1 捲動停點契約（新版面：3 個捲動容器，作者顯式停點仍只有終端框）', () => {
   beforeAll(async () => {
     await boot()
   })
 
-  it('#preview-section 保留 role="region"，但移除 tabindex（自身不再是捲動容器，見 T2.1 條件式判定）', () => {
-    const preview = document.getElementById('preview-section')
-    expect(preview).not.toBeNull()
-    expect(preview!.getAttribute('role')).toBe('region')
-    expect(preview!.hasAttribute('tabindex')).toBe(false)
+  it('#preview-section 保留 role="region"，不帶 tabindex（頂帶自身非捲動容器——40dvh 由終端框內捲吸收）', () => {
+    const band = document.getElementById('preview-section')
+    expect(band).not.toBeNull()
+    expect(band!.getAttribute('role')).toBe('region')
+    expect(band!.hasAttribute('tabindex')).toBe(false)
   })
 
-  it('#preview-terminal 維持 tabindex="0"（T2.1 起唯一捲動停點，40dvh 高度預算亦自 #preview-section 遷入本節點自身）', () => {
+  it('#preview-terminal 維持 tabindex="0"（頂帶內唯一顯式捲動停點）', () => {
     const terminal = document.getElementById('preview-terminal')
     expect(terminal).not.toBeNull()
     expect(terminal!.getAttribute('tabindex')).toBe('0')
+  })
 
-    // 「捲動停點降為 1」機械斷言：全頁恰無 role="region"+tabindex="0"
-    // 節點（T2.1 判定：外層預覽節點不再自身捲動，tabindex 已移除，
-    // 不再有任一節點同時具備兩者）。
-    const regionStops = document.querySelectorAll('[role="region"][tabindex="0"]')
-    expect(regionStops.length).toBe(0)
+  it('全頁無 [role="region"][tabindex="0"] 節點（sprint 14 既有不變量，新版面續守）', () => {
+    expect(document.querySelectorAll('[role="region"][tabindex="0"]').length).toBe(0)
+  })
+
+  it('兩個新捲動容器（目錄欄／列區欄）不自加 tabindex、不掛 role="region"', () => {
+    for (const selector of ['#catalog-section', '#list-column']) {
+      const col = document.querySelector(selector)!
+      expect(col, `${selector} 應存在`).not.toBeNull()
+      expect(col.hasAttribute('tabindex'), `${selector} 不應自加停點`).toBe(false)
+      expect(col.getAttribute('role'), `${selector} 不應掛 role`).toBeNull()
+    }
+  })
+
+  /*
+   * 「停點總數」新契約在本層的可測形式＝**作者顯式宣告的停點清單與順序**
+   * （`[tabindex="0"]`）。刻意不寫「瀏覽器停點總數＝N」：Chromium 會為
+   * 無可聚焦子節點的捲動容器自動補停點（不帶 role="region"、不落 DOM），
+   * jsdom 也不模擬——在此宣稱總數等同把 mock 值寫成答案（恆真斷言）。
+   * 真瀏覽器的停點總數與 Tab 序回歸基準由 MS4 e2e 承接。
+   */
+  it('版面骨架的顯式 tabindex="0" 節點清單＝終端框 → 三份產出 <pre>（DOM 序，無其他作者停點）', () => {
+    const main = document.querySelector('main')!
+    // 排除段列子樹（#segment-row-groups／#segment-hidden-pool）：其中的
+    // 色彩 spinbutton 等控件由 <template> 動態生成、數量隨啟用段浮動，
+    // 屬控件層契約（各自的 dom 案負責），不是版面骨架的停點契約。
+    const explicitStops = Array.from(main.querySelectorAll('[tabindex="0"]'))
+      .filter((el) => el.closest('#segment-row-groups, #segment-hidden-pool') === null)
+      .map((el) => el.id)
+    expect(explicitStops).toEqual(['preview-terminal', 'output-bash', 'output-ps1', 'output-settings'])
   })
 })
 
-describe('T2.1 三欄版面：結構與 DOM 序', () => {
+describe('T2.1 頂帶結構與 DOM 序（M1′-a：`<main>` 直接子節點的全寬頂帶）', () => {
   beforeAll(async () => {
     await boot()
   })
 
-  it('#preview-section 為 <main> 內三欄之中欄（設定→預覽→清單 DOM 序，不再是 <main> 前的獨立頂帶）', () => {
+  it('#preview-section 為 <main> 直接子節點，且排在 .builder-columns 之前（不再是三欄中欄）', () => {
     const main = document.querySelector('main')
-    const preview = document.getElementById('preview-section')
-    const settingsCol = document.querySelector('.builder-columns__settings')
-    const listCol = document.getElementById('list-column')
+    const band = document.getElementById('preview-section')
+    const columns = document.querySelector('.builder-columns')
     expect(main).not.toBeNull()
-    expect(preview).not.toBeNull()
-    expect(settingsCol).not.toBeNull()
-    expect(listCol).not.toBeNull()
-    expect(main!.contains(preview)).toBe(true)
+    expect(band).not.toBeNull()
+    expect(columns).not.toBeNull()
 
-    // DOM 序：設定 → 預覽 → 清單（PLAN §D2 三欄終形，無 order／grid-area 重映射）。
-    expect(
-      Boolean(settingsCol!.compareDocumentPosition(preview!) & Node.DOCUMENT_POSITION_FOLLOWING),
-    ).toBe(true)
-    expect(
-      Boolean(preview!.compareDocumentPosition(listCol!) & Node.DOCUMENT_POSITION_FOLLOWING),
-    ).toBe(true)
+    expect(band!.parentElement).toBe(main)
+    expect(columns!.contains(band)).toBe(false)
+    expect(Boolean(band!.compareDocumentPosition(columns!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
 
-  // T4.2：#output-section 已收進 <dialog id="output-dialog">（產出腳本
-  // 單一按鈕收斂，見 magi/09-statusline-ux-refactor/PLAN.md §D4 A-2）；
-  // 本案同步改斷言新結構，位置仍在 <main> 內。
   it('#output-dialog 位於 <main> 內（產出腳本收斂為 dialog，非已退役的 aside）', () => {
     const main = document.querySelector('main')
     const output = document.getElementById('output-dialog')
@@ -136,23 +166,61 @@ describe('T2.1 三欄版面：結構與 DOM 序', () => {
     expect(main!.contains(output)).toBe(true)
   })
 
-  it('底色／情境控件仍在 #preview-section 內（收斂為單列緊湊形，結構不變、DOM 位置隨中欄搬移）', () => {
-    const preview = document.getElementById('preview-section')!
-    expect(preview.querySelector('#preview-bg-dark')).not.toBeNull()
-    expect(preview.querySelector('#preview-bg-light')).not.toBeNull()
-    expect(preview.querySelector('#scenario-full')).not.toBeNull()
-    expect(preview.querySelector('#scenario-windows-cjk')).not.toBeNull()
+  it('D5 頂帶整包：標題／底色 ×2／情境 ×4／產出腳本鈕／示範時鐘句／終端框皆在 #preview-section 內', () => {
+    const band = document.getElementById('preview-section')!
+    for (const selector of [
+      '#preview-heading',
+      '#preview-bg-dark',
+      '#preview-bg-light',
+      '#scenario-full',
+      '#scenario-early-null',
+      '#scenario-conditional-absent',
+      '#scenario-windows-cjk',
+      '#output-dialog-open',
+      '#preview-mock-clock-hint',
+      '#preview-terminal',
+    ]) {
+      expect(band.querySelector(selector), `${selector} 應在頂帶內`).not.toBeNull()
+    }
+  })
+
+  it('D5 產出腳本鈕位於頂帶控制列末端（右端對齊由 .preview-controls__output-open 的 margin-left:auto 承擔）', () => {
+    const controls = document.querySelector('.preview-controls')!
+    expect(controls.lastElementChild!.id).toBe('output-dialog-open')
+    const block = firstRuleBlock(STYLE_CSS, /(?:^|\n)\.preview-controls__output-open\s*\{/)
+    expect(block).toMatch(/margin-left:\s*auto/)
   })
 })
 
-describe('T2.1 三欄版面：.preview-section 繪序保護（style.css 原始文字檢核，MAGI review 🟡-4）', () => {
-  it('.preview-section 規則塊含 z-index: 2（沿革自舊頂帶 z-index:5 的繪序保護，T2.1 遷移時遺失；防 <1100px 捲動下 DOM 序在後的 positioned 後代——如 .color-swatch——繪於 sticky 預覽之上，見 style.css 該規則旁註解完整論證）', () => {
+describe('T2.2 頂帶繪序歸屬（style.css 原始文字檢核；D2 頂帶 z-index 值域）', () => {
+  it('.preview-section 全斷點 sticky（top:0）——A2 定案，行動版垂直壓力由 D8 目錄收合吸收', () => {
     const block = firstRuleBlock(STYLE_CSS, /(?:^|\n)\.preview-section\s*\{/)
-    expect(block).toMatch(/z-index:\s*2\b/)
+    expect(block).toMatch(/position:\s*sticky/)
+    expect(block).toMatch(/top:\s*0/)
+    // 全斷點生效＝規則本體不在任何 @media 內；此處以「規則起點早於第一個
+    // @media」機械確認（本檔 @media 區塊全數集中在檔尾版面節）。
+    const ruleIndex = STYLE_CSS.search(/(?:^|\n)\.preview-section\s*\{/)
+    const firstMediaIndex = STYLE_CSS.indexOf('@media (min-width: 1100px)')
+    expect(ruleIndex).toBeGreaterThan(-1)
+    expect(firstMediaIndex).toBeGreaterThan(-1)
+    expect(ruleIndex).toBeLessThan(firstMediaIndex)
+  })
+
+  it('頂帶 z-index 須 <10（skip-link 為 10）——否則會蓋掉聚焦中的 skip-link，抵銷 G6 提升的補償', () => {
+    const bandBlock = firstRuleBlock(STYLE_CSS, /(?:^|\n)\.preview-section\s*\{/)
+    const bandZ = /z-index:\s*(\d+)/.exec(bandBlock)
+    expect(bandZ, '.preview-section 應宣告 z-index（繪序保護，MAGI 🟡-4 沿革）').not.toBeNull()
+
+    const skipBlock = firstRuleBlock(STYLE_CSS, /(?:^|\n)\.skip-link\s*\{/)
+    const skipZ = /z-index:\s*(\d+)/.exec(skipBlock)
+    expect(skipZ, '.skip-link 應宣告 z-index').not.toBeNull()
+
+    expect(Number(bandZ![1])).toBeGreaterThan(0) // 高於預設 auto 的一般後代（如 .color-swatch）
+    expect(Number(bandZ![1])).toBeLessThan(Number(skipZ![1]))
   })
 })
 
-describe('T2.1 三欄版面：mock 時鐘常駐說明（G4，T4.1 沿革）', () => {
+describe('T2.1 頂帶：mock 時鐘常駐說明（G4，T4.1 沿革）', () => {
   beforeAll(async () => {
     await boot()
   })

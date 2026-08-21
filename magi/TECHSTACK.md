@@ -5,9 +5,13 @@
 
 ## Framework / runtime
 - 純靜態前端網頁（瀏覽器端執行，無後端）
-- 目標瀏覽器基線＝evergreen（Chrome/Edge/Firefox/Safari 近兩年
-  版本）；CSS 基線含 `:has()`、`:focus-visible`、`dvh`、
-  `overscroll-behavior`（sprint 14 補齊）
+- 目標瀏覽器基線＝evergreen（Chrome/Edge/Firefox/Safari 近兩年版本）
+- CSS 基線：`:has()`、`:focus-visible`、`dvh`、`overscroll-behavior`
+  （sprint 14 補齊，sprint 15 沿用）
+- JS 平台 API 基線：`ResizeObserver`（sprint 15 補入，statusline-builder
+  `--band-h` 頂帶高度量測用；jsdom 承接採特徵偵測守衛＋一次性同步初始
+  寫入，見 `magi/15-statusline-editor-layout/spikes/S-e-RESULT.md`）；
+  `matchMedia`（既有，`src/theme.ts` 已用，非新增）
 - Vite 8.1.3 + vanilla TypeScript 6（strict、ESM）；Node >= 22（engines）
 - MPA：`vite.config.ts` 以函式 `discoverToolEntries` 自動掃描
   `tools/*/index.html` 組成 `rollupOptions.input`；`base: './'`（相對路徑）

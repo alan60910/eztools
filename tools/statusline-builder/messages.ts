@@ -325,10 +325,18 @@ export interface Messages {
     noBoundaryHint: string
     // skip-nav
     skipNavLabel: string
+    skipToSettings: string
+    skipToCatalog: string
     skipToSelected: string
     skipToPreview: string
     skipToOutput: string
     // 目錄
+    // sprint 15 T3.3（magi/15-statusline-editor-layout/PLAN.md §D8「行動版
+    // 目錄收合」）：<summary> 的可見文字＝可及名稱單一來源（同
+    // #tutorial-dismiss 慣例，不另掛 aria-label）；展開/收合狀態本身由
+    // <details> 原生語意播報（aria-expanded 等效），文案不重複「顯示/隱藏」
+    // 字樣，見 index.html #catalog-collapse-summary 節點自身註解。
+    catalogCollapseSummary: string
     catalogHint: string
     catalogAlwaysHeading: string
     catalogAlwaysDesc: string
@@ -600,9 +608,12 @@ const zhHant: Messages = {
     noBoundaryHint:
       '目前所有已啟用的 segment 皆使用終端預設色、且未開啟 Powerline 箭頭：相鄰色塊將無法區分邊界，建議開啟箭頭或為部分 segment 指定顏色。',
     skipNavLabel: '區塊快速跳轉',
+    skipToSettings: '跳至設定',
+    skipToCatalog: '跳至目錄',
     skipToSelected: '跳至已選擇',
     skipToPreview: '跳至預覽',
     skipToOutput: '跳至產出腳本',
+    catalogCollapseSummary: 'Segment 目錄清單',
     catalogHint:
       '勾選以啟用 segment：勾選後本項原位灰化標記「已加入」，其完整控件列會出現在中間「已選擇」欄的對應列群組，可於該處排序、配色、指派顯示列等；再點一次取消勾選即可移除。',
     catalogAlwaysHeading: '永在 segment',
@@ -837,9 +848,12 @@ const en: Messages = {
     noBoundaryHint:
       'All enabled segments use the terminal default color and the Powerline arrow is off: adjacent blocks will have no distinguishable boundary. Consider enabling the arrow or giving some segments a color.',
     skipNavLabel: 'Quick section jump',
+    skipToSettings: 'Skip to settings',
+    skipToCatalog: 'Skip to catalog',
     skipToSelected: 'Skip to selected',
     skipToPreview: 'Skip to preview',
     skipToOutput: 'Skip to generated scripts',
+    catalogCollapseSummary: 'Segment catalog list',
     catalogHint:
       'Check a segment to enable it: once checked, the item is greyed in place and marked “Added”, and its full control row appears in the matching row group of the middle “Selected” column, where you can reorder, color, assign a display row, and so on; uncheck it to remove.',
     catalogAlwaysHeading: 'Always-present segments',

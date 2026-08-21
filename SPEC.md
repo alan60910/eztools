@@ -54,22 +54,44 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
   輸出**：`SegmentConfig.row?: number`（選填、缺欄視同 0，CONFIG_VERSION
   維持 2 不 bump）驅動 `resolve()` 回傳 `rows: StyledRun[][]`（按渲染列序
   分組、空列壓縮，全隱藏退化為單一空列 `[[]]`），三後端與預覽逐列同步
-  輸出，行尾契約＝列間單一 LF join、無尾隨換行；**三欄版面**
-  （sprint 14 改寫：頂帶降級入中欄，不再獨立全寬版面）——左＝全域
-  設定＋中＝預覽＋產出（欄內 sticky、role=region 隨遷、預覽終端框
-  內部捲動——40dvh 高度預算現掛終端框 max-height，非頂帶自身）＋
-  右＝**教學帶→目錄 compact 列→已選擇清單同一捲動容器**（sticky、
-  單一捲動、內捲不連鎖外頁）；目錄項
-  可**拖移入列**直接啟用至右欄已選擇清單目標列，checkbox 鍵盤等效保留、落列
-  播報採視覺顯示編號；目錄列 compact 形——未啟用「☐ 段名＋預設形
-  樣例值」（樣例由逐段單段-enabled 預設 config × FULL mock 唯讀
-  resolve 合成、per-locale 快取，合成失敗退 fallback 文案）／已啟用
-  「☑ 段名＋已加入」；已選擇清單依渲染列分組，各列群組容器自帶
-  地標／標題可跳達，列 header 帶逐列分隔符覆寫控件；行動版
-  （<1100px）摺疊序＝設定→預覽→清單（**DOM 序＝視覺序**，右欄
-  sticky／max-height 解除、回歸文件流）；move 鈕行為契約＝**預設
-  收納、鍵盤導航浮現、滑鼠點擊不浮現**（收納態佔位零躍動、保留
-  Tab 序）；產出仍收斂為單一按鈕開 `<dialog>`（鈕隨預覽居中欄；
+  輸出，行尾契約＝列間單一 LF join、無尾隨換行；**版面**（sprint 15
+  全面改寫，取代 sprint 14 三欄形）——**不變量（變更需重議）**：見
+  Conventions 節「拖放編排可用性不變量」／「skip 落點快照謂詞」／
+  「版位判準」三句（見各自標題起之段落，引用不複製全文）。**現行
+  形態（sprint 15，可調整）**：頂＝預覽全寬頂帶（`#preview-section`，
+  role=region 隨遷、自身不掛 tabindex）；下三欄左→右＝segment 目錄
+  ｜列區（已選擇，最寬）｜全域設定；DOM 序＝skip-nav → status/error
+  → 頂帶 → 目錄 → 列區 → 設定，DOM 序＝視覺序＝Tab 序，兩斷點同一
+  DOM 序、零 JS 搬移零 CSS order；頂帶高度上限 ≤40dvh 掛自身、全
+  斷點 sticky，終端框改 `flex:1` 內捲吸收超出（上限不再掛終端框
+  自身 max-height）；skip-nav 五條落點——跳至設定（排第一）→
+  `#global-section`、跳至目錄→`#catalog-section`、跳至已選擇→
+  `#selected-section`、跳至預覽→`#preview-section`、跳至產出腳本
+  →`#output-dialog-open`，皆有 scroll-margin-top 綁 `--band-h`；
+  桌面兩欄（目錄欄＋列區）各自獨立捲動容器（sticky top 綁
+  `--band-h`、max-height calc(100dvh−`--band-h`) 單項扣除，皆
+  `overscroll-behavior: contain`——S-g 定案，欄內捲不連鎖外頁）；
+  `<1100px` 目錄可收合——key 字面值＝
+  `eztools-statusline-builder-catalog-collapsed`、sentinel＝`'1'`，
+  完整謂詞＝**收合 ⟺ `localStorage.getItem(KEY)==='1'` 且視窗
+  <1100px；key 缺失、`getItem` 擲錯、任意怪值一律展開
+  （fail-open）**；桌面（≥1100px）恆展開、`<summary>` 隱藏非停點。
+  **捲動停點契約（新增）**：作者顯式停點＝預覽終端框
+  （`#preview-terminal` tabindex="0"，頂帶內唯一）＋產出 dialog 內
+  三份產出 `<pre>`；兩欄捲動容器不自行加停點、不加 role="region"；
+  Chromium 對「無可聚焦子節點的捲動容器」自動補的 UA 停點不屬
+  作者契約範圍（jsdom 層鎖作者顯式清單，真瀏覽器停點行為歸 e2e
+  層）。目錄項可**拖移入列**直接啟用至列區（中欄）已選擇清單目標
+  列，checkbox 鍵盤等效保留、落列播報採視覺顯示編號；目錄列
+  compact 形——未啟用「☐ 段名＋預設形樣例值」（樣例由逐段單段
+  -enabled 預設 config × FULL mock 唯讀 resolve 合成、per-locale
+  快取，合成失敗退 fallback 文案）／已啟用「☑ 段名＋已加入」；
+  已選擇清單依渲染列分組，各列群組容器自帶地標／標題可跳達，列
+  header 帶逐列分隔符覆寫控件；行動版（<1100px）摺疊序＝預覽→
+  目錄→列區→設定（**DOM 序＝視覺序**不變，同序堆疊、回歸文件
+  流）；move 鈕行為契約＝**預設收納、鍵盤導航浮現、滑鼠點擊不
+  浮現**（收納態佔位零躍動、保留 Tab 序）；產出仍收斂為單一按鈕
+  開 `<dialog>`（鈕改居頂帶控制列右端；
   stacked 三產物各含複製／下載；showModal＋feature-detect
   fallback，`#output-status` live region 常駐 dialog 外）；dialog
   尺寸＝`min(90vw, max(640px, 55vw), 72rem)`×`min(85dvh, 60rem)`；
@@ -153,10 +175,26 @@ EZTools 是一個純靜態的網頁工具合集，以 TypeScript 開發，部署
 - 互動工具關鍵節點以 `data-testid` 提供 e2e 穩定錨點，e2e selector
   一律走錨點、不依賴 DOM 結構路徑；e2e 斷言亦**不得依賴 i18n 可見
   文字**，位置／序數類斷言走 `data-*` 序數屬性（如 `data-row-index`）。
-  此慣例為 sprint 09 新增（statusline-builder e2e 全 7 案為現行活例）
+  此慣例為 sprint 09 新增（statusline-builder e2e 案例集為現行活例，
+  案數以 `scripts/e2e-statusline.mjs` 的 `CASES` 陣列為單一事實來源）
 - repo 以 `.gitattributes` `* text=auto` 為 EOL 基線；byte-exact
   fixtures（golden、二進位測試輸入）須顯式 `-text`／`binary` 豁免，
   新增此類檔案時同步補規則。此慣例為 sprint 10 新增
+- **拖放編排可用性不變量**：拖放操作的來源與目標須分屬獨立捲動容器，
+  可用性不得依賴程式化捲動；拖曳過程中不得要求捲動
+- **skip 落點快照謂詞**：`<main>` 內每個頂層分區於 skip-nav 須有對應
+  落點；特化自本節「大量項目須有 skip 機制與分頁」規約（`SPEC.md:145`）
+  ——該規約以量觸發，本句以結構觸發，可對單一版本快照直接機械驗證
+  （口徑：「分區」＝帶 accessible name 的 `<section>`／`[role=region]`；
+  「頂層」＝自 `<main>` 直接子節點起算，純版面 wrapper 視為透明、以其
+  直接子節點代入，並扣除 `[hidden]`／`[aria-hidden="true"]` 節點與
+  `<dialog>` 覆蓋層——後者可達性由其開啟控件自身的落點承擔，餘者中
+  「自身是分區或其後代含至少一個分區」者入列；「有對應落點」＝存在
+  skip 連結之 href 解析到該分區自身或其後代。機械守門人見
+  `tools/statusline-builder/skip-nav.dom.test.ts`）
+- **版位判準**：互動所需的共視元素不得以捲動換取共視；低頻互動面板取
+  視覺權重最低位；核心產出恆佔最大可視寬度。此三句為 sprint 15 新增
+  （statusline-builder 版型重構為現行活例）
 
 ## Status
 入口頁骨架已完成（Vite MPA 架構、工具清單注入機制、a11y 基線）。部署

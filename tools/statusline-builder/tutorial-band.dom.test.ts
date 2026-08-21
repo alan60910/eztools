@@ -19,6 +19,18 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TUTORIAL_DISMISS_KEY, TUTORIAL_DISMISS_SENTINEL } from './tutorial-band.js'
 
+// 檔級 testTimeout（比照 i18n-dom.dom.test.ts／lang-switch.dom.test.ts／
+// pipeline.integration.test.ts／layout-columns.dom.test.ts／
+// catalog-sample-values.dom.test.ts 既有先例，同以 30_000 收斂）：本檔多數
+// 案於 beforeEach `await boot()`（重跑 main.ts 全依賴圖＋init()），部分案
+// 另疊第二輪 `boot()` 驗證 dismiss 狀態跨重啟持久化——隔離跑 22/22 恆綠、
+// 全檔耗時約 10s；sprint 15 的 index.html 增量（MS2 四區版面＋MS3
+// details/skip-nav 結構）墊高每次 jsdom boot 成本，使本檔在全套件並行
+// 負載下（實測約 26s／full-suite vs 10s／isolated）由偶發轉常發跨過
+// vitest 預設 5000ms timeout（純屬負載期間排程延遲，非邏輯迴歸）。此處
+// 把該病史體制化，避免教學帶回歸網的紅燈訊號被環境負載雜訊淹沒。
+vi.setConfig({ testTimeout: 30_000 })
+
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const HTML_PATH = path.resolve(DIR, 'index.html')
 const RAW_HTML = readFileSync(HTML_PATH, 'utf-8')

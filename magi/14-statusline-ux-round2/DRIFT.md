@@ -22,7 +22,7 @@
 - [ ] e2e Node 版本 gate 對 23.0–23.5 放行（type stripping 23.6 起預設；23.x 已 EOL，實害趨零）——條件補一段或訊息註明
 - [ ] `wireMoveRevealModality` 抽獨立模組下沉（main.ts 3,600+ 行續肥、同 sprint 抽模組判準不一致）——連動可收斂模態旗標測試隔離
 - [ ] `getSampleValues` 快取命中忽略 `resolveFn` 介面氣味——候選收法＝resolveFn 移入 test-only 注入口
-- [ ] `handleLocaleSwitch` 尾端補 `syncColumnTop()`（近零成本消切語後 `--column-top` 陳舊）
+- [ ] `handleLocaleSwitch` 尾端補 `syncColumnTop()`（近零成本消切語後 `--column-top` 陳舊）——**sprint 15 作廢**（`--column-top`／`syncColumnTop()` 體制已整組刪除，PLAN §D6，2026-08-16）
 - [ ] 樣例值常駐斷言補強：零控制碼（升級 S2 一次性結論）＋全空白（`text.trim()`）兩條
 - [ ] move-reveal 跨列 focus 轉移 dom 案（focusout relatedTarget 分支唯一未直接證明路徑）
 - [ ] 觸控 move 鈕不可達——第三輪真機必驗高優先；「行動斷點恆顯」media 後備已列 PLAN 備忘

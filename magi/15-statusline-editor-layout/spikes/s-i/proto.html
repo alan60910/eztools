@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S-i 跨欄拖曳原型（獨立、僅供 CDP 機械驗證使用）</title>
+<style>
+  :root {
+    /* 頂帶固定高度佔位，模擬 sprint 15 版面「頂帶＋左右兩欄」的幾何。 */
+    --band-h: 56px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: system-ui, "Segoe UI", sans-serif; }
+
+  #top-band {
+    height: var(--band-h);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    background: #20232a;
+    color: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  /* 左右並置的兩個「各自獨立捲動容器」——本 spike 要驗證的新引入幾何。 */
+  #layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  #catalog-column,
+  #row-column {
+    overflow-y: auto;
+    /* 100dvh 扣除頂帶高度與上下 padding，逼近 sprint 15 實際版面預算。 */
+    max-height: calc(100dvh - var(--band-h) - 32px);
+    border: 1px solid #ccd;
+    border-radius: 4px;
+    padding: 8px;
+  }
+  #catalog-column { flex: 0 0 280px; background: #fafaff; }
+  #row-column { flex: 1 1 auto; background: #fffefa; }
+
+  .catalog-item {
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    background: #eef1ff;
+    border: 1px solid #99a8d9;
+    border-radius: 4px;
+    cursor: grab;
+    user-select: none;
+  }
+  .catalog-item.dragging { opacity: 0.4; }
+
+  .row-group { margin-bottom: 24px; }
+  .row-group:last-child { margin-bottom: 0; }
+  .row-group__title {
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: #444;
+  }
+
+  .row {
+    position: relative;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    background: #f7f7f2;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    min-height: 20px;
+  }
+  .row:last-child { margin-bottom: 0; }
+
+  /* 插入指示線——(b) 的驗證對象，簡化版：列上緣或下緣一條線。 */
+  .insert-indicator {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: #e0433a;
+    pointer-events: none;
+    display: none;
+  }
+  .insert-indicator.top { top: -3px; display: block; }
+  .insert-indicator.bottom { bottom: -3px; display: block; }
+
+  .row-label { color: #666; margin-right: 6px; }
+  .row-content { font-weight: 600; }
+</style>
+</head>
+<body>
+  <header id="top-band">S-i 跨欄拖曳原型（頂帶佔位，非真實產品 UI）</header>
+  <div id="layout">
+    <section id="catalog-column" data-testid="catalog-column" aria-label="目錄欄（獨立捲動容器）"></section>
+    <section id="row-column" data-testid="row-column" aria-label="列區欄（獨立捲動容器）"></section>
+  </div>
+  <!-- 非 module script：proto.js 無 import/export，且 module script 經
+       `file://` 載入會被瀏覽器以 CORS 政策擋下（module 才有此限制，classic
+       script 沒有）——本檔以 `file://` 直開（無 localStorage 跨頁需求，見
+       brief），故刻意不用 type="module"，避免 CDP 驗證時 proto.js 整份
+       靜默載入失敗（window.__resetProto 等全域一律 undefined）。 -->
+  <script src="./proto.js"></script>
+</body>
+</html>

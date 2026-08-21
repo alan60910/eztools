@@ -6,18 +6,32 @@ one into a new sprint.
 
 ## Pending
 <!-- /magi:commit appends C-class drift items here -->
+- [ ] statusline-builder sprint 15 review 殘項小包（8 條 C 類觀察整併）：`catalogHint` zh-Hant 方位文案 vs index.html 靜態後備既存漂移（統一時一併處理桌面／行動斷點差異）＋`preview-band.dom.test.ts` 檔頭「Tab 序由 MS4 e2e 承接」措辭與 TASKS 粒度對齊＋SPEC 硬編行號引用殘餘治理（Conventions 引 `:145` 句等，改錨點式；`:60` 已先行示範）＋PLAN §Verification 補 D8 桌面態硬條件的測試層歸屬指派句＋e2e `Runtime.exceptionThrown` gate 範圍留痕（全域守門超出 D6-3 授權；日後需豁免清單）與正控制案（刻意製造 RO 迴圈驗哨兵真的會抓）＋行動版 `dvh` 過場 RO 回呼／forced layout 頻率量測（備案：改讀 `entry.borderBoxSize`／<1100px 跳過追蹤）＋340px 目錄軌寬截斷哨兵（`viewport-probe-1280x800` 案加 `scrollWidth ≤ clientWidth` 斷言）＋e2e `evaluate` 補 `awaitPromise: true`（`SETTLE_AFTER_SCROLL_EXPR` 現為 no-op、靠 delayFn 掩護）；順手項候選：summary keydown 防禦分支移除（Space 長按暫態）、`SKIP_PATH_KEYSTROKE_COUNT` 顯式綁定、SPEC「作者顯式捲動停點」措辭
+  > from `magi/15-statusline-editor-layout/DRIFT.md` (2026-08-16)
 - [ ] statusline-builder review 尾批小修包（sprint 14 復核 notes 整併）：wireMoveRevealModality 註解作用域改述＋「move-reveal 新案斷言前顯式派發模態事件」慣例成文、`mediaBlockRange` 括號計數不防註解內孤立大括號備忘、style.css 行動版註解「不落入任何規則」過度陳述修辭、`shrinkRowGroupContainers` 防禦 fallback 入池補 strip 一行（理論不可達）、e2e Node 版本 gate 對 23.0–23.5 放行縫（23.x 已 EOL）、e2e `seedTutorial`/`dismissTutorial` 命名統一＋`#list-column.scrollTop` 後備分支加除錯輸出、`sweepOrphanBrowser` 僅掃 msedge 備忘
   > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
 - [ ] statusline-builder main.ts 下沉與介面氣味收斂：`wireMoveRevealModality`（含模組層模態旗標）抽獨立模組＋test-only reset hook（連動收斂模態旗標跨測試案殘留的隔離問題）；`getSampleValues` 快取命中忽略 `resolveFn` 的「參數有時無效」氣味——resolveFn 移入 test-only 注入口
   > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
-- [ ] statusline-builder 測試網小補強：樣例值「零控制碼」（升級 S2 一次性結論為常駐斷言）＋「全空白 `text.trim()`」fallback 判準兩條、move-reveal 跨列 focus 轉移 dom 案（focusout relatedTarget 分支唯一未直接證明路徑）、`handleLocaleSwitch` 尾端補 `syncColumnTop()`（近零成本消切語後 `--column-top` 陳舊）
+- [ ] statusline-builder 測試網小補強：樣例值「零控制碼」（升級 S2 一次性結論為常駐斷言）＋「全空白 `text.trim()`」fallback 判準兩條、move-reveal 跨列 focus 轉移 dom 案（focusout relatedTarget 分支唯一未直接證明路徑）、`handleLocaleSwitch` 尾端補 `syncColumnTop()`（近零成本消切語後 `--column-top` 陳舊）（sprint 15 已刪除 `--column-top`／`syncColumnTop` 整組體制，此子項作廢，2026-08-16）
   > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
 - [ ] **statusline-builder 第三輪真機驗收批（sprint 14 版面終形）**：觸控 move 鈕不可達（pointerdown 恆判 mouse＋收納態 pointer-events:none，「行動斷點恆顯」media 後備已列 PLAN 備忘——高優先）＋行動版捲動下 sticky 預覽繪序完整性（z-index:2 修法真機確認）＋行動版中欄 sticky 佔位可接受度＋教學帶出現時序目視＋`↺`(U+21BA) 跨字型字寬＋windows-cjk 長路徑 compact 列 CSS 截斷＋Firefox 異質引擎（move 鈕四斷言／拖曳邊緣捲動，S3-RESULT 附人工配方）——完整清單見 `magi/14-statusline-ux-round2/WORKS.md`「⏸️ 停點」節手動驗證清單
   > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
+  > sprint 15 註記（2026-08-16）：本批版面重排（頂帶全寬化、三欄→四區、中欄消滅）使本條目**部分失效**；逐條對照如下：
+  > - 觸控 move 鈕不可達 → **保留**（move 鈕行為未動，僅隨容器搬遷）
+  > - sticky 預覽繪序完整性（z-index:2） → **改寫**（「行動版中欄 sticky」已不存在；預覽現為全寬頂帶、全斷點 sticky z-index:2——驗項改為頂帶繪序）
+  > - 行動版中欄 sticky 佔位可接受度 → **失效＋改寫**（中欄已消滅；新驗項＝行動版頂帶 sticky ≤40dvh 佔位可接受度）
+  > - 教學帶出現時序目視 → **保留**（遷目錄欄頂、狀態機不動）
+  > - `↺`(U+21BA) 跨字型字寬 → **保留**（與版面無關）
+  > - windows-cjk 長路徑 compact 列 CSS 截斷 → **保留**（compact 列仍在，現居目錄欄、寬度改由 `minmax(340px,1fr)` 軌）
+  > - Firefox 異質引擎 → **保留＋新增**（move 鈕四斷言保留；拖曳邊緣捲動升級——跨欄拖曳幾何為 sprint 15 新引入，S-i(c) Chromium 已實測、Firefox 未實測）
+  > - **新增驗項**（sprint 15 carry-forward）：G8 行動版收合真機驗；OQ-2 設定欄理論超預算 ~100px 情境真機覆核（不預先加捲軸）；G9 列區可見容量零餘裕真機覆核；en locale 目錄欄下限 410px 裁量（雙語零截斷 vs 列區侵蝕）；390×844 頂帶封頂後終端框 ~3.9 行觀感
+  > 完整清單仍見 `magi/14-statusline-ux-round2/WORKS.md`「⏸️ 停點」節；sprint 15 新增項見 `magi/15-statusline-editor-layout/WORKS.md`。
 - [ ] dist 建置頁 1400px viewport 下 `max-width:1360px` media 覆寫疑未生效——疑似 sprint 14 之前既有問題，DevTools 對帳定性（本頁 local override 於 ≥1100px 放寬 1360px、≥1400px 再放寬 1800px，1400px 恰為斷點邊界，疑與量測條件有關）
   > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
-- [ ] statusline-builder flake 殘餘二案檔級 timeout：catalog-sample-values.dom.test.ts（T3.4 語言切換重渲染案）＋layout-columns.dom.test.ts（T2.2 header 高度變動案）於全套並行負載下偶踩 5000ms——同構解＝檔級 `vi.setConfig({ testTimeout: 30_000 })`（sprint 13 先例）；順手項：教學帶 `infinite` 動畫省電微調（有限次數／首次互動即停）候選
+- [ ] ~~statusline-builder flake 殘餘二案檔級 timeout：catalog-sample-values.dom.test.ts（T3.4 語言切換重渲染案）＋layout-columns.dom.test.ts（T2.2 header 高度變動案）於全套並行負載下偶踩 5000ms——同構解＝檔級 `vi.setConfig({ testTimeout: 30_000 })`（sprint 13 先例）~~（sprint 15 MS2/MS3 已落地，體制化至七檔（i18n-dom／lang-switch／pipeline.integration／layout-columns／catalog-sample-values／tutorial-band／catalog-collapse.dom——檔數經 code review 4 票核實修正，2026-08-16），2026-08-16）；順手項（未消化，留殘句）：教學帶 `infinite` 動畫省電微調（有限次數／首次互動即停）候選
   > from `magi/14-statusline-ux-round2/DRIFT.md` (2026-07-21)
+- [ ] statusline-builder jsdom boot 結構性成本治本：dom 測試網 ~51 次 `await boot()`（`vi.resetModules()`＋全依賴圖重載＋完整 init()），成本 O(案數×全模組圖) 且隨 index.html 增長；檔級 `testTimeout: 30_000` 七檔體制僅治標並掩蓋真效能回歸訊號。根治候選二：(a) 唯讀結構契約案（layout-columns 四區序／preview-band 停點清單／skip-nav 落點）收斂為 `beforeAll` 單次 boot；(b) `vite.config.ts` 補 `test.setupFiles` 承接 RO/matchMedia stub（S-e 定案第 3 件，順帶讓 RO 回呼首次可測）
+  > from `magi/15-statusline-editor-layout/MAGI_CODE_REVIEW.md` 🟡-11（2 票＋協調者實證，2026-08-16）
 - [ ] statusline 測試 detect 複本可攜性：三份 `detectBashExec`／`detectRealExec` win32 候選硬編個人路徑 `C:\Users\alan6\scoop\...`——改 PATH 探測＋`SP5_BASH`／`SP5_JQ_DIR` env 覆寫文件化（對其他協作者機器是地雷；單人 repo 現況無實害）
   > from `magi/13-test-hardening/DRIFT.md` (2026-07-19)
 - [ ] 備忘：CI 拓撲鎖（sprint 13 meta 守門）設計為「拓撲變更時 CI 先紅、逼人工覆核」——日後動 CI 拓撲（如讓 windows leg 跑 bash 案）的 sprint TICKET 須預記「連動更新三檔拓撲鎖與真值表」，免誤判迴歸
